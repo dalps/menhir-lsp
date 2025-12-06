@@ -1,0 +1,2 @@
+default:
+    dune build -w
