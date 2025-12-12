@@ -1,4 +1,4 @@
 (executable
  (public_name menhir-lsp)
  (name main)
- (libraries menhirSyntax unix))
+ (libraries menhirSyntax linol linol-lwt))
