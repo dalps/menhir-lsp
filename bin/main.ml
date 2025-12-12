@@ -8,7 +8,7 @@
    Here we expect a few things:
    - a type to represent a state/environment that results from processing an
      input file
-   - a function procdessing an input file (given the file contents as a string),
+   - a function processing an input file (given the file contents as a string),
      which return a state/environment
    - a function to extract a list of diagnostics from a state/environment.
      Diagnostics includes all the warnings, errors and messages that the processing
@@ -16,30 +16,62 @@
 *)
 
 module Lsp = Linol.Lsp
+open Lsp.Types
 
-type state = unit
+type state = MenhirSyntax.Syntax.partial_grammar
+(** for now it's just the AST computed by Menhir *)
 
-let process_some_input_file (_file_contents : string) : state = ()
+type uri = Lsp.Types.DocumentUri.t
+
+let process_input_file (file_name : string) (file_contents : string) : state =
+  MenhirSyntax.Main.load_grammar_from_contents 0 file_name file_contents
+
+let completions (state : state) : CompletionItem.t list =
+  let open MenhirSyntax.Syntax in
+  List.filter_map
+    (fun (decl : declaration located) ->
+      match decl.v with
+      | DToken (_, terminal, Some alias, _) ->
+          Some
+            (CompletionItem.create ~kind:CompletionItemKind.Constant
+               ~label:alias ~detail:terminal ())
+      | DToken (_, terminal, None, _) ->
+          Some
+            (CompletionItem.create ~kind:CompletionItemKind.Constant
+               ~label:terminal ())
+      | _ -> None)
+    state.pg_declarations
+  @ List.map
+      (fun (rule : parameterized_rule) ->
+        CompletionItem.create ~kind:CompletionItemKind.Function
+          ~label:rule.pr_nt ())
+      state.pg_rules
+
 let diagnostics (_state : state) : Lsp.Types.Diagnostic.t list = []
 
-(* Lsp server class
+(** Lsp server class
 
-   This is the main point of interaction beetween the code checking documents
-   (parsing, typing, etc...), and the code of linol.
+    This is the main point of interaction beetween the code checking documents
+    (parsing, typing, etc...), and the code of linol.
 
-   The [Linol_lwt.Jsonrpc2.server] class defines a method for each of the action
-   that the lsp server receives, such as opening of a document, when a document
-   changes, etc.. By default, the method predefined does nothing (or errors out ?),
-   so that users only need to override methods that they want the server to
-   actually meaningfully interpret and respond to.
-*)
+    The [Linol_lwt.Jsonrpc2.server] class defines a method for each of the
+    action that the lsp server receives, such as opening of a document, when a
+    document changes, etc.. By default, the method predefined does nothing (or
+    errors out ?), so that users only need to override methods that they want
+    the server to actually meaningfully interpret and respond to. *)
 class lsp_server =
   object (self)
     inherit Linol_lwt.Jsonrpc2.server
 
     (* one env per document *)
-    val buffers : (Lsp.Types.DocumentUri.t, state) Hashtbl.t = Hashtbl.create 32
+    val buffers : (uri, state) Hashtbl.t = Hashtbl.create 32
     method spawn_query_handler f = Linol_lwt.spawn f
+
+    method! on_req_completion =
+      fun ~notify_back:_ ~id:_ ~uri ~pos:_ ~ctx:_ ~workDoneToken:_
+          ~partialResultToken:_ _doc_state ->
+        let state = Hashtbl.find buffers uri in
+        Lwt.return (Some (`List (completions state)))
 
     (* We define here a helper method that will:
        - process a document
@@ -47,10 +79,11 @@ class lsp_server =
        - return the diagnostics from the new state
     *)
     method private _on_doc ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
-        (uri : Lsp.Types.DocumentUri.t) (contents : string) =
-      let new_state = process_some_input_file contents in
+        (uri : uri) (contents : string) =
+      let new_state = process_input_file (DocumentUri.to_path uri) contents in
       Hashtbl.replace buffers uri new_state;
       let diags = diagnostics new_state in
+      let _ = Lwt_io.printf "_on_doc" in
       notify_back#send_diagnostic diags
 
     (* We now override the [on_notify_doc_did_open] method that will be called
