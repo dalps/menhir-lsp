@@ -1,5 +1,5 @@
 (library
- (name menhir_lsp)
+ (name menhirSyntax)
  (libraries menhirSdk menhirLib unix))
 
 (ocamllex Lexer Lex Lexpointfree LineCount DecodeString)

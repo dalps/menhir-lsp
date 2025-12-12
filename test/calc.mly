@@ -4,7 +4,8 @@
 %token EOF
 
 %left PLUS MINUS        /* lowest precedence */
-%left TIMES DIV         /* medium precedence */%nonassoc UMINUS        /* highest precedence */
+%left TIMES DIV         /* medium precedence */
+%nonassoc UMINUS        /* highest precedence */
 
 %start <int> main
 
