@@ -23,8 +23,16 @@ type state = MenhirSyntax.Syntax.partial_grammar
 
 type uri = Lsp.Types.DocumentUri.t
 
-let process_input_file (file_name : string) (file_contents : string) : state =
-  MenhirSyntax.Main.load_grammar_from_contents 0 file_name file_contents
+let process_input_file (file_name : string) (file_contents : string) :
+    (state, string) result Lwt.t =
+  try%lwt
+    Lwt.return
+    @@ Ok
+         (MenhirSyntax.Main.load_grammar_from_contents 0 file_name file_contents)
+  with _ ->
+    let msg = "could not parse file" in
+    prerr_endline msg;
+    Lwt.return @@ Error msg
 
 let completions (state : state) : CompletionItem.t list =
   let open MenhirSyntax.Syntax in
@@ -47,7 +55,31 @@ let completions (state : state) : CompletionItem.t list =
           ~label:rule.pr_nt ())
       state.pg_rules
 
-let diagnostics (_state : state) : Lsp.Types.Diagnostic.t list = []
+module MR = MenhirSyntax.Range
+
+let _dummy_pos = Position.create ~character:0 ~line:0
+
+let lsp_pos_of_lexing_pos (p : Lexing.position) =
+  Position.create ~character:(p.pos_cnum - p.pos_bol) ~line:(p.pos_lnum - 1)
+
+let lsp_range_of_menhir_range (r : MR.range) =
+  Range.create
+    ~start:(lsp_pos_of_lexing_pos @@ MR.startp r)
+    ~end_:(lsp_pos_of_lexing_pos @@ MR.endp r)
+
+let diagnostics (state : state) : Lsp.Types.Diagnostic.t list =
+  let open MenhirSyntax.Syntax in
+  List.filter_map
+    (fun (d : declaration located) ->
+      match d.v with
+      | DToken (_, terminal, _, _) ->
+          Some
+            (Diagnostic.create ~severity:DiagnosticSeverity.Information
+               ~message:(`String (Printf.sprintf "%s is a nice token" terminal))
+               ~range:(lsp_range_of_menhir_range d.p)
+               ())
+      | _ -> None)
+    state.pg_declarations
 
 (** Lsp server class
 
@@ -68,10 +100,16 @@ class lsp_server =
     method spawn_query_handler f = Linol_lwt.spawn f
 
     method! on_req_completion =
-      fun ~notify_back:_ ~id:_ ~uri ~pos:_ ~ctx:_ ~workDoneToken:_
+      fun ~notify_back ~id:_ ~uri ~pos:_ ~ctx:_ ~workDoneToken:_
           ~partialResultToken:_ _doc_state ->
         let state = Hashtbl.find buffers uri in
-        Lwt.return (Some (`List (completions state)))
+        let comps = completions state in
+        Printf.eprintf "# completions: %d" (List.length comps);
+        let _ =
+          notify_back#send_log_msg ~type_:MessageType.Info
+            (Printf.sprintf "# completions: %d" (List.length comps))
+        in
+        Lwt.return (Some (`List comps))
 
     (* We define here a helper method that will:
        - process a document
@@ -80,37 +118,42 @@ class lsp_server =
     *)
     method private _on_doc ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         (uri : uri) (contents : string) =
-      let new_state = process_input_file (DocumentUri.to_path uri) contents in
-      Hashtbl.replace buffers uri new_state;
-      let diags = diagnostics new_state in
-      let _ = Lwt_io.printf "_on_doc" in
-      notify_back#send_diagnostic diags
+      match%lwt process_input_file (DocumentUri.to_path uri) contents with
+      | Ok new_state ->
+          Hashtbl.replace buffers uri new_state;
+          let diags = diagnostics new_state in
+          prerr_endline "processing document: diagnostics";
+          notify_back#send_diagnostic diags
+      | Error _ -> Lwt.return ()
 
     (* We now override the [on_notify_doc_did_open] method that will be called
-       by the server each time a new document is opened. *)
+      by the server each time a new document is opened. *)
     method on_notif_doc_did_open ~notify_back d ~content : unit Linol_lwt.t =
+      prerr_endline "opened document";
       self#_on_doc ~notify_back d.uri content
 
     (* Similarly, we also override the [on_notify_doc_did_change] method that will be called
-       by the server each time a new document is opened. *)
+      by the server each time a new document is opened. *)
     method on_notif_doc_did_change ~notify_back d _c ~old_content:_old
         ~new_content =
       self#_on_doc ~notify_back d.uri new_content
 
     (* On document closes, we remove the state associated to the file from the global
-       hashtable state, to avoid leaking memory. *)
+      hashtable state, to avoid leaking memory. *)
     method on_notif_doc_did_close ~notify_back:_ d : unit Linol_lwt.t =
       Hashtbl.remove buffers d.uri;
       Linol_lwt.return ()
   end
 
 (* Main code
-   This is the code that creates an instance of the lsp server class
-   and runs it as a task. *)
+      This is the code that creates an instance of the lsp server class
+      and runs it as a task. *)
 let run () =
   let s = new lsp_server in
   let server = Linol_lwt.Jsonrpc2.create_stdio ~env:() s in
   let task =
+    (* don't print to stdout, it's already being used by the protocol, duh -_- *)
+    prerr_endline "Started LSP server";
     let shutdown () = s#get_status = `ReceivedExit in
     Linol_lwt.Jsonrpc2.run ~shutdown server
   in
@@ -122,4 +165,9 @@ let run () =
       exit 1
 
 (* Finally, we actually run the server *)
-let () = run ()
+let () =
+  Printexc.record_backtrace true;
+  (* let module Cli = Linol_lsp.Cli in
+  let arg = Cli.Arg.create () in
+  let spec = Cli.Arg.spec arg in *)
+  run ()

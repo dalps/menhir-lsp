@@ -1,5 +1,10 @@
 default:
+
+build:
+    dune build
+
+watch:
     dune build -w
 
-install:
+install: build
     dune install
