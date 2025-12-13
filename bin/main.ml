@@ -23,16 +23,33 @@ type state = MenhirSyntax.Syntax.partial_grammar
 
 type uri = Lsp.Types.DocumentUri.t
 
+module MR = MenhirSyntax.Range
+
+let _dummy_pos = Position.create ~character:0 ~line:0
+
+let lsp_pos_of_lexing_pos (p : Lexing.position) =
+  Position.create ~character:(p.pos_cnum - p.pos_bol) ~line:(p.pos_lnum - 1)
+
+let lsp_range_of_menhir_range (r : MR.range) =
+  Range.create
+    ~start:(lsp_pos_of_lexing_pos @@ MR.startp r)
+    ~end_:(lsp_pos_of_lexing_pos @@ MR.endp r)
+
 let process_input_file (file_name : string) (file_contents : string) :
-    (state, string) result Lwt.t =
+    (state, Diagnostic.t) result Lwt.t =
   try%lwt
+    prerr_endline file_contents;
     Lwt.return
     @@ Ok
          (MenhirSyntax.Main.load_grammar_from_contents 0 file_name file_contents)
-  with _ ->
-    let msg = "could not parse file" in
-    prerr_endline msg;
-    Lwt.return @@ Error msg
+  with MenhirSyntax.Lexer.LexerError { v = msg; p } ->
+    let diag =
+      Diagnostic.create ~message:(`String msg)
+        ~range:(lsp_range_of_menhir_range p)
+        ()
+    in
+    prerr_endline "WHYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY";
+    Lwt.return @@ Error diag
 
 let completions (state : state) : CompletionItem.t list =
   let open MenhirSyntax.Syntax in
@@ -54,18 +71,6 @@ let completions (state : state) : CompletionItem.t list =
         CompletionItem.create ~kind:CompletionItemKind.Function
           ~label:rule.pr_nt ())
       state.pg_rules
-
-module MR = MenhirSyntax.Range
-
-let _dummy_pos = Position.create ~character:0 ~line:0
-
-let lsp_pos_of_lexing_pos (p : Lexing.position) =
-  Position.create ~character:(p.pos_cnum - p.pos_bol) ~line:(p.pos_lnum - 1)
-
-let lsp_range_of_menhir_range (r : MR.range) =
-  Range.create
-    ~start:(lsp_pos_of_lexing_pos @@ MR.startp r)
-    ~end_:(lsp_pos_of_lexing_pos @@ MR.endp r)
 
 let diagnostics (state : state) : Lsp.Types.Diagnostic.t list =
   let open MenhirSyntax.Syntax in
@@ -118,13 +123,18 @@ class lsp_server =
     *)
     method private _on_doc ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         (uri : uri) (contents : string) =
-      match%lwt process_input_file (DocumentUri.to_path uri) contents with
-      | Ok new_state ->
-          Hashtbl.replace buffers uri new_state;
-          let diags = diagnostics new_state in
-          prerr_endline "processing document: diagnostics";
-          notify_back#send_diagnostic diags
-      | Error _ -> Lwt.return ()
+      prerr_endline "processing document for diagnostics";
+      prerr_endline contents;
+      let%lwt new_state, diags' =
+        match%lwt process_input_file (DocumentUri.to_path uri) contents with
+        | Ok new_state ->
+            Hashtbl.replace buffers uri new_state;
+            Lwt.return (new_state, [])
+        | Error diag -> Lwt.return (Hashtbl.find buffers uri, [ diag ])
+        (* reuse the old state *)
+      in
+      let diags = diagnostics new_state in
+      notify_back#send_diagnostic (diags @ diags')
 
     (* We now override the [on_notify_doc_did_open] method that will be called
       by the server each time a new document is opened. *)

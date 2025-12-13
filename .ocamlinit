@@ -1,1 +1,2 @@
-open Menhir_lsp
+open MenhirSyntax
+open Main

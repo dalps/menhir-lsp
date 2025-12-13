@@ -20,10 +20,17 @@ open Located
 
 (* Failing. *)
 
-(* [blame range format ...] reports an error at [range]. *)
+exception LexerError of string located
 
-let blame range =
-  Report.Just.error [range]
+(* [blame range format ...] reports an error at [range]. *)
+let blame range format =
+  (* [menhir-lsp] Menhir aborts the process, we want to be more lenient and simply raise an exception.
+  
+  - Report.Just.error [range]
+  +
+  *)
+  Format.ksprintf (fun s -> raise @@ LexerError (Located.locate range s)) format
+
 
 (* [error lexbuf format ...] reports an error at the current token. *)
 
