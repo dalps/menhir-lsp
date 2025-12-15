@@ -86,6 +86,7 @@ let ret _f =
 let error c positions format =
   let delta = 1 in
   display c delta die "Error: " positions format
+  (* [menhir-lsp] Todo: don't die, we want to help the user *)
 
 let signal c positions format =
   let delta = 1 in

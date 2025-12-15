@@ -26,6 +26,7 @@ type uri = Lsp.Types.DocumentUri.t
 module MR = MenhirSyntax.Range
 
 let _dummy_pos = Position.create ~character:0 ~line:0
+let _dummy_range = Range.create ~start:_dummy_pos ~end_:_dummy_pos
 
 let lsp_pos_of_lexing_pos (p : Lexing.position) =
   Position.create ~character:(p.pos_cnum - p.pos_bol) ~line:(p.pos_lnum - 1)
@@ -36,20 +37,29 @@ let lsp_range_of_menhir_range (r : MR.range) =
     ~end_:(lsp_pos_of_lexing_pos @@ MR.endp r)
 
 let process_input_file (file_name : string) (file_contents : string) :
-    (state, Diagnostic.t) result Lwt.t =
+    (state, Diagnostic.t list) result Lwt.t =
   try%lwt
-    prerr_endline file_contents;
     Lwt.return
     @@ Ok
          (MenhirSyntax.Main.load_grammar_from_contents 0 file_name file_contents)
-  with MenhirSyntax.Lexer.LexerError { v = msg; p } ->
-    let diag =
-      Diagnostic.create ~message:(`String msg)
-        ~range:(lsp_range_of_menhir_range p)
-        ()
+  with exn ->
+    let diags =
+      match exn with
+      | MenhirSyntax.ParserAux.ParserError { v = msg; p }
+      | MenhirSyntax.Lexer.LexerError { v = msg; p } ->
+          [
+            Diagnostic.create ~message:(`String msg)
+              ~range:(lsp_range_of_menhir_range p)
+              ();
+          ]
+      | MenhirSyntax.Parser.Error ->
+          [
+            Diagnostic.create ~message:(`String "There are syntax errors.")
+              ~range:_dummy_range ();
+          ]
+      | _ -> []
     in
-    prerr_endline "WHYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY";
-    Lwt.return @@ Error diag
+    Lwt.return @@ Error diags
 
 let completions (state : state) : CompletionItem.t list =
   let open MenhirSyntax.Syntax in
@@ -123,14 +133,14 @@ class lsp_server =
     *)
     method private _on_doc ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         (uri : uri) (contents : string) =
-      prerr_endline "processing document for diagnostics";
-      prerr_endline contents;
+      Printf.eprintf "Processing %s for diagnostics.\n"
+      @@ DocumentUri.to_path uri;
       let%lwt new_state, diags' =
         match%lwt process_input_file (DocumentUri.to_path uri) contents with
         | Ok new_state ->
             Hashtbl.replace buffers uri new_state;
             Lwt.return (new_state, [])
-        | Error diag -> Lwt.return (Hashtbl.find buffers uri, [ diag ])
+        | Error diags -> Lwt.return (Hashtbl.find buffers uri, diags)
         (* reuse the old state *)
       in
       let diags = diagnostics new_state in

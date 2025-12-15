@@ -215,9 +215,9 @@ declaration:
 
 | rule_specific_token
     {
-      Report.Just.error [Range.make $loc]
+      raise @@ ParserAux.ParserError (locate (Range.make $loc)
         "syntax error inside a declaration.\n\
-         Did you perhaps forget the %%%% that separates declarations and rules?"
+         Did you perhaps forget the %%%% that separates declarations and rules?")
     }
 
 %inline ocamltype:
@@ -655,9 +655,9 @@ action:
       | os ->
           XAPointFree os
       | exception Lexpointfree.InvalidPointFreeAction ->
-          Report.Just.error [Range.make $loc]
+          raise @@ ParserAux.ParserError (locate (Range.make $loc)
             "A point-free semantic action must consist \
-             of a single OCaml identifier." (* or whitespace *)
+             of a single OCaml identifier.") (* or whitespace *)
     }
 
 /* Patterns. */

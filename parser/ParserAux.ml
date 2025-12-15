@@ -11,6 +11,8 @@
 open Located
 open Syntax
 
+exception ParserError of string located
+
 type early_producer =
   Range.range * identifier located option * parameter * attributes
 
@@ -73,12 +75,15 @@ let check_production_group (right_hand_sides : early_productions) =
          let ids' = defined_identifiers producers in
          try
            let id = IdSet.choose (IdSet.xor ids ids') in
-           Report.Just.error
-             [ position id ]
-             "two productions that share a semantic action must define exactly\n\
-              the same identifiers. Here, \"%s\" is defined\n\
-              in one production, but not in all of them."
-             (value id)
+           raise
+           @@ ParserError
+                (locate (position id)
+                @@ Printf.sprintf
+                     "two productions that share a semantic action must define \
+                      exactly\n\
+                      the same identifiers. Here, \"%s\" is defined\n\
+                      in one production, but not in all of them."
+                     (value id))
          with Not_found -> ())
 
 (* [normalize_producer i p] assigns a name of the form [_i]
@@ -97,8 +102,9 @@ let normalize_producers (producers : early_producers) : producer list =
 let override pos o1 o2 =
   match (o1, o2) with
   | Some _, Some _ ->
-      Report.Just.error [ pos ]
-        "this production carries two %%prec declarations."
+      raise
+      @@ ParserError
+           (locate pos "this production carries two %%prec declarations.")
   | None, Some _ -> o2
   | _, None -> o1
 
