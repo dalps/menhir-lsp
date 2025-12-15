@@ -63,23 +63,48 @@ let process_input_file (file_name : string) (file_contents : string) :
 
 let completions (state : state) : CompletionItem.t list =
   let open MenhirSyntax.Syntax in
-  List.filter_map
+  CCList.flat_map
     (fun (decl : declaration located) ->
+      let label_details typ =
+        CompletionItemLabelDetails.create
+          ~detail:
+            (match typ with
+            | None -> ""
+            | Some t -> (
+                ": " ^ match t with Declared { v; _ } | Inferred v -> v))
+      in
       match decl.v with
-      | DToken (_, terminal, Some alias, _) ->
-          Some
-            (CompletionItem.create ~kind:CompletionItemKind.Constant
-               ~label:alias ~detail:terminal ())
-      | DToken (_, terminal, None, _) ->
-          Some
-            (CompletionItem.create ~kind:CompletionItemKind.Constant
-               ~label:terminal ())
-      | _ -> None)
+      | DToken (typ, terminal, Some alias, _) ->
+          [
+            CompletionItem.create ~kind:CompletionItemKind.Constant ~label:alias
+              ~detail:terminal
+              ~labelDetails:(label_details typ ~description:terminal ())
+              ();
+            CompletionItem.create ~kind:CompletionItemKind.Constant
+              ~label:terminal ();
+          ]
+      | DToken (typ, terminal, None, _) ->
+          [
+            CompletionItem.create ~kind:CompletionItemKind.Constant
+              ~labelDetails:(label_details typ ()) ~label:terminal ();
+          ]
+      | _ -> [])
     state.pg_declarations
   @ List.map
       (fun (rule : parameterized_rule) ->
         CompletionItem.create ~kind:CompletionItemKind.Function
-          ~label:rule.pr_nt ())
+          ~label:rule.pr_nt
+          ~labelDetails:
+            (CompletionItemLabelDetails.create
+               ~detail:
+                 (match rule.pr_parameters with
+                 | [] -> ""
+                 | _ ->
+                     CCList.to_string ~start:"(" ~stop:")"
+                       (fun x -> x)
+                       rule.pr_parameters)
+               ())
+          ())
       state.pg_rules
 
 let diagnostics (state : state) : Lsp.Types.Diagnostic.t list =
@@ -113,6 +138,16 @@ class lsp_server =
     (* one env per document *)
     val buffers : (uri, state) Hashtbl.t = Hashtbl.create 32
     method spawn_query_handler f = Linol_lwt.spawn f
+
+    method! config_completion =
+      Some
+        {
+          allCommitCharacters = None;
+          completionItem = None;
+          resolveProvider = None;
+          triggerCharacters = None;
+          workDoneProgress = None;
+        }
 
     method! on_req_completion =
       fun ~notify_back ~id:_ ~uri ~pos:_ ~ctx:_ ~workDoneToken:_
