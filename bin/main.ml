@@ -18,12 +18,31 @@
 module Lsp = Linol.Lsp
 open Lsp.Types
 
-type state = MenhirSyntax.Syntax.partial_grammar
-(** for now it's just the AST computed by Menhir *)
-
 type uri = Lsp.Types.DocumentUri.t
 
+module M = MenhirSyntax
 module MR = MenhirSyntax.Range
+open M.Located
+
+type token = {
+  ocamltype : M.BaseTypes.ocamltype option;
+  terminal : M.FrontTypes.terminal;
+  alias : M.FrontTypes.alias;
+  _attributes : M.FrontTypes.attributes;
+}
+
+(* type token =
+  M.BaseTypes.ocamltype option
+  * M.FrontTypes.terminal
+  * M.FrontTypes.alias
+  * M.FrontTypes.attributes *)
+
+type tokens = token located list
+
+type state = { grammar : M.Syntax.partial_grammar; tokens : token located list }
+(** For now it's just the AST computed by Menhir, plus the tokens. While the
+    rules are readily available in the pg_rules field of the grammar, extracting
+    the tokens requires a bit more work, hence the conveniece filed. *)
 
 let _dummy_pos = Position.create ~character:0 ~line:0
 let _dummy_range = Range.create ~start:_dummy_pos ~end_:_dummy_pos
@@ -39,20 +58,32 @@ let lsp_range_of_menhir_range (r : MR.range) =
 let process_input_file (file_name : string) (file_contents : string) :
     (state, Diagnostic.t list) result Lwt.t =
   try%lwt
-    Lwt.return
-    @@ Ok
-         (MenhirSyntax.Main.load_grammar_from_contents 0 file_name file_contents)
+    let grammar = M.Main.load_grammar_from_contents 0 file_name file_contents in
+    let tokens : tokens =
+      List.filter_map
+        (function
+          | ({
+               p;
+               v = M.Syntax.DToken (ocamltype, terminal, alias, _attributes);
+             } :
+              M.Syntax.declaration located) ->
+              Some
+                { p; v = ({ ocamltype; terminal; alias; _attributes } : token) }
+          | _ -> None)
+        grammar.pg_declarations
+    in
+    Lwt.return @@ Ok { grammar; tokens }
   with exn ->
     let diags =
       match exn with
-      | MenhirSyntax.ParserAux.ParserError { v = msg; p }
-      | MenhirSyntax.Lexer.LexerError { v = msg; p } ->
+      | M.ParserAux.ParserError { v = msg; p }
+      | M.Lexer.LexerError { v = msg; p } ->
           [
             Diagnostic.create ~message:(`String msg)
               ~range:(lsp_range_of_menhir_range p)
               ();
           ]
-      | MenhirSyntax.Parser.Error ->
+      | M.Parser.Error ->
           [
             Diagnostic.create ~message:(`String "There are syntax errors.")
               ~range:_dummy_range ();
@@ -61,35 +92,33 @@ let process_input_file (file_name : string) (file_contents : string) :
     in
     Lwt.return @@ Error diags
 
-let completions (state : state) : CompletionItem.t list =
+let completions ({ tokens; grammar } : state) : CompletionItem.t list =
   let open MenhirSyntax.Syntax in
   CCList.flat_map
-    (fun (decl : declaration located) ->
-      let label_details typ =
-        CompletionItemLabelDetails.create
-          ~detail:
-            (match typ with
-            | None -> ""
-            | Some t -> (
-                ": " ^ match t with Declared { v; _ } | Inferred v -> v))
-      in
-      match decl.v with
-      | DToken (typ, terminal, Some alias, _) ->
-          [
-            CompletionItem.create ~kind:CompletionItemKind.Constant ~label:alias
-              ~detail:terminal
-              ~labelDetails:(label_details typ ~description:terminal ())
-              ();
-            CompletionItem.create ~kind:CompletionItemKind.Constant
-              ~label:terminal ();
-          ]
-      | DToken (typ, terminal, None, _) ->
-          [
-            CompletionItem.create ~kind:CompletionItemKind.Constant
-              ~labelDetails:(label_details typ ()) ~label:terminal ();
-          ]
-      | _ -> [])
-    state.pg_declarations
+    (let label_details typ =
+       CompletionItemLabelDetails.create
+         ~detail:
+           (match typ with
+           | None -> ""
+           | Some t -> (
+               ": " ^ match t with Declared { v; _ } | Inferred v -> v))
+     in
+     function
+     | { v = { ocamltype = typ; terminal; alias = Some alias; _ }; _ } ->
+         [
+           CompletionItem.create ~kind:CompletionItemKind.Constant ~label:alias
+             ~detail:terminal
+             ~labelDetails:(label_details typ ~description:terminal ())
+             ();
+           CompletionItem.create ~kind:CompletionItemKind.Constant
+             ~label:terminal ();
+         ]
+     | { v = { ocamltype = typ; terminal; alias = None; _ }; _ } ->
+         [
+           CompletionItem.create ~kind:CompletionItemKind.Constant
+             ~labelDetails:(label_details typ ()) ~label:terminal ();
+         ])
+    tokens
   @ List.map
       (fun (rule : parameterized_rule) ->
         CompletionItem.create ~kind:CompletionItemKind.Function
@@ -105,21 +134,34 @@ let completions (state : state) : CompletionItem.t list =
                        rule.pr_parameters)
                ())
           ())
-      state.pg_rules
+      grammar.pg_rules
 
-let diagnostics (state : state) : Lsp.Types.Diagnostic.t list =
-  let open MenhirSyntax.Syntax in
-  List.filter_map
-    (fun (d : declaration located) ->
-      match d.v with
-      | DToken (_, terminal, _, _) ->
-          Some
-            (Diagnostic.create ~severity:DiagnosticSeverity.Information
-               ~message:(`String (Printf.sprintf "%s is a nice token" terminal))
-               ~range:(lsp_range_of_menhir_range d.p)
-               ())
-      | _ -> None)
-    state.pg_declarations
+let symbols ({ grammar = { pg_rules; _ }; tokens } : state) :
+    DocumentSymbol.t list =
+  (* Here we extract a listing of the defined tokens and grammar rules. *)
+  CCList.(
+    ( tokens >|= fun t ->
+      let range = lsp_range_of_menhir_range t.p in
+      DocumentSymbol.create ~kind:SymbolKind.Constant ~name:t.v.terminal ~range
+        ~selectionRange:range
+        ~detail:(CCOption.get_or ~default:"" t.v.alias)
+        () )
+    @ ( pg_rules >|= fun t ->
+        let range = lsp_range_of_menhir_range (hd t.pr_positions) in
+        DocumentSymbol.create ~kind:SymbolKind.Function ~name:t.pr_nt ~range
+          ~selectionRange:range () ))
+
+let diagnostics (_state : state) : Lsp.Types.Diagnostic.t list =
+  (* let open MenhirSyntax.Syntax in
+  List.map
+    (function
+      | { p; v = { terminal; _ } } ->
+          Diagnostic.create ~severity:DiagnosticSeverity.Information
+            ~message:(`String (Printf.sprintf "%s is a nice token" terminal))
+            ~range:(lsp_range_of_menhir_range p)
+            ())
+    state.tokens *)
+  []
 
 (** Lsp server class
 
@@ -154,16 +196,26 @@ class lsp_server =
           ~partialResultToken:_ _doc_state ->
         let state = Hashtbl.find buffers uri in
         let comps = completions state in
-        Printf.eprintf "# completions: %d" (List.length comps);
-        let _ =
-          notify_back#send_log_msg ~type_:MessageType.Info
-            (Printf.sprintf "# completions: %d" (List.length comps))
-        in
+        notify_back#send_log_msg ~type_:MessageType.Info
+          (Printf.sprintf "# completions: %d" (List.length comps))
+        |> ignore;
         Lwt.return (Some (`List comps))
 
+    method! config_symbol = Some (`Bool true)
+
+    method! on_req_symbol =
+      fun ~notify_back ~id:_ ~uri ~workDoneToken:_ ~partialResultToken:_
+          _unit ->
+        let state = Hashtbl.find buffers uri in
+        let syms = symbols state in
+        notify_back#send_log_msg ~type_:MessageType.Info
+          (Printf.sprintf "# symbols: %d" (List.length syms))
+        |> ignore;
+        Lwt.return (Some (`DocumentSymbol syms))
+
     (* We define here a helper method that will:
-       - process a document
-       - store the state resulting from the processing
+            - process a document
+            - store the state resulting from the processing
        - return the diagnostics from the new state
     *)
     method private _on_doc ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
