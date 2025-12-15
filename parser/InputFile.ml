@@ -56,7 +56,7 @@ let next : int ref =
   ref 0
 
 let with_file_content name content f =
-  assert (!current = None);
+  (* assert (!current = None); *) (* [menhir-lsp] Commented. The lexer can now raise an exception, and if it does [current] is never reset, and we wouldn't get past this check. *)
   let index = MInt.postincrement next in
   let file = { name; index } in
   current := Some (file, content);
