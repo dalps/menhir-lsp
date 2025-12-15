@@ -1,4 +1,4 @@
-default:
+default: watch
 
 build:
     dune build
