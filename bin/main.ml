@@ -15,45 +15,10 @@
      of a document are expected to be able to return.
 *)
 
-module Lsp = Linol.Lsp
-open Lsp.Types
-
-type uri = Lsp.Types.DocumentUri.t
-
-module M = MenhirSyntax
-module MR = MenhirSyntax.Range
-open M.Located
-
-type token = {
-  ocamltype : M.BaseTypes.ocamltype option;
-  terminal : M.FrontTypes.terminal;
-  alias : M.FrontTypes.alias;
-  _attributes : M.FrontTypes.attributes;
-}
-
-(* type token =
-  M.BaseTypes.ocamltype option
-  * M.FrontTypes.terminal
-  * M.FrontTypes.alias
-  * M.FrontTypes.attributes *)
-
-type tokens = token located list
-
-type state = { grammar : M.Syntax.partial_grammar; tokens : token located list }
-(** For now it's just the AST computed by Menhir, plus the tokens. While the
-    rules are readily available in the pg_rules field of the grammar, extracting
-    the tokens requires a bit more work, hence the conveniece filed. *)
-
-let _dummy_pos = Position.create ~character:0 ~line:0
-let _dummy_range = Range.create ~start:_dummy_pos ~end_:_dummy_pos
-
-let lsp_pos_of_lexing_pos (p : Lexing.position) =
-  Position.create ~character:(p.pos_cnum - p.pos_bol) ~line:(p.pos_lnum - 1)
-
-let lsp_range_of_menhir_range (r : MR.range) =
-  Range.create
-    ~start:(lsp_pos_of_lexing_pos @@ MR.startp r)
-    ~end_:(lsp_pos_of_lexing_pos @@ MR.endp r)
+open Types
+open Linol_lsp.Types
+open Utils
+open Loc
 
 let process_input_file (file_name : string) (file_contents : string) :
     (state, Diagnostic.t list) result Lwt.t =
@@ -80,13 +45,13 @@ let process_input_file (file_name : string) (file_contents : string) :
       | M.Lexer.LexerError { v = msg; p } ->
           [
             Diagnostic.create ~message:(`String msg)
-              ~range:(lsp_range_of_menhir_range p)
+              ~range:(Range.of_lexical_positions p)
               ();
           ]
       | M.Parser.Error ->
           [
             Diagnostic.create ~message:(`String "There are syntax errors.")
-              ~range:_dummy_range ();
+              ~range:Range.first_line ();
           ]
       | _ -> []
     in
@@ -122,33 +87,33 @@ let completions ({ tokens; grammar } : state) : CompletionItem.t list =
   @ List.map
       (fun (rule : parameterized_rule) ->
         CompletionItem.create ~kind:CompletionItemKind.Function
-          ~label:rule.pr_nt
+          ~label:rule.pr_nt.v
           ~labelDetails:
             (CompletionItemLabelDetails.create
                ~detail:
                  (match rule.pr_parameters with
                  | [] -> ""
                  | _ ->
-                     CCList.to_string ~start:"(" ~stop:")"
-                       (fun x -> x)
+                     L.to_string ~start:"(" ~stop:")"
+                       (fun { p = _; v } -> v)
                        rule.pr_parameters)
                ())
           ())
       grammar.pg_rules
 
-let symbols ({ grammar = { pg_rules; _ }; tokens } : state) :
+let document_symbols ({ grammar = { pg_rules; _ }; tokens } : state) :
     DocumentSymbol.t list =
   (* Here we extract a listing of the defined tokens and grammar rules. *)
   CCList.(
     ( tokens >|= fun t ->
-      let range = lsp_range_of_menhir_range t.p in
+      let range = Range.of_lexical_positions t.p in
       DocumentSymbol.create ~kind:SymbolKind.Constant ~name:t.v.terminal ~range
         ~selectionRange:range
         ~detail:(CCOption.get_or ~default:"" t.v.alias)
         () )
     @ ( pg_rules >|= fun t ->
-        let range = lsp_range_of_menhir_range (hd t.pr_positions) in
-        DocumentSymbol.create ~kind:SymbolKind.Function ~name:t.pr_nt ~range
+        let range = Range.of_lexical_positions t.pr_nt.p in
+        DocumentSymbol.create ~kind:SymbolKind.Function ~name:t.pr_nt.v ~range
           ~selectionRange:range () ))
 
 let diagnostics (_state : state) : Lsp.Types.Diagnostic.t list =
@@ -207,11 +172,46 @@ class lsp_server =
       fun ~notify_back ~id:_ ~uri ~workDoneToken:_ ~partialResultToken:_
           _unit ->
         let state = Hashtbl.find buffers uri in
-        let syms = symbols state in
+        let syms = document_symbols state in
         notify_back#send_log_msg ~type_:MessageType.Info
           (Printf.sprintf "# symbols: %d" (List.length syms))
         |> ignore;
         Lwt.return (Some (`DocumentSymbol syms))
+
+    method! config_definition = Some (`Bool true)
+
+    method! on_req_definition =
+      fun ~notify_back ~id:_ ~uri ~pos ~workDoneToken:_ ~partialResultToken:_
+          _doc_state ->
+        let state = Hashtbl.find buffers uri in
+        let syms = Symbol_table.process_symbols state.grammar in
+        notify_back#send_log_msg ~type_:MessageType.Info
+          (Printf.sprintf "# symbols: %d\n%s" (List.length syms)
+             (L.to_string ~sep:"\n"
+                (fun (t : string located) ->
+                  let r = Range.(of_lexical_positions t.p) in
+                  spr "%s:%s" (Range.show r) t.v)
+                syms))
+        |> ignore;
+        notify_back#send_log_msg ~type_:MessageType.Info
+          (Printf.sprintf "# searching at pos %s" (Position.show pos))
+        |> ignore;
+        Lwt.return
+          (let open CCOption in
+           let+ range =
+             L.find_map
+               (fun (s : string located) ->
+                 let rng = Range.of_lexical_positions s.p in
+                 let res = Position.compare_inclusion pos rng = `Inside in
+                 notify_back#send_log_msg ~type_:MessageType.Info
+                   (Printf.sprintf "is %s inside %s: %b" (Position.show pos)
+                      (Range.show rng) res)
+                 |> ignore;
+                 if res then Some rng else None)
+                 (* todo: return the definition's range *)
+               syms
+           in
+           `Location [ Location.create ~range ~uri ])
 
     (* We define here a helper method that will:
             - process a document

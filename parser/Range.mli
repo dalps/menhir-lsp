@@ -12,7 +12,7 @@ open Lexing
 
 (**A range denotes a range (an interval) in some source file.
    It is essentially a pair of positions. *)
-type range
+type range = position * position (* [menhir-lsp] expose. *)
 
 (**[dummy] is a dummy range. It is a pair of two dummy positions. *)
 val dummy : range
