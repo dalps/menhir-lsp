@@ -186,32 +186,40 @@ class lsp_server =
         let state = Hashtbl.find buffers uri in
         let syms = Symbol_table.process_symbols state.grammar in
         notify_back#send_log_msg ~type_:MessageType.Info
-          (Printf.sprintf "# symbols: %d\n%s" (List.length syms)
-             (L.to_string ~sep:"\n"
-                (fun (t : string located) ->
-                  let r = Range.(of_lexical_positions t.p) in
-                  spr "%s:%s" (Range.show r) t.v)
-                syms))
-        |> ignore;
-        notify_back#send_log_msg ~type_:MessageType.Info
-          (Printf.sprintf "# searching at pos %s" (Position.show pos))
+          (spr "Request definition at pos %s" (Position.show pos))
         |> ignore;
         Lwt.return
-          (let open CCOption in
-           let+ range =
-             L.find_map
-               (fun (s : string located) ->
-                 let rng = Range.of_lexical_positions s.p in
-                 let res = Position.compare_inclusion pos rng = `Inside in
-                 notify_back#send_log_msg ~type_:MessageType.Info
-                   (Printf.sprintf "is %s inside %s: %b" (Position.show pos)
-                      (Range.show rng) res)
-                 |> ignore;
-                 if res then Some rng else None)
-                 (* todo: return the definition's range *)
-               syms
-           in
-           `Location [ Location.create ~range ~uri ])
+        @@
+        let open CCOption in
+        (* Get the symbol under the cursor, if any. *)
+        let* _sym_range, sym =
+          L.find_map
+            (fun (s : string located) ->
+              let rng = Range.of_lexical_positions s.p in
+              let res = Position.compare_inclusion pos rng = `Inside in
+              if res then Some (rng, s) else None)
+            syms
+        in
+        notify_back#send_log_msg ~type_:MessageType.Info
+          (spr "Symbol under cursor: %s %s" sym.v (Range.show _sym_range))
+        |> ignore;
+        (* Search for the symbol in the terminals or in the nonterminals. *)
+        (let+ token =
+           L.find_opt
+             (fun (t : token located) ->
+               String.equal t.v.terminal sym.v || t.v.alias = Some sym.v)
+             state.tokens
+         in
+         `Location
+           [ Location.create ~range:(Range.of_lexical_positions token.p) ~uri ])
+        <+> let+ nt =
+              L.find_map
+                (fun (r : M.Syntax.parameterized_rule) ->
+                  if String.equal r.pr_nt.v sym.v then Some r.pr_nt else None)
+                state.grammar.pg_rules
+            in
+            `Location
+              [ Location.create ~range:(Range.of_lexical_positions nt.p) ~uri ]
 
     (* We define here a helper method that will:
             - process a document
