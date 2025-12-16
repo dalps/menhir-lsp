@@ -20,10 +20,9 @@ open Linol_lsp.Types
 open Utils
 open Loc
 
-let process_input_file (file_name : string) (file_contents : string) :
-    (state, Diagnostic.t list) result Lwt.t =
-  try%lwt
-    let grammar = M.Main.load_grammar_from_contents 0 file_name file_contents in
+let process_grammar (grammar : M.Syntax.partial_grammar) :
+    (state, Diagnostic.t list) result =
+  try
     let tokens : tokens =
       List.filter_map
         (function
@@ -37,7 +36,7 @@ let process_input_file (file_name : string) (file_contents : string) :
           | _ -> None)
         grammar.pg_declarations
     in
-    Lwt.return @@ Ok { grammar; tokens }
+    Ok { grammar; tokens }
   with exn ->
     let diags =
       match exn with
@@ -55,7 +54,15 @@ let process_input_file (file_name : string) (file_contents : string) :
           ]
       | _ -> []
     in
-    Lwt.return @@ Error diags
+    Error diags
+
+let process_input_file (file_name : string) (file_contents : string) :
+    (state, Diagnostic.t list) result =
+  M.Main.load_grammar_from_contents 0 file_name file_contents |> process_grammar
+
+let standard_lib =
+  M.Main.load_grammar_from_file (Sys.getcwd () ^ "/bin/standard.mly")
+  |> process_grammar |> R.get_exn
 
 let completions ({ tokens; grammar } : state) : CompletionItem.t list =
   let open MenhirSyntax.Syntax in
@@ -100,6 +107,8 @@ let completions ({ tokens; grammar } : state) : CompletionItem.t list =
                ())
           ())
       grammar.pg_rules
+
+let standard_lib_completions = completions standard_lib
 
 let document_symbols ({ grammar = { pg_rules; _ }; tokens } : state) :
     DocumentSymbol.t list =
@@ -164,7 +173,7 @@ class lsp_server =
         notify_back#send_log_msg ~type_:MessageType.Info
           (Printf.sprintf "# completions: %d" (List.length comps))
         |> ignore;
-        Lwt.return (Some (`List comps))
+        Lwt.return (Some (`List (comps @ standard_lib_completions)))
 
     method! config_symbol = Some (`Bool true)
 
@@ -231,7 +240,7 @@ class lsp_server =
       Printf.eprintf "Processing %s for diagnostics.\n"
       @@ DocumentUri.to_path uri;
       let%lwt new_state, diags' =
-        match%lwt process_input_file (DocumentUri.to_path uri) contents with
+        match process_input_file (DocumentUri.to_path uri) contents with
         | Ok new_state ->
             Hashtbl.replace buffers uri new_state;
             Lwt.return (new_state, [])
