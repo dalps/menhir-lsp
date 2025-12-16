@@ -20,6 +20,22 @@
 		"onLanguage:ocaml.menhir"
 	],
 	"contributes": {
+		"languages": [
+			{
+				"id": "ocaml.menhir",
+				"icon": {
+					"dark": ".fileicons/menhir.svg",
+					"light": ".fileicons/menhir.svg"
+				}
+			},
+			{
+				"id": "ocaml.ocamllex",
+				"icon": {
+					"dark": ".fileicons/ocamllex.svg",
+					"light": ".fileicons/ocamllex.svg"
+				}
+			}
+		],
 		"commands": [
 			{
 				"title": "Show Menhir LSP Output",
