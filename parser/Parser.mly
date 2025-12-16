@@ -312,10 +312,9 @@ old_rule:
       let rule = {
         pr_public = public;
         pr_inline = inline;
-        pr_nt          = Located.value symbol;
-        pr_positions   = [ Located.position symbol ];
+        pr_nt          = symbol;
         pr_attributes  = attributes;
-        pr_parameters  = List.map Located.value params;
+        pr_parameters  = params; (* [menhir-lsp] change to located *)
         pr_branches    = branches
       }
       in rule

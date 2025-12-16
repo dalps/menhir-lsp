@@ -471,9 +471,10 @@ let rule (rule : rule) : parameterized_rule =
   {
     pr_public = rule.rule_public;
     pr_inline = rule.rule_inline;
-    pr_nt          = value rule.rule_lhs;
-    pr_positions   = [ position rule.rule_lhs ];
+    pr_nt     = rule.rule_lhs;
+    (* pr_positions   = [ position rule.rule_lhs ]; *)
+    (* [menhir-lsp] removed pr_positions field in favor of located values. *)
     pr_attributes  = rule.rule_attributes;
-    pr_parameters  = List.map value rule.rule_formals;
+    pr_parameters  = rule.rule_formals;
     pr_branches    = productions rule.rule_rhs
   }

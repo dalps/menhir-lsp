@@ -115,16 +115,16 @@ type parameterized_rule =
     pr_inline     : bool;
     (**Is the [%inline] keyword present? *)
 
-    pr_nt         : nonterminal;
+    pr_nt         : nonterminal located;
     (**The name of the nonterminal symbol that is being defined. *)
 
-    pr_positions  : ranges;
-    (**Positions in the source files. *)
+    (* pr_positions  : ranges; *)
+    (* [menhir-lsp] removed pr_positions field in favor of located values. *)
 
     pr_attributes : attributes;
     (**Attributes attached with this nonterminal symbol. *)
 
-    pr_parameters : symbols;
+    pr_parameters : symbol located list;
     (**The parameters of this nonterminal symbol. *)
 
     pr_branches   : parameterized_branch list;
