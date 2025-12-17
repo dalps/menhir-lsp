@@ -20,7 +20,7 @@ open Linol_lsp.Types
 open Utils
 open Loc
 
-let process_grammar (grammar : M.Syntax.partial_grammar) :
+let load_state_from_partial_grammar (grammar : M.Syntax.partial_grammar) :
     (state, Diagnostic.t list) result =
   try
     let tokens : tokens =
@@ -56,59 +56,73 @@ let process_grammar (grammar : M.Syntax.partial_grammar) :
     in
     Error diags
 
-let process_input_file (file_name : string) (file_contents : string) :
+let load_state_from_contents (file_name : string) (file_contents : string) :
     (state, Diagnostic.t list) result =
-  M.Main.load_grammar_from_contents 0 file_name file_contents |> process_grammar
+  M.Main.load_grammar_from_contents 0 file_name file_contents
+  |> load_state_from_partial_grammar
 
 let standard_lib =
   M.Main.load_grammar_from_file (Sys.getcwd () ^ "/bin/standard.mly")
-  |> process_grammar |> R.get_exn
+  |> load_state_from_partial_grammar |> R.get_exn
 
-let completions ({ tokens; grammar } : state) : CompletionItem.t list =
+let completions ?(docs : (string, string) Hashtbl.t = Hashtbl.create 0)
+    ({ tokens; grammar } : state) : CompletionItem.t list =
   let open MenhirSyntax.Syntax in
   CCList.flat_map
-    (let label_details typ =
-       CompletionItemLabelDetails.create
-         ~detail:
-           (match typ with
-           | None -> ""
-           | Some t -> (
-               ": " ^ match t with Declared { v; _ } | Inferred v -> v))
-     in
-     function
-     | { v = { ocamltype = typ; terminal; alias = Some alias; _ }; _ } ->
-         [
-           CompletionItem.create ~kind:CompletionItemKind.Constant ~label:alias
-             ~detail:terminal
-             ~labelDetails:(label_details typ ~description:terminal ())
-             ();
-           CompletionItem.create ~kind:CompletionItemKind.Constant
-             ~label:terminal ();
-         ]
-     | { v = { ocamltype = typ; terminal; alias = None; _ }; _ } ->
-         [
-           CompletionItem.create ~kind:CompletionItemKind.Constant
-             ~labelDetails:(label_details typ ()) ~label:terminal ();
-         ])
+    (fun (t : token located) ->
+      let label_details typ =
+        CompletionItemLabelDetails.create
+          ~detail:
+            (match typ with
+            | None -> ""
+            | Some t -> (
+                ": " ^ match t with Declared { v; _ } | Inferred v -> v))
+      in
+      let label = t.v.terminal in
+      let documentation =
+        O.(
+          CCHashtbl.get docs label >|= fun doc ->
+          `MarkupContent (MarkupContent.create ~kind:Markdown ~value:doc))
+      in
+      let comp =
+        CompletionItem.create ~kind:CompletionItemKind.Constant ?documentation
+      in
+      match t.v with
+      | { ocamltype = typ; terminal; alias = Some alias; _ } ->
+          [
+            comp ~label:alias ~detail:terminal
+              ~labelDetails:(label_details typ ~description:terminal ())
+              ();
+            comp ~label:terminal ();
+          ]
+      | { ocamltype = typ; terminal; alias = None; _ } ->
+          [ comp ~labelDetails:(label_details typ ()) ~label:terminal () ])
     tokens
   @ List.map
       (fun (rule : parameterized_rule) ->
-        CompletionItem.create ~kind:CompletionItemKind.Function
-          ~label:rule.pr_nt.v
-          ~labelDetails:
-            (CompletionItemLabelDetails.create
-               ~detail:
-                 (match rule.pr_parameters with
-                 | [] -> ""
-                 | _ ->
-                     L.to_string ~start:"(" ~stop:")"
-                       (fun { p = _; v } -> v)
-                       rule.pr_parameters)
-               ())
-          ())
+        let label = rule.pr_nt.v in
+        let comp =
+          CompletionItem.create ~kind:CompletionItemKind.Function ~label
+            ?documentation:
+              O.(
+                CCHashtbl.get docs label >|= fun doc ->
+                `MarkupContent (MarkupContent.create ~kind:Markdown ~value:doc))
+            ~labelDetails:
+              (CompletionItemLabelDetails.create
+                 ~detail:
+                   (match rule.pr_parameters with
+                   | [] -> ""
+                   | _ ->
+                       L.to_string ~start:"(" ~stop:")"
+                         (fun { p = _; v } -> v)
+                         rule.pr_parameters)
+                 ())
+        in
+        comp ())
       grammar.pg_rules
 
-let standard_lib_completions = completions standard_lib
+let standard_lib_completions =
+  completions standard_lib ~docs:Doc.menhir_standard_library_doc
 
 let document_symbols ({ grammar = { pg_rules; _ }; tokens } : state) :
     DocumentSymbol.t list =
@@ -240,7 +254,7 @@ class lsp_server =
       Printf.eprintf "Processing %s for diagnostics.\n"
       @@ DocumentUri.to_path uri;
       let%lwt new_state, diags' =
-        match process_input_file (DocumentUri.to_path uri) contents with
+        match load_state_from_contents (DocumentUri.to_path uri) contents with
         | Ok new_state ->
             Hashtbl.replace buffers uri new_state;
             Lwt.return (new_state, [])
