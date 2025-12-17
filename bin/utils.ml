@@ -128,3 +128,6 @@ module Range = struct
     | (Lt | Eq), (Gt | Eq) | (Gt | Eq), (Lt | Eq) -> true
     | _ -> false
 end
+
+(** Surround the given string in Markdown code block fences. *)
+let md_fenced ?(flavor = "") s = spr "```%s\n%s\n```" flavor s

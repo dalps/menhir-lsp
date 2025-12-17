@@ -1,5 +1,5 @@
 %token <int> INT
-%token PLUS MINUS TIMES DIV
+%token PLUS "+" MINUS "-" TIMES "*" DIV "/"
 %token LPAREN RPAREN
 %token EOL
 
@@ -55,7 +55,7 @@ let additive_expr ==
 (* These are the additive operators and their meaning. *)
 
 let additive_op ==
-  | PLUS;  { ( + ) }
+  | "+";  { ( + ) }
   | MINUS; { ( - ) }
 
 (* A multiplicative expression is a left-associative list of atomic

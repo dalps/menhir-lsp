@@ -13,7 +13,6 @@ build:
 #     dune install --build-info
 
 watch:
-    cd .. && just install
     esbuild {{ entrypoints }} {{ common_opts }} --sourcemap --watch
 
 bundle:

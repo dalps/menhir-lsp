@@ -22,6 +22,7 @@ open Loc
 
 let load_state_from_partial_grammar (grammar : M.Syntax.partial_grammar) :
     (state, Diagnostic.t list) result =
+  let symbols = Symbol_table.process_symbols grammar in
   try
     let tokens : tokens =
       List.filter_map
@@ -36,7 +37,7 @@ let load_state_from_partial_grammar (grammar : M.Syntax.partial_grammar) :
           | _ -> None)
         grammar.pg_declarations
     in
-    Ok { grammar; tokens }
+    Ok { grammar; tokens; symbols }
   with exn ->
     let diags =
       match exn with
@@ -66,17 +67,17 @@ let standard_lib =
   |> load_state_from_partial_grammar |> R.get_exn
 
 let completions ?(docs : (string, string) Hashtbl.t = Hashtbl.create 0)
-    ({ tokens; grammar } : state) : CompletionItem.t list =
+    ({ tokens; grammar; _ } : state) : CompletionItem.t list =
   let open MenhirSyntax.Syntax in
   CCList.flat_map
     (fun (t : token located) ->
       let label_details typ =
         CompletionItemLabelDetails.create
-          ~detail:
-            (match typ with
-            | None -> ""
-            | Some t -> (
-                ": " ^ match t with Declared { v; _ } | Inferred v -> v))
+          ?detail:
+            (O.map
+               (fun t ->
+                 ": " ^ match t with Declared { v; _ } | Inferred v -> v)
+               typ)
       in
       let label = t.v.terminal in
       let documentation =
@@ -124,7 +125,7 @@ let completions ?(docs : (string, string) Hashtbl.t = Hashtbl.create 0)
 let standard_lib_completions =
   completions standard_lib ~docs:Doc.menhir_standard_library_doc
 
-let document_symbols ({ grammar = { pg_rules; _ }; tokens } : state) :
+let document_symbols ({ grammar = { pg_rules; _ }; tokens; _ } : state) :
     DocumentSymbol.t list =
   (* Here we extract a listing of the defined tokens and grammar rules. *)
   CCList.(
@@ -138,6 +139,37 @@ let document_symbols ({ grammar = { pg_rules; _ }; tokens } : state) :
         let range = Range.of_lexical_positions t.pr_nt.p in
         DocumentSymbol.create ~kind:SymbolKind.Function ~name:t.pr_nt.v ~range
           ~selectionRange:range () ))
+
+let symbol_at_position (state : state) (pos : Position.t) :
+    (Range.t * string located) option =
+  L.find_map
+    (fun (s : string located) ->
+      let rng = Range.of_lexical_positions s.p in
+      let res = Position.compare_inclusion pos rng = `Inside in
+      if res then Some (rng, s) else None)
+    state.symbols
+
+(** Produce hover information at a particular position. For:
+    - token aliases, we display their full name;
+    - standard library rules, their documentation; *)
+let hover (state : state) (pos : Position.t) =
+  let open CCOption in
+  let* rng, sym = symbol_at_position state pos in
+  (let+ stdlib_doc = Hashtbl.find_opt Doc.menhir_standard_library_doc sym.v in
+   (stdlib_doc, rng))
+  <+> L.find_map
+        (fun ({ v = t; _ } : token located) ->
+          if_
+            (fun _ -> t.alias = Some sym.v || t.terminal = sym.v)
+            ( O.map_or ~default:""
+                (function
+                  | M.BaseTypes.Declared { v; _ } | M.BaseTypes.Inferred v ->
+                      spr "<%s> " v)
+                t.ocamltype
+              ^ t.terminal
+              |> md_fenced,
+              rng ))
+        state.tokens
 
 let diagnostics (_state : state) : Lsp.Types.Diagnostic.t list =
   (* let open MenhirSyntax.Syntax in
@@ -207,7 +239,7 @@ class lsp_server =
       fun ~notify_back ~id:_ ~uri ~pos ~workDoneToken:_ ~partialResultToken:_
           _doc_state ->
         let state = Hashtbl.find buffers uri in
-        let syms = Symbol_table.process_symbols state.grammar in
+
         notify_back#send_log_msg ~type_:MessageType.Info
           (spr "Request definition at pos %s" (Position.show pos))
         |> ignore;
@@ -215,14 +247,7 @@ class lsp_server =
         @@
         let open CCOption in
         (* Get the symbol under the cursor, if any. *)
-        let* _sym_range, sym =
-          L.find_map
-            (fun (s : string located) ->
-              let rng = Range.of_lexical_positions s.p in
-              let res = Position.compare_inclusion pos rng = `Inside in
-              if res then Some (rng, s) else None)
-            syms
-        in
+        let* _sym_range, sym = symbol_at_position state pos in
         notify_back#send_log_msg ~type_:MessageType.Info
           (spr "Symbol under cursor: %s %s" sym.v (Range.show _sym_range))
         |> ignore;
@@ -243,6 +268,21 @@ class lsp_server =
             in
             `Location
               [ Location.create ~range:(Range.of_lexical_positions nt.p) ~uri ]
+
+    method! config_hover = Some (`Bool true)
+
+    method! on_req_hover =
+      fun ~notify_back:_ ~id:_ ~uri ~pos ~workDoneToken:_ _doc_state ->
+        let state = Hashtbl.find buffers uri in
+        let open CCOption in
+        Lwt.return
+        @@ let+ contents, range = hover state pos in
+           Hover.create
+             ~contents:
+               (`MarkupContent
+                  (MarkupContent.create ~kind:MarkupKind.Markdown
+                     ~value:contents))
+             ~range ()
 
     (* We define here a helper method that will:
             - process a document
