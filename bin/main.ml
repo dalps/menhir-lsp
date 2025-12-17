@@ -259,11 +259,23 @@ class lsp_server =
         @@
         let* state = Hashtbl.find_opt buffers uri in
         let* _sym_range, sym = symbol_at_position state pos in
+        (* Is it a token alias? If so, use token's full name. *)
+        let sym_name =
+          get_or ~default:sym.v
+            (L.find_map
+               (fun t ->
+                 let* alias = t.v.alias in
+                 if_ (fun _ -> alias = sym.v) alias)
+               state.tokens)
+        in
+        epr "Looking for references of %s\n" sym_name;
         Some
           (L.filter_map
              (fun { v; p } ->
+               epr "Comparing with %s at %s\n" v
+                 Range.(show @@ of_lexical_positions p);
                if_
-                 (fun _ -> v = sym.v)
+                 (fun _ -> v = sym_name)
                  (Location.create ~uri ~range:(Range.of_lexical_positions p)))
              state.symbols)
 
