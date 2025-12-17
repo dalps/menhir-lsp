@@ -235,6 +235,38 @@ class lsp_server =
 
     method! config_definition = Some (`Bool true)
 
+    method! config_modify_capabilities (default : ServerCapabilities.t) =
+      { default with referencesProvider = Some (`Bool true) }
+
+    (* We also want to provide the References View, which is not covered by Linol's default methods. It took me several time quants to figure out the method signatures. :/ *)
+
+    method! on_request_unhandled : type r.
+        notify_back:Linol_lwt.Jsonrpc2.notify_back ->
+        id:Linol_jsonrpc.Jsonrpc.Id.t ->
+        r Lsp.Client_request.t ->
+        r Lwt.t =
+      fun ~notify_back ~id t ->
+        match t with
+        | Lsp.Client_request.TextDocumentReferences (r : ReferenceParams.t) ->
+            self#_on_req_references ~notify_back ~id ~pos:r.position
+              ~uri:r.textDocument.uri
+        | _ -> Lwt.fail_with "unhandled request type"
+
+    method private _on_req_references =
+      fun ~notify_back:_ ~id:_ ~uri ~pos : Location.t list option Lwt.t ->
+        let open CCOption in
+        Lwt.return
+        @@
+        let* state = Hashtbl.find_opt buffers uri in
+        let* _sym_range, sym = symbol_at_position state pos in
+        Some
+          (L.filter_map
+             (fun { v; p } ->
+               if_
+                 (fun _ -> v = sym.v)
+                 (Location.create ~uri ~range:(Range.of_lexical_positions p)))
+             state.symbols)
+
     method! on_req_definition =
       fun ~notify_back ~id:_ ~uri ~pos ~workDoneToken:_ ~partialResultToken:_
           _doc_state ->
