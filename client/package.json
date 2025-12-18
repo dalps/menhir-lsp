@@ -1,11 +1,12 @@
 {
 	"name": "menhir-lsp-client",
 	"displayName": "Menhir",
-	"description": "Language features and IntelliSense for Menhir grammars",
+	"description": "IntelliSense for Menhir grammars",
 	"version": "0.0.1",
 	"publisher": "dalps",
 	"private": true,
 	"license": "GPL-2.0-only",
+	"icon": ".fileicons/icon.png",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/dalps/menhir-lsp"
