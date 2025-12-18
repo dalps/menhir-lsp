@@ -55,10 +55,9 @@ module IdSet = struct
   let xor s1 s2 = union (diff s1 s2) (diff s2 s1)
 end
 
-let defined_identifiers ((_, ido, _, _) : early_producer) accu =
-  IdSet.add
-    (Option.fold ~none:(Located.locate Range.dummy "") ~some:(fun v -> v) ido)
-    accu
+let defined_identifiers ((_, ido, _, _) : early_producer) (accu : IdSet.t) :
+    IdSet.t =
+  Option.fold ~none:accu ~some:(Fun.flip IdSet.add accu) ido
 
 let defined_identifiers (producers : early_producers) =
   List.fold_right defined_identifiers producers IdSet.empty

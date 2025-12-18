@@ -145,7 +145,7 @@ let symbol_at_position (state : state) (pos : Position.t) :
     - token aliases, we display their full name;
     - standard library rules, their documentation; *)
 let hover (state : state) (pos : Position.t) =
-  let open CCOption in
+  let open O in
   let* rng, sym = symbol_at_position state pos in
   (let+ stdlib_doc = Hashtbl.find_opt Doc.menhir_standard_library_doc sym.v in
    (stdlib_doc, rng))
@@ -206,24 +206,30 @@ class lsp_server =
     method! on_req_completion =
       fun ~notify_back ~id:_ ~uri ~pos:_ ~ctx:_ ~workDoneToken:_
           ~partialResultToken:_ _doc_state ->
-        let state = Hashtbl.find buffers uri in
+        let open O in
+        Lwt.return
+        @@
+        let+ state = Hashtbl.find_opt buffers uri in
         let comps = completions state in
         notify_back#send_log_msg ~type_:MessageType.Info
           (Printf.sprintf "# completions: %d" (List.length comps))
         |> ignore;
-        Lwt.return (Some (`List (comps @ standard_lib_completions)))
+        `List (comps @ standard_lib_completions)
 
     method! config_symbol = Some (`Bool true)
 
     method! on_req_symbol =
       fun ~notify_back ~id:_ ~uri ~workDoneToken:_ ~partialResultToken:_
           _unit ->
-        let state = Hashtbl.find buffers uri in
+        Lwt.return
+        @@
+        let open O in
+        let+ state = Hashtbl.find_opt buffers uri in
         let syms = document_symbols state in
         notify_back#send_log_msg ~type_:MessageType.Info
           (Printf.sprintf "# symbols: %d" (List.length syms))
         |> ignore;
-        Lwt.return (Some (`DocumentSymbol syms))
+        `DocumentSymbol syms
 
     method! config_definition = Some (`Bool true)
 
@@ -246,9 +252,9 @@ class lsp_server =
 
     method private _on_req_references =
       fun ~notify_back:_ ~id:_ ~uri ~pos : Location.t list option Lwt.t ->
-        let open CCOption in
         Lwt.return
         @@
+        let open O in
         let* state = Hashtbl.find_opt buffers uri in
         let* _sym_range, sym = symbol_at_position state pos in
         (* Is it a token alias? If so, use token's full name. *)
@@ -274,14 +280,13 @@ class lsp_server =
     method! on_req_definition =
       fun ~notify_back ~id:_ ~uri ~pos ~workDoneToken:_ ~partialResultToken:_
           _doc_state ->
-        let state = Hashtbl.find buffers uri in
-
+        Lwt.return
+        @@
+        let open O in
+        let* state = Hashtbl.find_opt buffers uri in
         notify_back#send_log_msg ~type_:MessageType.Info
           (spr "Request definition at pos %s" (Position.show pos))
         |> ignore;
-        Lwt.return
-        @@
-        let open CCOption in
         (* Get the symbol under the cursor, if any. *)
         let* _sym_range, sym = symbol_at_position state pos in
         notify_back#send_log_msg ~type_:MessageType.Info
@@ -309,16 +314,18 @@ class lsp_server =
 
     method! on_req_hover =
       fun ~notify_back:_ ~id:_ ~uri ~pos ~workDoneToken:_ _doc_state ->
-        let state = Hashtbl.find buffers uri in
-        let open CCOption in
+        let open O in
         Lwt.return
-        @@ let+ contents, range = hover state pos in
-           Hover.create
+        @@
+        let* state = Hashtbl.find_opt buffers uri in
+        let* contents, range = hover state pos in
+        Some
+          (Hover.create
              ~contents:
                (`MarkupContent
                   (MarkupContent.create ~kind:MarkupKind.Markdown
                      ~value:contents))
-             ~range ()
+             ~range ())
 
     (* We define here a helper method that will:
             - process a document
@@ -327,23 +334,23 @@ class lsp_server =
     *)
     method private _on_doc ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         (uri : uri) (contents : string) =
-      Printf.eprintf "Processing %s for diagnostics.\n"
-      @@ DocumentUri.to_path uri;
-      let%lwt new_state, diags' =
+      Printf.eprintf "Processing document %s\n" @@ DocumentUri.to_path uri;
+      let%lwt new_state, new_diags =
         match load_state_from_contents (DocumentUri.to_path uri) contents with
         | Ok new_state ->
             Hashtbl.replace buffers uri new_state;
-            Lwt.return (new_state, [])
-        | Error diags -> Lwt.return (Hashtbl.find buffers uri, diags)
-        (* reuse the old state *)
+            Lwt.return (Some new_state, [])
+        | Error diags ->
+            (* Reuse the old state *)
+            Lwt.return (Hashtbl.find_opt buffers uri, diags)
       in
-      let diags = diagnostics new_state in
-      notify_back#send_diagnostic (diags @ diags')
+      let diags = O.map_or ~default:[] diagnostics new_state in
+      notify_back#send_diagnostic (diags @ new_diags)
 
     (* We now override the [on_notify_doc_did_open] method that will be called
       by the server each time a new document is opened. *)
     method on_notif_doc_did_open ~notify_back d ~content : unit Linol_lwt.t =
-      prerr_endline "opened document";
+      prerr_endline "Opened document";
       self#_on_doc ~notify_back d.uri content
 
     (* Similarly, we also override the [on_notify_doc_did_change] method that will be called
