@@ -115,7 +115,7 @@ let completions ?(docs : (string, string) Hashtbl.t = Hashtbl.create 0)
       grammar.pg_rules
 
 let standard_lib_completions =
-  completions standard_lib ~docs:Doc.menhir_standard_library_doc
+  completions standard_lib ~docs:Standard.menhir_standard_library_doc
 
 let document_symbols ({ grammar = { pg_rules; _ }; tokens; _ } : state) :
     DocumentSymbol.t list =
@@ -147,7 +147,9 @@ let symbol_at_position (state : state) (pos : Position.t) :
 let hover (state : state) (pos : Position.t) =
   let open O in
   let* rng, sym = symbol_at_position state pos in
-  (let+ stdlib_doc = Hashtbl.find_opt Doc.menhir_standard_library_doc sym.v in
+  (let+ stdlib_doc =
+     Hashtbl.find_opt Standard.menhir_standard_library_doc sym.v
+   in
    (stdlib_doc, rng))
   <+> L.find_map
         (fun ({ v = t; _ } : token located) ->
