@@ -1,19 +1,5 @@
-(* This file is free software, part of linol. See file "LICENSE" for more information *)
-
-(* Some user code
-
-   The code here is just a placeholder to make this file compile, it is expected
-   that users have an implementation of a processing function for input contents.
-
-   Here we expect a few things:
-   - a type to represent a state/environment that results from processing an
-     input file
-   - a function processing an input file (given the file contents as a string),
-     which return a state/environment
-   - a function to extract a list of diagnostics from a state/environment.
-     Diagnostics includes all the warnings, errors and messages that the processing
-     of a document are expected to be able to return.
-*)
+(* This module is modelled after Linol's Lwt template:
+https://github.com/c-cube/linol/blob/main/example/template-lwt/main.ml *)
 
 open Types
 open Linol_lsp.Types
@@ -22,7 +8,7 @@ open Loc
 
 let load_state_from_partial_grammar (grammar : M.Syntax.partial_grammar) :
     (state, Diagnostic.t list) result =
-  let symbols = Symbol_table.process_symbols grammar in
+  let symbols = Symbol_visitor.process_symbols grammar in
   try
     let tokens : tokens =
       List.filter_map

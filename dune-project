@@ -5,23 +5,24 @@
 (generate_opam_files true)
 
 (source
- (github username/reponame))
+ (github dalps/menhir-lsp))
 
-(authors "Author Name <author@example.com>")
+(authors "Federico Dal Pio Luogo <dalpio23@gmail.com>")
 
-(maintainers "Maintainer Name <maintainer@example.com>")
+(maintainers "Federico Dal Pio Luogo <dalpio23@gmail.com>")
 
-(license LICENSE)
+(license GPL-2.0-only)
 
 (documentation https://url/to/documentation)
 
 (package
  (name menhir-lsp)
- (synopsis "A short synopsis")
- (description "A longer description")
+ (synopsis "LSP server for Menhir")
+ (description
+  "An implementation of the Language Server Protocol that serves completion suggestions and code navigation for .mly files to an LSP client.")
  (depends ocaml)
  (tags
-  ("add topics" "to describe" your project)))
+  ("lsp" "menhir")))
 
 (using menhir 3.0)
 
