@@ -49,8 +49,8 @@ let load_state_from_contents (file_name : string) (file_contents : string) :
   |> load_state_from_partial_grammar
 
 let standard_lib =
-  M.Main.load_grammar_from_file (Sys.getcwd () ^ "/bin/standard.mly")
-  |> load_state_from_partial_grammar |> R.get_exn
+  Standard.menhir_standard_library_grammar |> load_state_from_partial_grammar
+  |> R.get_exn
 
 let completions ?(docs : (string, string) Hashtbl.t = Hashtbl.create 0)
     ({ tokens; grammar; _ } : state) : CompletionItem.t list =

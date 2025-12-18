@@ -1,4 +1,6 @@
-/******************************************************************************/
+let menhir_standard_library_grammar =
+  MenhirSyntax.Main.load_grammar_from_contents 0 "<standard.mly>"
+    {|/******************************************************************************/
 /*                                                                            */
 /*                                    Menhir                                  */
 /*                                                                            */
@@ -276,3 +278,4 @@ x = X
 %public %inline append(XS, YS):
   xs = XS ys = YS
     { xs @ ys }
+|}
