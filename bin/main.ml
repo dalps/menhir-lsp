@@ -71,33 +71,39 @@ let completions ?(docs : (string, string) Hashtbl.t = Hashtbl.create 0)
   let open MenhirSyntax.Syntax in
   CCList.flat_map
     (fun (t : token located) ->
-      let label_details typ =
+      let comp = CompletionItem.create ~kind:CompletionItemKind.Constant in
+      let type_doc =
+        O.(
+          map
+            (fun t ->
+              match t with
+              | Declared { v; _ } | Inferred v ->
+                  `MarkupContent
+                    (MarkupContent.create ~kind:Markdown
+                       ~value:(Utils.md_fenced v)))
+            t.v.ocamltype)
+      in
+
+      let ld =
         CompletionItemLabelDetails.create
           ?detail:
-            (O.map
-               (fun t ->
-                 ": " ^ match t with Declared { v; _ } | Inferred v -> v)
-               typ)
+            O.(
+              t.v.ocamltype >|= fun typ ->
+              ": " ^ match typ with Declared { v; _ } | Inferred v -> v)
       in
-      let label = t.v.terminal in
-      let documentation =
-        O.(
-          CCHashtbl.get docs label >|= fun doc ->
-          `MarkupContent (MarkupContent.create ~kind:Markdown ~value:doc))
-      in
-      let comp =
-        CompletionItem.create ~kind:CompletionItemKind.Constant ?documentation
-      in
-      match t.v with
-      | { ocamltype = typ; terminal; alias = Some alias; _ } ->
-          [
-            comp ~label:alias ~detail:terminal
-              ~labelDetails:(label_details typ ~description:terminal ())
-              ();
-            comp ~label:terminal ();
-          ]
-      | { ocamltype = typ; terminal; alias = None; _ } ->
-          [ comp ~labelDetails:(label_details typ ()) ~label:terminal () ])
+      comp ~label:t.v.terminal ?documentation:type_doc ~labelDetails:(ld ()) ()
+      :: O.(
+           t.v.alias
+           >|= (fun alias ->
+           let description = "alias for " ^ t.v.terminal in
+           comp ~label:alias ~detail:description
+             ?documentation:type_doc
+               (* This is persistent text that sits next to the label.
+           The previous ~detail argument won't be shown while scrolling
+           if there is ~labelDetails. *)
+             ~labelDetails:(ld ~description:t.v.terminal ())
+             ())
+           |> to_list))
     tokens
   @ List.map
       (fun (rule : parameterized_rule) ->
