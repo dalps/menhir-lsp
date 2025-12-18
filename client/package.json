@@ -1,11 +1,11 @@
 {
 	"name": "menhir-lsp-client",
-	"displayName": "menhir-lsp-client",
-	"description": "VS Code client for menhir-lsp",
+	"displayName": "Menhir",
+	"description": "Language features and IntelliSense for Menhir grammars",
 	"version": "0.0.1",
 	"publisher": "dalps",
 	"private": true,
-	"license": "GPL-3.0-only",
+	"license": "GPL-2.0-only",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/dalps/menhir-lsp"
@@ -38,8 +38,8 @@
 		],
 		"commands": [
 			{
-				"title": "Show Menhir LSP Output",
-				"command": "menhir-lsp.showOutput"
+				"title": "Menhir: Show Menhir Language Server Output",
+				"command": "menhir-lsp-client.showOutput"
 			}
 		]
 	},

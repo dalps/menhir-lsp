@@ -1,4 +1,4 @@
-import * as path from "path";
+import { exec } from "child_process";
 import * as vscode from "vscode";
 
 import {
@@ -10,9 +10,13 @@ import {
 
 let client: LanguageClient;
 
+const serverName = "menhir-lsp";
+
 export function activate(context: vscode.ExtensionContext) {
+  const extId = context.extension.packageJSON.name;
+
   const serverOptions: ServerOptions = {
-    command: "menhir-lsp",
+    command: serverName,
     transport: TransportKind.stdio,
   };
 
@@ -32,11 +36,40 @@ export function activate(context: vscode.ExtensionContext) {
     clientOptions
   );
 
-  vscode.commands.registerCommand("menhir-lsp.showOutput", outputChannel.show);
+  let command = `which ${serverName}`;
+
+  exec(command, async (error, output, stderr) => {
+    // server is there and we can start the client
+    if (!error) {
+      client.start();
+      return;
+    }
+
+    let install = await vscode.window.showErrorMessage(
+      `[Menhir] The package ${serverName} is required but not installed. Would you like to install automatically it with opam?`,
+      "Install automatically",
+      "Cancel"
+    );
+
+    if (install === undefined || install === "Cancel") return;
+
+    vscode.window.showInformationMessage(
+      `[Menhir] Installing ${serverName}. Make sure to reload the window once the installation is over to activate client.`
+    );
+
+    let opamInstallCmd = `opam install ${serverName}`;
+    let terminal = vscode.window.createTerminal(serverName);
+
+    terminal.show();
+    terminal.sendText(opamInstallCmd);
+  });
+
+  vscode.commands.registerCommand(
+    "menhir-lsp-client.showOutput",
+    outputChannel.show
+  );
 
   vscode.window.showInformationMessage("Starting Menhir Client...");
-
-  client.start();
 }
 
 export function deactivate(): Thenable<void> | undefined {
