@@ -14,6 +14,15 @@ Requests handled by the server:
 
 ## Usage
 
+> [!WARNING]
+> The package has not yet been published on the opam repository.
+> While publication is pending, you can fetch and install the package manually:
+> 
+> ```
+> git clone https://github.com/dalps/menhir-lsp && cd menhir-lsp
+> opam install .
+> ```
+
 Installing this server is a simple as:
 
 ```
