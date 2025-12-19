@@ -18,7 +18,21 @@
  (synopsis "LSP server for Menhir")
  (description
   "An implementation of the Language Server Protocol for Menhir grammars.")
- (depends ocaml)
+ (depends
+  ("ocaml"
+   (>= "4.14"))
+  ("linol"
+   (>= "0.10"))
+  linol-lwt
+  lwt_ppx
+  ("containers"
+   (>= "3.6"))
+  ("ordering"
+   (>= "3.20.2"))
+  ("menhir"
+   (>= "20250912"))
+  menhirSdk
+  menhirLib)
  (tags
   ("lsp" "menhir")))
 
