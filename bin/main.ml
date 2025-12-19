@@ -114,6 +114,25 @@ let completions ?(docs : (string, string) Hashtbl.t = Hashtbl.create 0)
         comp ())
       grammar.pg_rules
 
+let percent_completions =
+  CCHashtbl.map_list
+    (fun k doclines ->
+      let c =
+        CompletionItem.create ~kind:CompletionItemKind.Keyword
+          ~documentation:
+            (`MarkupContent
+               (MarkupContent.create ~kind:Markdown
+                  ~value:(CCString.concat "\n\n" doclines)))
+      in
+      if k = "token_t" then
+        c ~label:"%token" ~insertTextFormat:InsertTextFormat.Snippet
+          ~insertText:"token <$1> $0"
+          ~labelDetails:
+            (CompletionItemLabelDetails.create ~detail:" <typexpr>" ())
+          ()
+      else c ~label:("%" ^ k) ~insertText:k ())
+    Keywords.declarations
+
 let standard_lib_completions =
   completions standard_lib ~docs:Standard.menhir_standard_library_doc
 
@@ -201,7 +220,7 @@ class lsp_server =
           allCommitCharacters = None;
           completionItem = None;
           resolveProvider = None;
-          triggerCharacters = None;
+          triggerCharacters = Some [ "%" ];
           workDoneProgress = None;
         }
 
@@ -216,7 +235,7 @@ class lsp_server =
         notify_back#send_log_msg ~type_:MessageType.Info
           (Printf.sprintf "# completions: %d" (List.length comps))
         |> ignore;
-        `List (comps @ standard_lib_completions)
+        `List (comps @ standard_lib_completions @ percent_completions)
 
     method! config_symbol = Some (`Bool true)
 
