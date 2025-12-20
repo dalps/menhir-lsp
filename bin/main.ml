@@ -258,7 +258,10 @@ class lsp_server =
       {
         default with
         referencesProvider = Some (`Bool true);
-        renameProvider = Some (`Bool true);
+        renameProvider =
+          Some
+            (`RenameOptions
+               { prepareProvider = Some true; workDoneProgress = None });
       }
 
     method! on_request_unhandled : type r.
@@ -268,6 +271,10 @@ class lsp_server =
         r Lwt.t =
       fun ~notify_back ~id t ->
         match t with
+        | Lsp.Client_request.TextDocumentPrepareRename
+            (r : PrepareRenameParams.t) ->
+            self#_on_req_prepare_rename ~notify_back ~id ~uri:r.textDocument.uri
+              ~pos:r.position
         | Lsp.Client_request.TextDocumentRename (r : RenameParams.t) ->
             notify_back#send_log_msg ~type_:Info
               (spr "Client requested rename at position: %s"
@@ -310,6 +317,16 @@ class lsp_server =
                  (fun _ -> v = sym_name)
                  (Location.create ~uri ~range:(Range.of_lexical_positions p)))
              state.symbols)
+
+    method private _on_req_prepare_rename =
+      fun ~notify_back:_ ~id:_ ~uri ~pos : Range.t option Lwt.t ->
+        Lwt.return
+        @@
+        let open O in
+        let* state = Hashtbl.find_opt buffers uri in
+        let+ sym_range, _ = symbol_at_position state pos in
+        epr "Range for rename is valid: %s\n" (Range.show sym_range);
+        sym_range
 
     method private _on_req_rename =
       fun ~notify_back:_ ~id:_ ~uri ~pos newName : WorkspaceEdit.t Lwt.t ->
