@@ -255,9 +255,11 @@ class lsp_server =
     method! config_definition = Some (`Bool true)
 
     method! config_modify_capabilities (default : ServerCapabilities.t) =
-      { default with referencesProvider = Some (`Bool true) }
-
-    (* We also want to provide the References View, which is not covered by Linol's default methods. It took me several time quants to figure out the method signatures. :/ *)
+      {
+        default with
+        referencesProvider = Some (`Bool true);
+        renameProvider = Some (`Bool true);
+      }
 
     method! on_request_unhandled : type r.
         notify_back:Linol_lwt.Jsonrpc2.notify_back ->
@@ -266,7 +268,18 @@ class lsp_server =
         r Lwt.t =
       fun ~notify_back ~id t ->
         match t with
+        | Lsp.Client_request.TextDocumentRename (r : RenameParams.t) ->
+            notify_back#send_log_msg ~type_:Info
+              (spr "Client requested rename at position: %s"
+                 (Position.show r.position))
+            |> ignore;
+            self#_on_req_rename ~notify_back r.newName ~pos:r.position ~id
+              ~uri:r.textDocument.uri
         | Lsp.Client_request.TextDocumentReferences (r : ReferenceParams.t) ->
+            notify_back#send_log_msg ~type_:Info
+              (spr "Client requested references at position: %s"
+                 (Position.show r.position))
+            |> ignore;
             self#_on_req_references ~notify_back ~id ~pos:r.position
               ~uri:r.textDocument.uri
         | _ -> Lwt.fail_with "unhandled request type"
@@ -297,6 +310,30 @@ class lsp_server =
                  (fun _ -> v = sym_name)
                  (Location.create ~uri ~range:(Range.of_lexical_positions p)))
              state.symbols)
+
+    method private _on_req_rename =
+      fun ~notify_back:_ ~id:_ ~uri ~pos newName : WorkspaceEdit.t Lwt.t ->
+        Lwt.return
+        @@
+        (* Gather all the occurrences of the symbol (terminal or non) *)
+        let edits : TextEdit.t list =
+          O.(
+            let* state = Hashtbl.find_opt buffers uri in
+            let* _sym_range, sym = symbol_at_position state pos in
+            epr "I will rename %s\n" sym.v;
+            some
+            @@ L.filter_map
+                 (fun (s : string located) ->
+                   if_
+                     (fun _ -> CCString.equal s.v sym.v)
+                       (* (TextEdit.create ~newText:newName
+                   ~range:(Range.of_lexical_positions s.p)) *)
+                     (TextEdit.create ~newText:newName
+                        ~range:(Range.of_lexical_positions s.p)))
+                 state.symbols)
+          |> O.to_list |> L.flatten
+        in
+        WorkspaceEdit.create ~changes:[ (uri, edits) ] ()
 
     method! on_req_definition =
       fun ~notify_back ~id:_ ~uri ~pos ~workDoneToken:_ ~partialResultToken:_
