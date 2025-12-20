@@ -402,6 +402,101 @@ class lsp_server =
                      ~value:contents))
              ~range ())
 
+    method! config_code_action_provider =
+      `CodeActionOptions
+        {
+          codeActionKinds = Some [ Refactor ];
+          resolveProvider = None;
+          workDoneProgress = None;
+        }
+
+    method! on_req_code_action =
+      fun ~notify_back:_ ~id:_ t ->
+        Lwt.return
+        @@
+        let open O in
+        let uri = t.textDocument.uri in
+        let* state = Hashtbl.find_opt buffers uri in
+        let* sym_range, sym = symbol_at_position state t.range.start in
+        (* Is is a token declaration? Does it *not* have an alias? *)
+        L.flat_map
+          (function
+            | { v = { terminal; alias = None; _ }; _ } when terminal = sym.v ->
+                [
+                  `Command
+                    (Command.create
+                       ~title:
+                         ("Define an alias for " ^ terminal
+                        ^ " and replace all its occurrences")
+                       ~command:"menhir-lsp-client.promptAlias"
+                       ~arguments:
+                         Linol_jsonrpc.Import.(
+                           List.
+                             [
+                               `String terminal;
+                               Range.yojson_of_t sym_range;
+                               DocumentUri.yojson_of_t uri;
+                               (* just send the ranges and build the edit on the client *)
+                               WorkspaceEdit.(
+                                 yojson_of_t
+                                 @@ create
+                                      ~changes:
+                                        [
+                                          ( uri,
+                                            L.filter_map
+                                              (fun sym' ->
+                                                let range =
+                                                  Range.of_lexical_positions
+                                                    sym'.p
+                                                in
+                                                if_
+                                                  (fun _ ->
+                                                    sym.v = sym'.v
+                                                    && Range.compare sym_range
+                                                         range
+                                                       <> Eq)
+                                                  (TextEdit.create
+                                                     ~newText:""
+                                                       (* will be set by the client *)
+                                                     ~range))
+                                              state.symbols );
+                                        ]
+                                      ());
+                             ])
+                       ());
+                ]
+            | { v = { terminal; alias = Some alias; _ }; _ }
+              when terminal = sym.v ->
+                [
+                  `CodeAction
+                    (CodeAction.create ~kind:Refactor
+                       ~title:
+                         ("Replace all occurrences of " ^ terminal
+                        ^ " with alias")
+                       ~edit:
+                         (WorkspaceEdit.create
+                            ~changes:
+                              [
+                                ( uri,
+                                  L.filter_map
+                                    (fun sym ->
+                                      let range =
+                                        Range.of_lexical_positions sym.p
+                                      in
+                                      if_
+                                        (fun _ ->
+                                          sym.v = terminal
+                                          && Range.compare sym_range range <> Eq)
+                                        (TextEdit.create ~newText:alias ~range))
+                                    state.symbols );
+                              ]
+                            ())
+                       ());
+                ]
+            | _ -> [])
+          state.tokens
+        |> some
+
     (* We define here a helper method that will:
             - process a document
             - store the state resulting from the processing

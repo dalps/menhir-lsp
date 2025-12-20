@@ -41,6 +41,15 @@
 			{
 				"title": "Menhir: Show Menhir Language Server Output",
 				"command": "menhir-lsp-client.showOutput"
+			},
+			{
+				"title": "Menhir: Restart Language Server",
+				"command": "menhir-lsp-client.showOutput"
+			},
+			{
+				"title": "Menhir: prompt new alias",
+				"enablement": "never",
+				"command": "menhir-lsp-client.promptAlias"
 			}
 		]
 	},

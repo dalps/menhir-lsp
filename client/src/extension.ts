@@ -6,6 +6,11 @@ import {
   LanguageClientOptions,
   ServerOptions,
   TransportKind,
+  ClientCapabilities,
+  RenameRequest,
+  WorkspaceEdit,
+  Range,
+  DocumentUri,
 } from "vscode-languageclient/node";
 
 let client: LanguageClient;
@@ -24,9 +29,17 @@ export function activate(context: vscode.ExtensionContext) {
     "Menhir Language Server"
   );
 
+  let traceOutputChannel = vscode.window.createOutputChannel(
+    "Menhir Language Server Trace"
+  );
+
   const clientOptions: LanguageClientOptions = {
     outputChannel,
-    documentSelector: [{ scheme: "file", language: "ocaml.menhir" }],
+    traceOutputChannel,
+    documentSelector: [
+      { scheme: "file", language: "ocaml.menhir" },
+      // { scheme: "file", language: "ocaml.ocamllex" },
+    ],
   };
 
   client = new LanguageClient(
@@ -36,9 +49,14 @@ export function activate(context: vscode.ExtensionContext) {
     clientOptions
   );
 
+  client.onRequest(RenameRequest.method, () => {
+    outputChannel.append("rename pls?");
+  });
+  client.outputChannel.show();
+
   let command = `which ${serverName}`;
 
-  exec(command, async (error, output, stderr) => {
+  exec(command, async (error: any, _output: any, _stderr: any) => {
     // server is there and we can start the client
     if (!error) {
       client.start();
@@ -69,8 +87,58 @@ export function activate(context: vscode.ExtensionContext) {
     outputChannel.show
   );
 
+  vscode.commands.registerCommand("menhir-lsp-client.restartClient", () => {
+    if (client.isRunning()) client.stop();
+
+    client.start();
+  });
+
+  vscode.commands.registerCommand(
+    "menhir-lsp-client.promptAlias",
+    async (
+      term: string,
+      range: Range,
+      rawUri: DocumentUri,
+      edit: WorkspaceEdit
+    ) => {
+      let input = await vscode.window.showInputBox({
+        prompt: "Insert a new token alias, double quotes included.",
+        title: "Replace all terminal occurrences with alias",
+        placeHolder: 'e.g. "+"',
+      });
+
+      if (!input) return;
+      if (!edit.changes) return;
+
+      const uri = vscode.Uri.parse(rawUri);
+      let w = new vscode.WorkspaceEdit();
+
+      w.replace(uri, liftRange(range), `${term} ${input}`);
+
+      // change the TextEdits received to use the user's typed value
+      [...Object.values(edit.changes)].forEach((textEdits) =>
+        textEdits.forEach((t) => {
+          t.newText = input;
+
+          w.replace(uri, liftRange(t.range), input);
+        })
+      );
+
+      vscode.workspace.applyEdit(w);
+    }
+  );
+
   vscode.window.showInformationMessage("Starting Menhir Client...");
 }
+
+const liftRange = (r: Range): vscode.Range => {
+  let { start, end } = r;
+
+  return new vscode.Range(
+    new vscode.Position(start.line, start.character),
+    new vscode.Position(end.line, end.character)
+  );
+};
 
 export function deactivate(): Thenable<void> | undefined {
   if (!client) {
