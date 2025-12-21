@@ -68,8 +68,20 @@ let completions_for_action (pos : Position.t) ({ grammar; _ } : state) :
         | _ -> branch.pb_position
       in
       if Position.compare_inclusion pos range = `Inside then
-        let+ binder, _, _ = branch.pb_producers in
-        CompletionItem.create ~kind:Variable ~label:binder.v ()
+        Keywords.position_keywords
+        @
+        let+ binder, par, _ = branch.pb_producers in
+        let binder =
+          O.(
+            CCString.chop_prefix ~pre:"_" binder.v
+            >|= ( ^ ) "$" |> get_or ~default:binder.v)
+        in
+        CompletionItem.create ~kind:Variable
+          ~detail:
+            (match par with
+            | M.Syntax.ParamVar p | M.Syntax.ParamApp (p, _) -> p.v
+            | M.Syntax.ParamAnonymous _ -> "")
+          ~label:binder ()
       else [])
   in
   comps
@@ -253,11 +265,16 @@ class lsp_server =
         Lwt.return
         @@
         let+ state = Hashtbl.find_opt buffers uri in
-        let comps = completions state @ completions_for_action pos state in
+        let comps =
+          match completions_for_action pos state with
+          | [] ->
+              completions state @ standard_lib_completions @ percent_completions
+          | l -> l
+        in
         notify_back#send_log_msg ~type_:MessageType.Info
           (Printf.sprintf "# completions: %d" (List.length comps))
         |> ignore;
-        `List (comps @ standard_lib_completions @ percent_completions)
+        `List comps
 
     method! config_symbol = Some (`Bool true)
 

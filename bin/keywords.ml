@@ -1,3 +1,5 @@
+open Utils
+
 let prec_decl_doc =
   {|Associate precedences and associativities to the given symbols. All symbols on the same line are given the same precedence. They have higher precedence than symbols declared before in a `%left`, `%right` or `%nonassoc` line. They have lower precedence than symbols declared after in a `%left`, `%right` or `%nonassoc` line. The symbols are declared to associate to the left (`%left`), to the right (`%right`), or to be non-associative (`%nonassoc`). The symbols are usually tokens. They can also be dummy nonterminals, for use with the `%prec` directive inside the rules.
 
@@ -37,3 +39,120 @@ let declarations =
       ( "nonassoc",
         [ {|#### `%nonassoc` *`symbol`* … *`symbol`*|}; prec_decl_doc ] );
     ]
+
+(** Source: https://cambium.inria.fr/~fpottier/menhir/manual.html#sec52 *)
+let position_keywords =
+  [
+    ( {|$startpos|},
+      None,
+      [
+        {|```
+$startpos
+```|};
+        {|start position of the first symbol in the production’s right-hand side, if there is one;|};
+        {|end position of the most recently parsed symbol, otherwise|};
+      ] );
+    ( {|$endpos|},
+      None,
+      [
+        {|```
+$endpos
+```|};
+        {|end position of the last symbol in the production’s right-hand side, if there is one;|};
+        {|end position of the most recently parsed symbol, otherwise|};
+      ] );
+    ( {|$startpos|},
+      Some "( $i | id )",
+      [
+        {|```
+$startpos( $i | id )
+```|};
+        {|start position of the symbol named `$i` or `id`|};
+      ] );
+    ( {|$endpos|},
+      Some {|( $i | id )|},
+      [
+        {|```
+$endpos( $i | id )
+```|};
+        {|end position of the symbol named `$i` or `id`|};
+      ] );
+    ( {|$symbolstartpos|},
+      None,
+      [
+        {|```
+$symbolstartpos
+```|};
+        {|start position of the leftmost symbol `id` such that `$startpos( id )` `!=` `$endpos( id )`;|};
+        {|if there is no such symbol, `$endpos`|};
+      ] );
+    ( {|$startofs|},
+      None,
+      [
+        {|```
+$startofs
+```|};
+        {|same as `$startpos`, but produce an integer offset instead of a position|};
+      ] );
+    ( {|$endofs|},
+      None,
+      [
+        {|```
+$endofs
+```|};
+        {|same as `$endpos`, but produce an integer offset instead of a position|};
+      ] );
+    ( {|$startofs|},
+      Some "( $i | id )",
+      [
+        {|```
+$startofs( $i | id )
+```|};
+        {|same as `$startpos`, but produce an integer offset instead of a position|};
+      ] );
+    ( {|$endofs|},
+      Some "( $i | id )",
+      [
+        {|```
+$endofs( $i | id )
+```|};
+        {|same as `$endpos`, but produce an integer offset instead of a position|};
+      ] );
+    ( {|$symbolstartofs|},
+      None,
+      [
+        {|```
+$symbolstartofs
+```|};
+        {|same as `$symbolstartpos`, but produce an integer offset instead of a position|};
+      ] );
+    ( {|$loc|},
+      None,
+      [ {|```
+$loc
+```|}; {|stands for the pair `($startpos, $endpos)`|} ] );
+    ( {|$loc|},
+      Some "( id )",
+      [
+        {|```
+$loc( id )
+```|};
+        {|stands for the pair `($startpos( id ), $endpos( id ))`|};
+      ] );
+    ( {|$sloc|},
+      None,
+      [
+        {|```
+$sloc
+```|}; {|stands for the pair `($symbolstartpos, $endpos)`|};
+      ] );
+  ]
+  |> L.map (fun (label, detail, docs) ->
+      let open Lsp.Types in
+      CompletionItem.create ~label
+        ~labelDetails:(CompletionItemLabelDetails.create ?detail ())
+        ~documentation:
+          (`MarkupContent
+             (MarkupContent.create ~kind:Markdown
+                ~value:(String.concat "\n\n" docs)))
+        ())
