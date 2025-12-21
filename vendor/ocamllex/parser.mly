@@ -52,16 +52,16 @@ let rec as_cset = function
 %token <int> Tchar
 %token <string> Tstring
 %token <Syntax.location> Taction
-%token Trule Tparse Tparse_shortest Tand Tequal Tend Tor Tunderscore Teof
-       Tlbracket Trbracket Trefill
-%token Tstar Tmaybe Tplus Tlparen Trparen Tcaret Tdash Tlet Tas Thash
+%token Trule "rule" Tparse "parse" Tparse_shortest "shortest" Tand "and" Tequal "=" Tend "EOF" Tor "|" Tunderscore "_" Teof
+       Tlbracket "[" Trbracket "]" Trefill "refill"
+%token Tstar "*" Tmaybe "?" Tplus "+" Tlparen "(" Trparen ")" Tcaret "^" Tdash "-" Tlet "let" Tas "as" Thash "#"
 
-%right Tas
-%left Tor
+%right "as"
+%left "|"
 %nonassoc CONCAT
-%nonassoc Tmaybe Tstar Tplus
-%left Thash
-%nonassoc Tident Tchar Tstring Tunderscore Teof Tlbracket Tlparen
+%nonassoc "?" "*" "+"
+%left "#"
+%nonassoc Tident Tchar Tstring "_" Teof "[" "("
 
 %start lexer_definition
 %type <Syntax.lexer_definition> lexer_definition
@@ -69,135 +69,105 @@ let rec as_cset = function
 %%
 
 lexer_definition:
-    header named_regexps refill_handler Trule definition other_definitions
-    header Tend
-        { {header = $1;
-           refill_handler = $3;
-           entrypoints = $5 :: List.rev $6;
-           trailer = $7} }
-;
+    header = header named_regexp* refill_handler = refill_handler? "rule" definitions = separated_list("and", definition) 
+    trailer = header "EOF"
+        { {header;
+           refill_handler;
+           entrypoints = definitions;
+           trailer} }
+
 header:
-    Taction
-        { $1 }
+    a = Taction
+        { a }
   | /*epsilon*/
-        { { loc_file = ""; start_pos = 0; end_pos = 0; start_line = 1;
-            start_col = 0 } }
-;
-named_regexps:
-    named_regexps Tlet Tident Tequal regexp
-        { Hashtbl.add named_regexps $3 $5 }
-  | /*epsilon*/
-        { () }
-;
-other_definitions:
-    other_definitions Tand definition
-        { $3::$1 }
-  | /*epsilon*/
-        { [] }
-;
+        { Range.(pos_zero, pos_zero) }
+
+named_regexp:
+    "let" name = Tident "=" re = regexp { Hashtbl.add named_regexps name re }
+
 refill_handler:
-  | Trefill Taction { Some $2 }
-  | /*empty*/ { None }
-;
+      "refill" a = Taction { a }
+
 definition:
-    Tident arguments Tequal Tparse entry
-        { {name=$1 ; shortest=false ; args=$2 ; clauses=$5} }
-  |  Tident arguments Tequal Tparse_shortest entry
-        { {name=$1 ; shortest=true ; args=$2 ; clauses=$5} }
-;
-
-arguments:
-    Tident arguments        { $1::$2 }
-|     /*epsilon*/           { [] }
-;
-
+    name = Tident args = list(Tident) "=" "parse" clauses = entry
+        { {name ; shortest=false ; args ; clauses} }
+  |  name = Tident args = list(Tident) "=" "shortest" clauses = entry
+        { {name ; shortest=true ; args ; clauses} }
 
 entry:
-    case rest_of_entry
-        { $1::List.rev $2 }
-|   Tor case rest_of_entry
-        { $2::List.rev $3 }
-;
+    l = separated_nonempty_list("|", case) { l }
 
-rest_of_entry:
-    rest_of_entry Tor case
-        { $3::$1 }
-  |
-        { [] }
-;
 case:
-    regexp Taction
-        { ($1,$2) }
-;
+    re = regexp a = Taction
+        { (re, a) }
+
 regexp:
-    Tunderscore
+    "_"
         { Characters Cset.all_chars }
   | Teof
         { Eof }
-  | Tchar
-        { Characters (Cset.singleton $1) }
-  | Tstring
-        { regexp_for_string $1 }
-  | Tlbracket char_class Trbracket
-        { Characters $2 }
-  | regexp Tstar
-        { Repetition $1 }
-  | regexp Tmaybe
-        { Alternative(Epsilon, $1) }
-  | regexp Tplus
-        { Sequence(Repetition (remove_as $1), $1) }
-  | regexp Thash regexp
+  | c = Tchar
+        { Characters (Cset.singleton c) }
+  | s = Tstring
+        { regexp_for_string s }
+  | "[" cls = char_class "]"
+        { Characters cls }
+  | re = regexp "*"
+        { Repetition re }
+  | re = regexp "?"
+        { Alternative(Epsilon, re) }
+  | re = regexp "+"
+        { Sequence(Repetition (remove_as re), re) }
+  | re1 = regexp "#" re2 = regexp
         {
-          let s1 = as_cset $1
-          and s2 = as_cset $3 in
+          let s1 = as_cset re1
+          and s2 = as_cset re2 in
           Characters (Cset.diff s1 s2)
         }
-  | regexp Tor regexp
-        { Alternative($1,$3) }
-  | regexp regexp %prec CONCAT
-        { Sequence($1,$2) }
-  | Tlparen regexp Trparen
-        { $2 }
-  | Tident
+  | re1 = regexp "|" re2 = regexp
+        { Alternative(re1, re2) }
+  | re1 = regexp re2 = regexp %prec CONCAT
+        { Sequence(re1, re2) }
+  | "(" re = regexp ")"
+        { re }
+  | ide = Tident
         { try
-            Hashtbl.find named_regexps $1
+            Hashtbl.find named_regexps ide
           with Not_found ->
-            let p = Parsing.symbol_start_pos () in
+            let p = $symbolstartpos in
             Printf.eprintf "File \"%s\", line %d, character %d:\n\
                              Reference to unbound regexp name `%s'.\n"
                            p.Lexing.pos_fname p.Lexing.pos_lnum
                            (p.Lexing.pos_cnum - p.Lexing.pos_bol)
-                           $1;
+                           ide;
             exit 2 }
-  | regexp Tas ident
-        {let p1 = Parsing.rhs_start_pos 3
-         and p2 = Parsing.rhs_end_pos 3 in
-         let p = {
-           loc_file = p1.Lexing.pos_fname ;
-           start_pos = p1.Lexing.pos_cnum ;
-           end_pos = p2.Lexing.pos_cnum ;
-           start_line = p1.Lexing.pos_lnum ;
-           start_col = p1.Lexing.pos_cnum - p1.Lexing.pos_bol ; } in
-         Bind ($1, ($3, p))}
-;
+  | re = regexp "as" ide = located(ident) { Bind (re, ide) }
 
 ident:
-  Tident {$1}
-;
+  ide = Tident { ide }
 
 char_class:
-    Tcaret char_class1
-        { Cset.complement $2 }
-  | char_class1
-        { $1 }
-;
+    "^" cls = char_class1
+        { Cset.complement cls }
+  | cls = char_class1
+        { cls }
+
 char_class1:
-    Tchar Tdash Tchar
-        { Cset.interval $1 $3 }
-  | Tchar
-        { Cset.singleton $1 }
-  | char_class1 char_class1 %prec CONCAT
-        { Cset.union $1 $2 }
-;
+    c1 = Tchar "-" c2 = Tchar
+        { Cset.interval c1 c2 }
+  | c = Tchar
+        { Cset.singleton c }
+  | cls1 = char_class1 cls2 = char_class1 %prec CONCAT
+        { Cset.union cls1 cls2 }
+
+
+(* -------------------------------------------------------------------------- *)
+
+(* [located(X)] recognizes the same language as [X] and converts the resulting
+   value from type ['a] to type ['a located]. *)
+
+located(X):
+  x = X
+    { x, $loc }
 
 %%

@@ -16,7 +16,6 @@
 (* The lexical analyzer for lexer definitions. Bootstrapped! *)
 
 {
-open Syntax
 open Parser
 
 (* Auxiliaries for the lexical analyzer *)
@@ -187,14 +186,9 @@ rule main = parse
         (Printf.sprintf "illegal escape sequence \\%c" c)
     }
   | '{'
-    { let p = Lexing.lexeme_end_p lexbuf in
-      let f = p.Lexing.pos_fname in
-      let n1 = p.Lexing.pos_cnum
-      and l1 = p.Lexing.pos_lnum
-      and s1 = p.Lexing.pos_bol in
-      let n2 = handle_lexical_error action [] lexbuf in
-      Taction({loc_file = f; start_pos = n1; end_pos = n2;
-               start_line = l1; start_col = n1 - s1}) }
+    { let p1 = Lexing.lexeme_end_p lexbuf in
+      let p2 = handle_lexical_error action [] lexbuf in
+      Taction((p1, p2)) }
   | '='  { Tequal }
   | '|'  { Tor }
   | '['  { Tlbracket }
@@ -320,7 +314,7 @@ and action stk = parse
       | _ -> raise_lexical_error lexbuf "Unmatched ) in action" }
   | '}'
     { match stk with
-      | [] -> Lexing.lexeme_start lexbuf
+      | [] -> Lexing.lexeme_start_p lexbuf (* [menhir-lsp] need position. *)
       | '{' :: stk' -> action stk' lexbuf
       | _ -> raise_lexical_error lexbuf "Unmatched } in action" }
   | '"'

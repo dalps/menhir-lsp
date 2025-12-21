@@ -15,13 +15,7 @@
 
 (* The shallow abstract syntax *)
 
-type location = {
-  loc_file : string;
-  start_pos : int;
-  end_pos : int;
-  start_line : int;
-  start_col : int;
-}
+type location = Range.range
 
 type regular_expression =
     Epsilon

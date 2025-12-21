@@ -15,8 +15,8 @@
 (**************************************************************************)
 
 open Printf
-open Syntax
 open Lexgen
+open Range
 
 
 (* To copy the ML code fragments *)
@@ -71,16 +71,16 @@ let copy_chars =
   | _       -> copy_chars_unix
 
 let copy_chunk ic oc trl loc add_parens =
-  if loc.start_pos < loc.end_pos || add_parens then begin
-    fprintf oc "# %d \"%s\"\n" loc.start_line loc.loc_file;
+  if (startofs loc) < (endofs loc) || add_parens then begin
+    fprintf oc "# %d \"%s\"\n" (startline loc) (filename loc);
     if add_parens then begin
-      for _i = 1 to loc.start_col - 1 do output_char oc ' ' done;
+      for _i = 1 to (startcol loc) - 1 do output_char oc ' ' done;
       output_char oc '(';
     end else begin
-      for _i = 1 to loc.start_col do output_char oc ' ' done;
+      for _i = 1 to (startcol loc) do output_char oc ' ' done;
     end;
-    seek_in ic loc.start_pos;
-    copy_chars ic oc loc.start_pos loc.end_pos;
+    seek_in ic (startofs loc);
+    copy_chars ic oc (startofs loc) (endofs loc);
     if add_parens then output_char oc ')';
     update_tracker trl;
   end
@@ -134,7 +134,7 @@ let output_env ic oc tr env =
       let env =
         List.sort
           (fun ((_,p1),_) ((_,p2),_) ->
-            Stdlib.compare p1.start_pos  p2.start_pos)
+            Stdlib.compare (startofs p1)  (startofs p2))
           env in
 
       List.iter
