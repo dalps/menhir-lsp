@@ -19,16 +19,20 @@
 (* The shallow abstract syntax *)
 
 open Located
-type location = Range.range
+open Range
+
+exception SyntaxError of string located
+
+type location = range
 
 type regular_expression =
-    Epsilon
+  | Epsilon
   | Characters of Cset.t
   | Eof
   | Sequence of regular_expression * regular_expression
   | Alternative of regular_expression * regular_expression
   | Repetition of regular_expression
-  | Bind of regular_expression * (string located)
+  | Bind of regular_expression * string located
 
 type ('arg,'action) entry =
   {name:string located;
@@ -41,5 +45,5 @@ type lexer_definition = {
   entrypoints: ((string located list, location) entry) list;
   trailer: location;
   refill_handler : location option;
-  named_regexps: (string located, regular_expression) Hashtbl.t
+  named_regexps: (string, location * regular_expression) Hashtbl.t
 }

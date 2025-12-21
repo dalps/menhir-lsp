@@ -246,7 +246,25 @@ class lsp_server =
 
     (* one env per document *)
     val buffers : (uri, state) Hashtbl.t = Hashtbl.create 32
+    val mll_buffers : (uri, Ocamllex.state) Hashtbl.t = Hashtbl.create 32
     method spawn_query_handler f = Linol_lwt.spawn f
+
+    method private _dispatch : type r.
+        uri ->
+        notify_back:Linol_lwt.Jsonrpc2.notify_back ->
+        mll_handler:(Ocamllex.state -> r) ->
+        mly_handler:(state -> r) ->
+        r option =
+      fun uri ~notify_back ~mll_handler ~mly_handler ->
+        let filename = DocumentUri.to_path uri in
+        let open O in
+        notify_back#send_log_msg ~type_:Debug
+          (spr "Looking for %s's buffer" filename)
+        |> ignore;
+        match Filename.extension filename with
+        | ".mll" -> Hashtbl.find_opt mll_buffers uri >|= mll_handler
+        | ".mly" -> Hashtbl.find_opt buffers uri >|= mly_handler
+        | ext -> failwith @@ spr "Unhandled document type %s" ext
 
     method! config_completion =
       Some
@@ -283,13 +301,17 @@ class lsp_server =
           _unit ->
         Lwt.return
         @@
-        let open O in
-        let+ state = Hashtbl.find_opt buffers uri in
-        let syms = document_symbols state in
-        notify_back#send_log_msg ~type_:MessageType.Info
-          (Printf.sprintf "# symbols: %d" (List.length syms))
-        |> ignore;
-        `DocumentSymbol syms
+        let symo =
+          self#_dispatch uri ~notify_back ~mll_handler:Ocamllex.document_symbols
+            ~mly_handler:document_symbols
+        in
+        O.map
+          (fun syms ->
+            notify_back#send_log_msg ~type_:MessageType.Info
+              (Printf.sprintf "# symbols: %d" (List.length syms))
+            |> ignore;
+            `DocumentSymbol syms)
+          symo
 
     method! config_definition = Some (`Bool true)
 
@@ -543,18 +565,45 @@ class lsp_server =
     *)
     method private _on_doc ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         (uri : uri) (contents : string) =
-      Printf.eprintf "Processing document %s\n" @@ DocumentUri.to_path uri;
-      let%lwt new_state, new_diags =
-        match load_state_from_contents (DocumentUri.to_path uri) contents with
-        | Ok new_state ->
-            Hashtbl.replace buffers uri new_state;
-            Lwt.return (Some new_state, [])
-        | Error diags ->
-            (* Reuse the old state *)
-            Lwt.return (Hashtbl.find_opt buffers uri, diags)
+      let filename = DocumentUri.to_path uri in
+      let%lwt _ =
+        notify_back#send_log_msg ~type_:Info
+          (spr "Processing document %s\n" filename)
       in
-      let diags = O.map_or ~default:[] diagnostics new_state in
-      notify_back#send_diagnostic (diags @ new_diags)
+      match Filename.extension filename with
+      | ".mll" -> (
+          try%lwt
+            let grammar = OcamllexSyntax.Main.parse_string contents in
+            Hashtbl.replace mll_buffers uri { grammar };
+            notify_back#send_diagnostic []
+          with
+          | OcamllexSyntax.Syntax.SyntaxError loc ->
+              notify_back#send_diagnostic
+                [
+                  Diagnostic.create
+                    ~range:(Range.of_lexical_positions loc.p)
+                    ~message:(`String loc.v) ();
+                ]
+          | _ ->
+              notify_back#send_diagnostic
+                [
+                  Diagnostic.create ~range:Range.first_line
+                    ~message:(`String "There are syntax errors") ();
+                ])
+      | ".mly" ->
+          let%lwt new_state, new_diags =
+            match load_state_from_contents filename contents with
+            | Ok new_state ->
+                Hashtbl.replace buffers uri new_state;
+                Lwt.return (Some new_state, [])
+            | Error diags ->
+                (* Reuse the old state *)
+                Lwt.return (Hashtbl.find_opt buffers uri, diags)
+          in
+          let diags = O.map_or ~default:[] diagnostics new_state in
+          notify_back#send_diagnostic (diags @ new_diags)
+      | ext ->
+          notify_back#send_log_msg ~type_:Error (spr "Unknown file type %s" ext)
 
     (* We now override the [on_notify_doc_did_open] method that will be called
       by the server each time a new document is opened. *)

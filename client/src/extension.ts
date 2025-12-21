@@ -38,7 +38,7 @@ export function activate(context: vscode.ExtensionContext) {
     traceOutputChannel,
     documentSelector: [
       { scheme: "file", language: "ocaml.menhir" },
-      // { scheme: "file", language: "ocaml.ocamllex" },
+      { scheme: "file", language: "ocaml.ocamllex" },
     ],
   };
 

@@ -18,7 +18,8 @@
 		"Programming Languages"
 	],
 	"activationEvents": [
-		"onLanguage:ocaml.menhir"
+		"onLanguage:ocaml.menhir",
+		"onLanguage:ocaml.ocamllex"
 	],
 	"contributes": {
 		"languages": [

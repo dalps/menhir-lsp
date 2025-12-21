@@ -16,6 +16,9 @@
 (* The shallow abstract syntax *)
 
 open Located
+
+exception SyntaxError of string located
+
 type location = Range.range (* [menhir-lsp] changed. *)
 
 type regular_expression =
@@ -38,5 +41,5 @@ type lexer_definition = {
   entrypoints: ((string located list, location) entry) list;
   trailer: location;
   refill_handler : location option;
-  named_regexps: (string located, regular_expression) Hashtbl.t;
+  named_regexps: (string, location * regular_expression) Hashtbl.t;
 }
