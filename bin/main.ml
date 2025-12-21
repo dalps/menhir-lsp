@@ -52,6 +52,28 @@ let standard_lib =
   Standard.menhir_standard_library_grammar |> load_state_from_partial_grammar
   |> R.get_exn
 
+(** If we are inside a semantic action, we shall suggest the binders declared in
+    the current branch *)
+let completions_for_action (pos : Position.t) ({ grammar; _ } : state) :
+    CompletionItem.t list =
+  let comps =
+    L.(
+      let* rule = grammar.pg_rules in
+      let* branch = rule.pr_branches in
+      let range =
+        Range.of_lexical_positions
+        @@
+        match branch.pb_action.expr with
+        | M.IL.ETextual { p; _ } -> p
+        | _ -> branch.pb_position
+      in
+      if Position.compare_inclusion pos range = `Inside then
+        let+ binder, _, _ = branch.pb_producers in
+        CompletionItem.create ~kind:Variable ~label:binder.v ()
+      else [])
+  in
+  comps
+
 let completions ?(docs : (string, string) Hashtbl.t = Hashtbl.create 0)
     ({ tokens; grammar; _ } : state) : CompletionItem.t list =
   let open MenhirSyntax.Syntax in
@@ -225,13 +247,13 @@ class lsp_server =
         }
 
     method! on_req_completion =
-      fun ~notify_back ~id:_ ~uri ~pos:_ ~ctx:_ ~workDoneToken:_
+      fun ~notify_back ~id:_ ~uri ~pos ~ctx:_ ~workDoneToken:_
           ~partialResultToken:_ _doc_state ->
         let open O in
         Lwt.return
         @@
         let+ state = Hashtbl.find_opt buffers uri in
-        let comps = completions state in
+        let comps = completions state @ completions_for_action pos state in
         notify_back#send_log_msg ~type_:MessageType.Info
           (Printf.sprintf "# completions: %d" (List.length comps))
         |> ignore;
@@ -543,7 +565,6 @@ let run () =
   let s = new lsp_server in
   let server = Linol_lwt.Jsonrpc2.create_stdio ~env:() s in
   let task =
-    (* don't print to stdout, it's already being used by the protocol, duh -_- *)
     prerr_endline "Started LSP server";
     let shutdown () = s#get_status = `ReceivedExit in
     Linol_lwt.Jsonrpc2.run ~shutdown server
