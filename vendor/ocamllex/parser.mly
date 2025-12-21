@@ -17,11 +17,12 @@
 
 %{
 open Syntax
+open Located
 
 (* Auxiliaries for the parser. *)
 
 let named_regexps =
-  (Hashtbl.create 13 : (string, regular_expression) Hashtbl.t)
+  (Hashtbl.create 13 : (string located, regular_expression) Hashtbl.t)
 
 let regexp_for_string s =
   let rec re_string n =
@@ -74,7 +75,8 @@ lexer_definition:
         { {header;
            refill_handler;
            entrypoints = definitions;
-           trailer} }
+           trailer;
+           named_regexps} }
 
 header:
     a = Taction
@@ -83,15 +85,16 @@ header:
         { Range.(pos_zero, pos_zero) }
 
 named_regexp:
-    "let" name = Tident "=" re = regexp { Hashtbl.add named_regexps name re }
+    "let" name = located(Tident) "=" re = regexp { Hashtbl.add named_regexps name re }
 
 refill_handler:
       "refill" a = Taction { a }
 
+(* [menhir-lsp] located name and args. *)
 definition:
-    name = Tident args = list(Tident) "=" "parse" clauses = entry
+    name = located(Tident) args = list(located(Tident)) "=" "parse" clauses = entry
         { {name ; shortest=false ; args ; clauses} }
-  |  name = Tident args = list(Tident) "=" "shortest" clauses = entry
+  |  name = located(Tident) args = list(located(Tident)) "=" "shortest" clauses = entry
         { {name ; shortest=true ; args ; clauses} }
 
 entry:
@@ -130,7 +133,7 @@ regexp:
         { Sequence(re1, re2) }
   | "(" re = regexp ")"
         { re }
-  | ide = Tident
+  | ide = located(Tident)
         { try
             Hashtbl.find named_regexps ide
           with Not_found ->
@@ -139,7 +142,7 @@ regexp:
                              Reference to unbound regexp name `%s'.\n"
                            p.Lexing.pos_fname p.Lexing.pos_lnum
                            (p.Lexing.pos_cnum - p.Lexing.pos_bol)
-                           ide;
+                           ide.v;
             exit 2 }
   | re = regexp "as" ide = located(ident) { Bind (re, ide) }
 
@@ -168,6 +171,6 @@ char_class1:
 
 located(X):
   x = X
-    { x, $loc }
+    { Located.locate $loc x }
 
 %%

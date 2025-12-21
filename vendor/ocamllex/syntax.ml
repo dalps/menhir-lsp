@@ -18,6 +18,7 @@
 
 (* The shallow abstract syntax *)
 
+open Located
 type location = Range.range
 
 type regular_expression =
@@ -27,17 +28,18 @@ type regular_expression =
   | Sequence of regular_expression * regular_expression
   | Alternative of regular_expression * regular_expression
   | Repetition of regular_expression
-  | Bind of regular_expression * (string * location)
+  | Bind of regular_expression * (string located)
 
 type ('arg,'action) entry =
-  {name:string ;
+  {name:string located;
    shortest : bool ;
    args : 'arg ;
    clauses : (regular_expression * 'action) list}
 
 type lexer_definition = {
   header: location;
-  entrypoints: ((string list, location) entry) list;
+  entrypoints: ((string located list, location) entry) list;
   trailer: location;
   refill_handler : location option;
+  named_regexps: (string located, regular_expression) Hashtbl.t
 }
