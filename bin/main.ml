@@ -122,46 +122,23 @@ class lsp_server =
         | Lsp.Client_request.TextDocumentRename (r : RenameParams.t) ->
             notify_back#send_log_msg ~type_:Info
               (spr "Client requested rename at position: %s"
-                 (Position.show r.position))
-            |> ignore;
+                 (Position.show r.position));%lwt
             self#_on_req_rename ~notify_back r.newName ~pos:r.position ~id
               ~uri:r.textDocument.uri
         | Lsp.Client_request.TextDocumentReferences (r : ReferenceParams.t) ->
             notify_back#send_log_msg ~type_:Info
               (spr "Client requested references at position: %s"
-                 (Position.show r.position))
-            |> ignore;
+                 (Position.show r.position));%lwt
             self#_on_req_references ~notify_back ~id ~pos:r.position
               ~uri:r.textDocument.uri
         | _ -> Lwt.fail_with "unhandled request type"
 
     method private _on_req_references =
-      fun ~notify_back:_ ~id:_ ~uri ~pos : Location.t list option Lwt.t ->
+      fun ~notify_back ~id:_ ~uri ~pos : Location.t list option Lwt.t ->
         Lwt.return
-        @@
-        let open O in
-        let* state = Hashtbl.find_opt mly_buffers uri in
-        let open Mly in
-        let* _sym_range, sym = symbol_at_position state pos in
-        (* Is it a token alias? If so, use token's full name. *)
-        let sym_name =
-          get_or ~default:sym.v
-            (L.find_map
-               (fun t ->
-                 let* alias = t.v.alias in
-                 if_ (fun _ -> alias = sym.v) alias)
-               state.tokens)
-        in
-        epr "Looking for references of %s\n" sym_name;
-        Some
-          (L.filter_map
-             (fun { v; p } ->
-               epr "Comparing with %s at %s\n" v
-                 Range.(show @@ of_lexical_positions p);
-               if_
-                 (fun _ -> v = sym_name)
-                 (Location.create ~uri ~range:(Range.of_lexical_positions p)))
-             state.symbols)
+        @@ self#_dispatch uri ~notify_back
+             ~mly_handler:(Mly.references ~uri ~pos)
+             ~mll_handler:(Mll.references ~uri ~pos)
 
     method private _on_req_prepare_rename =
       fun ~notify_back:_ ~id:_ ~uri ~pos : Range.t option Lwt.t ->
@@ -202,36 +179,11 @@ class lsp_server =
     method! on_req_definition =
       fun ~notify_back ~id:_ ~uri ~pos ~workDoneToken:_ ~partialResultToken:_
           _doc_state ->
+        Log.info (fun k -> k "Request definition at pos %s" (Position.show pos));
         Lwt.return
-        @@
-        let open O in
-        let* state = Hashtbl.find_opt mly_buffers uri in
-        notify_back#send_log_msg ~type_:MessageType.Info
-          (spr "Request definition at pos %s" (Position.show pos))
-        |> ignore;
-        (* Get the symbol under the cursor, if any. *)
-        let open Mly in
-        let* _sym_range, sym = symbol_at_position state pos in
-        notify_back#send_log_msg ~type_:MessageType.Info
-          (spr "Symbol under cursor: %s %s" sym.v (Range.show _sym_range))
-        |> ignore;
-        (* Search for the symbol in the terminals or in the nonterminals. *)
-        (let+ token =
-           L.find_opt
-             (fun (t : token located) ->
-               String.equal t.v.terminal sym.v || t.v.alias = Some sym.v)
-             state.tokens
-         in
-         `Location
-           [ Location.create ~range:(Range.of_lexical_positions token.p) ~uri ])
-        <+> let+ nt =
-              L.find_map
-                (fun (r : M.Syntax.parameterized_rule) ->
-                  if String.equal r.pr_nt.v sym.v then Some r.pr_nt else None)
-                state.grammar.pg_rules
-            in
-            `Location
-              [ Location.create ~range:(Range.of_lexical_positions nt.p) ~uri ]
+        @@ self#_dispatch uri ~notify_back
+             ~mly_handler:(Mly.definition ~uri ~pos)
+             ~mll_handler:(Mll.definition ~uri ~pos)
 
     method! config_hover = Some (`Bool true)
 
@@ -354,43 +306,26 @@ class lsp_server =
     method private _on_doc ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         (uri : uri) (contents : string) =
       let filename = DocumentUri.to_path uri in
-      let%lwt _ =
-        notify_back#send_log_msg ~type_:Info
-          (spr "Processing document %s\n" filename)
+      notify_back#send_log_msg ~type_:Info
+        (spr "Processing document %s\n" filename);%lwt
+      let go buffers loader diagnose =
+        let%lwt new_state, new_diags =
+          match loader filename contents with
+          | Ok new_state ->
+              Hashtbl.replace buffers uri new_state;
+              Lwt.return (Some new_state, [])
+          | Error diags -> Lwt.return (Hashtbl.find_opt buffers uri, diags)
+        in
+        (* diagnoses for the new state (empty) *)
+        let diags = O.map_or ~default:[] diagnose new_state in
+        notify_back#send_diagnostic (diags @ new_diags)
       in
       match Filename.extension filename with
-      | ".mll" -> (
-          try%lwt
-            let grammar = OcamllexSyntax.Main.parse_string contents in
-            Hashtbl.replace mll_buffers uri { grammar };
-            notify_back#send_diagnostic []
-          with
-          | OcamllexSyntax.Syntax.SyntaxError loc ->
-              notify_back#send_diagnostic
-                [
-                  Diagnostic.create
-                    ~range:(Range.of_lexical_positions loc.p)
-                    ~message:(`String loc.v) ();
-                ]
-          | _ ->
-              notify_back#send_diagnostic
-                [
-                  Diagnostic.create ~range:Range.first_line
-                    ~message:(`String "There are syntax errors") ();
-                ])
-      | ".mly" ->
-          let open Mly in
-          let%lwt new_state, new_diags =
-            match load_state_from_contents filename contents with
-            | Ok new_state ->
-                Hashtbl.replace mly_buffers uri new_state;
-                Lwt.return (Some new_state, [])
-            | Error diags -> Lwt.return (Hashtbl.find_opt mly_buffers uri, diags)
-          in
-          let diags = O.map_or ~default:[] diagnostics new_state in
-          notify_back#send_diagnostic (diags @ new_diags)
+      | ".mll" -> go mll_buffers Mll.load_state_from_contents Mll.diagnostics
+      | ".mly" -> go mly_buffers Mly.load_state_from_contents Mly.diagnostics
       | ext ->
-          notify_back#send_log_msg ~type_:Error (spr "Unknown file type %s" ext)
+          notify_back#send_log_msg ~type_:Error
+          @@ spr "Unhandled document type %s" ext
 
     (* We now override the [on_notify_doc_did_open] method that will be called
       by the server each time a new document is opened. *)

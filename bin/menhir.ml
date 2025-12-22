@@ -274,3 +274,48 @@ let diagnostics (_state : state) : Lsp.Types.Diagnostic.t list =
             ())
     state.tokens *)
   []
+
+let references (state : state) ~uri ~(pos : Position.t) : Location.t list =
+  (let open O in
+   let* _sym_range, sym = symbol_at_position state pos in
+   (* Is it a token alias? If so, use token's full name. *)
+   let sym_name =
+     get_or ~default:sym.v
+       (L.find_map
+          (fun t ->
+            let* alias = t.v.alias in
+            if_ (fun _ -> alias = sym.v) alias)
+          state.tokens)
+   in
+   epr "Looking for references of %s\n" sym_name;
+   Some
+     (L.filter_map
+        (fun { v; p } ->
+          epr "Comparing with %s at %s\n" v
+            Range.(show @@ of_lexical_positions p);
+          if_
+            (fun _ -> v = sym_name)
+            (Location.create ~uri ~range:(Range.of_lexical_positions p)))
+        state.symbols))
+  |> O.to_list |> L.flatten
+
+let definition (state : state) ~uri ~(pos : Position.t) : Locations.t =
+  let open O in
+  (* Get the symbol under the cursor, if any. *)
+  (let* _sym_range, sym = symbol_at_position state pos in
+   (* Search for the symbol in the terminals or in the nonterminals. *)
+   let+ def =
+     L.find_map
+       (fun (t : token located) ->
+         if_
+           (fun _ -> String.equal t.v.terminal sym.v || t.v.alias = Some sym.v)
+           (locate t.p t.v.terminal))
+       state.tokens
+     <+> L.find_map
+           (fun (r : M.Syntax.parameterized_rule) ->
+             if_ (fun _ -> String.equal r.pr_nt.v sym.v) r.pr_nt)
+           state.grammar.pg_rules
+   in
+   Location.create ~range:(Range.of_lexical_positions def.p) ~uri)
+  |> O.to_list
+  |> fun locs -> `Location locs
