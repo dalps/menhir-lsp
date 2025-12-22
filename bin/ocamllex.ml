@@ -14,7 +14,13 @@ let process_symbols (grammar : Syntax.lexer_definition) : string located list =
   let rec visit_entry (entry : (string located list, location) entry) =
     (entry.name :: entry.args)
     @ (entry.clauses >>= fun (re, _action) -> visit_regexp re)
-  and visit_regexp = function Bind (_, n) -> [ n ] | _ -> []
+  and visit_regexp = function
+    | Sequence (re1, re2) | Alternative (re1, re2) ->
+        visit_regexp re1 @ visit_regexp re2
+    | Repetition re -> visit_regexp re
+    | Bind (re, n) -> n :: visit_regexp re
+    | Ref n -> [ n ]
+    | Characters _ | _ -> []
   and visit_named_regexp
       ((name, (loc, regexp)) : string * (location * regular_expression)) =
     locate loc name :: visit_regexp regexp
@@ -23,7 +29,7 @@ let process_symbols (grammar : Syntax.lexer_definition) : string located list =
   let* s_regexps = CCHashtbl.to_list grammar.named_regexps in
   visit_entry s_entries @ visit_named_regexp s_regexps
 
-(* repetitive, functorize *)
+(* repetitive, move to a functor *)
 let symbol_at_position (state : state) (pos : Position.t) :
     (Range.t * string located) option =
   L.find_map

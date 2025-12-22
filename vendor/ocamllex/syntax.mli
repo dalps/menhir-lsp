@@ -28,7 +28,8 @@ type regular_expression =
   | Sequence of regular_expression * regular_expression
   | Alternative of regular_expression * regular_expression
   | Repetition of regular_expression
-  | Bind of regular_expression * (string located)
+  | Ref of string located (* added by [menhir-lsp] *)
+  | Bind of regular_expression * string located
 
 type ('arg,'action) entry =
   {name:string  located;

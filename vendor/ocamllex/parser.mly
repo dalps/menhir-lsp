@@ -22,7 +22,7 @@ open Located
 (* Auxiliaries for the parser. *)
 
 let named_regexps =
-  (Hashtbl.create 13 : (string located, regular_expression) Hashtbl.t)
+  (Hashtbl.create 13 : (string, Range.range * regular_expression) Hashtbl.t)
 
 let regexp_for_string s =
   let rec re_string n =
@@ -40,6 +40,7 @@ let rec remove_as = function
   | Epsilon|Eof|Characters _ as e -> e
   | Sequence (e1, e2) -> Sequence (remove_as e1, remove_as e2)
   | Alternative (e1, e2) -> Alternative (remove_as e1, remove_as e2)
+  | Ref ide -> remove_as (Hashtbl.find named_regexps ide.v |> snd) (* [menhir-lsp] handled. *)
   | Repetition e -> Repetition (remove_as e)
 
 let rec as_cset = function
@@ -76,7 +77,10 @@ lexer_definition:
            refill_handler;
            entrypoints = definitions;
            trailer;
-           named_regexps} }
+           named_regexps = 
+            let h = Hashtbl.copy named_regexps in 
+            Hashtbl.reset named_regexps;
+            h} }
 
 header:
     a = Taction
@@ -85,7 +89,7 @@ header:
         { Range.(pos_zero, pos_zero) }
 
 named_regexp:
-    "let" name = located(Tident) "=" re = regexp { Hashtbl.add named_regexps name re }
+    "let" name = located(Tident) "=" re = regexp { Hashtbl.add named_regexps name.v (name.p, re) }
 
 refill_handler:
       "refill" a = Taction { a }
@@ -98,7 +102,7 @@ definition:
         { {name ; shortest=true ; args ; clauses} }
 
 entry:
-    l = separated_nonempty_list("|", case) { l }
+    option("|") l = separated_nonempty_list("|", case) { l }
 
 case:
     re = regexp a = Taction
@@ -135,15 +139,11 @@ regexp:
         { re }
   | ide = located(Tident)
         { try
-            Hashtbl.find named_regexps ide
+            Hashtbl.find named_regexps ide.v |> ignore;
+            Ref ide
           with Not_found ->
-            let p = $symbolstartpos in
-            Printf.eprintf "File \"%s\", line %d, character %d:\n\
-                             Reference to unbound regexp name `%s'.\n"
-                           p.Lexing.pos_fname p.Lexing.pos_lnum
-                           (p.Lexing.pos_cnum - p.Lexing.pos_bol)
-                           ide.v;
-            exit 2 }
+            let msg = Printf.sprintf "Reference to unbound regexp name `%s'.\n" ide.v in
+            raise (SyntaxError (locate ide.p msg)) }
   | re = regexp "as" ide = located(ident) { Bind (re, ide) }
 
 ident:
