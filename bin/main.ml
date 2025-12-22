@@ -1,234 +1,10 @@
-(* This module is modelled after Linol's Lwt template:
+(* This module is based on Linol's Lwt template:
 https://github.com/c-cube/linol/blob/main/example/template-lwt/main.ml *)
 
-open Types
-open Linol_lsp.Types
 open Utils
 open Loc
-
-let load_state_from_partial_grammar (grammar : M.Syntax.partial_grammar) :
-    (state, Diagnostic.t list) result =
-  let symbols = Symbol_visitor.process_symbols grammar in
-  try
-    let tokens : tokens =
-      List.filter_map
-        (function
-          | ({
-               p;
-               v = M.Syntax.DToken (ocamltype, terminal, alias, _attributes);
-             } :
-              M.Syntax.declaration located) ->
-              Some
-                { p; v = ({ ocamltype; terminal; alias; _attributes } : token) }
-          | _ -> None)
-        grammar.pg_declarations
-    in
-    Ok { grammar; tokens; symbols }
-  with exn ->
-    let diags =
-      match exn with
-      | M.ParserAux.ParserError { v = msg; p }
-      | M.Lexer.LexerError { v = msg; p } ->
-          [
-            Diagnostic.create ~message:(`String msg)
-              ~range:(Range.of_lexical_positions p)
-              ();
-          ]
-      | M.Parser.Error ->
-          [
-            Diagnostic.create ~message:(`String "There are syntax errors.")
-              ~range:Range.first_line ();
-          ]
-      | _ -> []
-    in
-    Error diags
-
-let load_state_from_contents (file_name : string) (file_contents : string) :
-    (state, Diagnostic.t list) result =
-  M.Main.load_grammar_from_contents 0 file_name file_contents
-  |> load_state_from_partial_grammar
-
-let standard_lib =
-  Standard.menhir_standard_library_grammar |> load_state_from_partial_grammar
-  |> R.get_exn
-
-(** If we are inside a semantic action, we shall suggest the binders declared in
-    the current branch *)
-let completions_for_action (pos : Position.t) ({ grammar; _ } : state) :
-    CompletionItem.t list =
-  let comps =
-    L.(
-      let* rule = grammar.pg_rules in
-      let* branch = rule.pr_branches in
-      let range =
-        Range.of_lexical_positions
-        @@
-        match branch.pb_action.expr with
-        | M.IL.ETextual { p; _ } -> p
-        | _ -> branch.pb_position
-      in
-      if Position.compare_inclusion pos range = `Inside then
-        Keywords.position_keywords
-        @
-        let+ binder, par, _ = branch.pb_producers in
-        let binder =
-          O.(
-            CCString.chop_prefix ~pre:"_" binder.v
-            >|= ( ^ ) "$" |> get_or ~default:binder.v)
-        in
-        CompletionItem.create ~kind:Variable
-          ~detail:
-            (match par with
-            | M.Syntax.ParamVar p | M.Syntax.ParamApp (p, _) -> p.v
-            | M.Syntax.ParamAnonymous _ -> "")
-          ~label:binder ()
-      else [])
-  in
-  comps
-
-let completions ?(docs : (string, string) Hashtbl.t = Hashtbl.create 0)
-    ({ tokens; grammar; _ } : state) : CompletionItem.t list =
-  let open MenhirSyntax.Syntax in
-  CCList.flat_map
-    (fun (t : token located) ->
-      let comp = CompletionItem.create ~kind:CompletionItemKind.Constant in
-      let type_doc =
-        O.(
-          map
-            (fun t ->
-              match t with
-              | Declared { v; _ } | Inferred v ->
-                  `MarkupContent
-                    (MarkupContent.create ~kind:Markdown
-                       ~value:(Utils.md_fenced v)))
-            t.v.ocamltype)
-      in
-
-      let ld =
-        CompletionItemLabelDetails.create
-          ?detail:
-            O.(
-              t.v.ocamltype >|= fun typ ->
-              ": " ^ match typ with Declared { v; _ } | Inferred v -> v)
-      in
-      comp ~label:t.v.terminal ?documentation:type_doc ~labelDetails:(ld ()) ()
-      :: O.(
-           t.v.alias
-           >|= (fun alias ->
-           let description = "alias for " ^ t.v.terminal in
-           comp ~label:alias ~detail:description
-             ?documentation:type_doc
-               (* This is persistent text that sits next to the label.
-           The previous ~detail argument won't be shown while scrolling
-           if there is ~labelDetails. *)
-             ~labelDetails:(ld ~description:t.v.terminal ())
-             ())
-           |> to_list))
-    tokens
-  @ List.map
-      (fun (rule : parameterized_rule) ->
-        let label = rule.pr_nt.v in
-        let comp =
-          CompletionItem.create ~kind:CompletionItemKind.Function ~label
-            ?documentation:
-              O.(
-                CCHashtbl.get docs label >|= fun doc ->
-                `MarkupContent (MarkupContent.create ~kind:Markdown ~value:doc))
-            ~labelDetails:
-              (CompletionItemLabelDetails.create
-                 ~detail:
-                   (match rule.pr_parameters with
-                   | [] -> ""
-                   | _ ->
-                       L.to_string ~start:"(" ~stop:")"
-                         (fun { p = _; v } -> v)
-                         rule.pr_parameters)
-                 ())
-        in
-        comp ())
-      grammar.pg_rules
-
-let percent_completions =
-  CCHashtbl.map_list
-    (fun k doclines ->
-      let c =
-        CompletionItem.create ~kind:CompletionItemKind.Keyword
-          ~documentation:
-            (`MarkupContent
-               (MarkupContent.create ~kind:Markdown
-                  ~value:(CCString.concat "\n\n" doclines)))
-      in
-      if k = "token_t" then
-        c ~label:"%token" ~insertTextFormat:InsertTextFormat.Snippet
-          ~insertText:"token <$1> $0"
-          ~labelDetails:
-            (CompletionItemLabelDetails.create ~detail:" <typexpr>" ())
-          ()
-      else c ~label:("%" ^ k) ~insertText:k ())
-    Keywords.declarations
-
-let standard_lib_completions =
-  completions standard_lib ~docs:Standard.menhir_standard_library_doc
-
-let document_symbols ({ grammar = { pg_rules; _ }; tokens; _ } : state) :
-    DocumentSymbol.t list =
-  (* Here we extract a listing of the defined tokens and grammar rules. *)
-  CCList.(
-    ( tokens >|= fun t ->
-      let range = Range.of_lexical_positions t.p in
-      DocumentSymbol.create ~kind:SymbolKind.Constant ~name:t.v.terminal ~range
-        ~selectionRange:range
-        ~detail:(CCOption.get_or ~default:"" t.v.alias)
-        () )
-    @ ( pg_rules >|= fun t ->
-        let range = Range.of_lexical_positions t.pr_nt.p in
-        DocumentSymbol.create ~kind:SymbolKind.Function ~name:t.pr_nt.v ~range
-          ~selectionRange:range () ))
-
-let symbol_at_position (state : state) (pos : Position.t) :
-    (Range.t * string located) option =
-  L.find_map
-    (fun (s : string located) ->
-      let rng = Range.of_lexical_positions s.p in
-      let res = Position.compare_inclusion pos rng = `Inside in
-      if res then Some (rng, s) else None)
-    state.symbols
-
-(** Produce hover information at a particular position. For:
-    - token aliases, we display their full name;
-    - standard library rules, their documentation; *)
-let hover (state : state) (pos : Position.t) =
-  let open O in
-  let* rng, sym = symbol_at_position state pos in
-  (let+ stdlib_doc =
-     Hashtbl.find_opt Standard.menhir_standard_library_doc sym.v
-   in
-   (stdlib_doc, rng))
-  <+> L.find_map
-        (fun ({ v = t; _ } : token located) ->
-          if_
-            (fun _ -> t.alias = Some sym.v || t.terminal = sym.v)
-            ( O.map_or ~default:""
-                (function
-                  | M.BaseTypes.Declared { v; _ } | M.BaseTypes.Inferred v ->
-                      spr "<%s> " v)
-                t.ocamltype
-              ^ t.terminal
-              |> md_fenced,
-              rng ))
-        state.tokens
-
-let diagnostics (_state : state) : Lsp.Types.Diagnostic.t list =
-  (* let open MenhirSyntax.Syntax in
-  List.map
-    (function
-      | { p; v = { terminal; _ } } ->
-          Diagnostic.create ~severity:DiagnosticSeverity.Information
-            ~message:(`String (Printf.sprintf "%s is a nice token" terminal))
-            ~range:(lsp_range_of_menhir_range p)
-            ())
-    state.tokens *)
-  []
+module Mll = Ocamllex
+module Mly = Menhir
 
 (** Lsp server class
 
@@ -245,15 +21,15 @@ class lsp_server =
     inherit Linol_lwt.Jsonrpc2.server
 
     (* one env per document *)
-    val buffers : (uri, state) Hashtbl.t = Hashtbl.create 32
-    val mll_buffers : (uri, Ocamllex.state) Hashtbl.t = Hashtbl.create 32
+    val mly_buffers : (uri, Mly.state) Hashtbl.t = Hashtbl.create 32
+    val mll_buffers : (uri, Mll.state) Hashtbl.t = Hashtbl.create 32
     method spawn_query_handler f = Linol_lwt.spawn f
 
     method private _dispatch : type r.
         uri ->
         notify_back:Linol_lwt.Jsonrpc2.notify_back ->
-        mll_handler:(Ocamllex.state -> r) ->
-        mly_handler:(state -> r) ->
+        mll_handler:(Mll.state -> r) ->
+        mly_handler:(Mly.state -> r) ->
         r option =
       fun uri ~notify_back ~mll_handler ~mly_handler ->
         let filename = DocumentUri.to_path uri in
@@ -263,7 +39,7 @@ class lsp_server =
         |> ignore;
         match Filename.extension filename with
         | ".mll" -> Hashtbl.find_opt mll_buffers uri >|= mll_handler
-        | ".mly" -> Hashtbl.find_opt buffers uri >|= mly_handler
+        | ".mly" -> Hashtbl.find_opt mly_buffers uri >|= mly_handler
         | ext -> failwith @@ spr "Unhandled document type %s" ext
 
     method! config_completion =
@@ -282,17 +58,24 @@ class lsp_server =
         let open O in
         Lwt.return
         @@
-        let+ state = Hashtbl.find_opt buffers uri in
-        let comps =
-          match completions_for_action pos state with
-          | [] ->
-              completions state @ standard_lib_completions @ percent_completions
-          | l -> l
+        let* comps =
+          self#_dispatch ~notify_back uri
+            ~mll_handler:(fun _state -> [])
+            ~mly_handler:(fun state ->
+              let open Mly in
+              let comps =
+                match completions_for_action pos state with
+                | [] ->
+                    completions state @ standard_lib_completions
+                    @ percent_completions
+                | l -> l
+              in
+              comps)
         in
         notify_back#send_log_msg ~type_:MessageType.Info
           (Printf.sprintf "# completions: %d" (List.length comps))
         |> ignore;
-        `List comps
+        Some (`List comps)
 
     method! config_symbol = Some (`Bool true)
 
@@ -302,8 +85,8 @@ class lsp_server =
         Lwt.return
         @@
         let symo =
-          self#_dispatch uri ~notify_back ~mll_handler:Ocamllex.document_symbols
-            ~mly_handler:document_symbols
+          self#_dispatch uri ~notify_back ~mll_handler:Mll.document_symbols
+            ~mly_handler:Mly.document_symbols
         in
         O.map
           (fun syms ->
@@ -357,7 +140,8 @@ class lsp_server =
         Lwt.return
         @@
         let open O in
-        let* state = Hashtbl.find_opt buffers uri in
+        let* state = Hashtbl.find_opt mly_buffers uri in
+        let open Mly in
         let* _sym_range, sym = symbol_at_position state pos in
         (* Is it a token alias? If so, use token's full name. *)
         let sym_name =
@@ -384,7 +168,8 @@ class lsp_server =
         Lwt.return
         @@
         let open O in
-        let* state = Hashtbl.find_opt buffers uri in
+        let* state = Hashtbl.find_opt mly_buffers uri in
+        let open Mly in
         let+ sym_range, _ = symbol_at_position state pos in
         epr "Range for rename is valid: %s\n" (Range.show sym_range);
         sym_range
@@ -396,7 +181,8 @@ class lsp_server =
         (* Gather all the occurrences of the symbol (terminal or non) *)
         let edits : TextEdit.t list =
           O.(
-            let* state = Hashtbl.find_opt buffers uri in
+            let* state = Hashtbl.find_opt mly_buffers uri in
+            let open Mly in
             let* _sym_range, sym = symbol_at_position state pos in
             epr "I will rename %s\n" sym.v;
             some
@@ -404,8 +190,8 @@ class lsp_server =
                  (fun (s : string located) ->
                    if_
                      (fun _ -> CCString.equal s.v sym.v)
-                       (* (TextEdit.create ~newText:newName
-                   ~range:(Range.of_lexical_positions s.p)) *)
+                     (* (TextEdit.create ~newText:newName
+              ~range:(Range.of_lexical_positions s.p)) *)
                      (TextEdit.create ~newText:newName
                         ~range:(Range.of_lexical_positions s.p)))
                  state.symbols)
@@ -419,11 +205,12 @@ class lsp_server =
         Lwt.return
         @@
         let open O in
-        let* state = Hashtbl.find_opt buffers uri in
+        let* state = Hashtbl.find_opt mly_buffers uri in
         notify_back#send_log_msg ~type_:MessageType.Info
           (spr "Request definition at pos %s" (Position.show pos))
         |> ignore;
         (* Get the symbol under the cursor, if any. *)
+        let open Mly in
         let* _sym_range, sym = symbol_at_position state pos in
         notify_back#send_log_msg ~type_:MessageType.Info
           (spr "Symbol under cursor: %s %s" sym.v (Range.show _sym_range))
@@ -453,8 +240,8 @@ class lsp_server =
         let open O in
         Lwt.return
         @@
-        let* state = Hashtbl.find_opt buffers uri in
-        let* contents, range = hover state pos in
+        let* state = Hashtbl.find_opt mly_buffers uri in
+        let* contents, range = Mly.hover state pos in
         Some
           (Hover.create
              ~contents:
@@ -477,7 +264,8 @@ class lsp_server =
         @@
         let open O in
         let uri = t.textDocument.uri in
-        let* state = Hashtbl.find_opt buffers uri in
+        let* state = Hashtbl.find_opt mly_buffers uri in
+        let open Mly in
         let* sym_range, sym = symbol_at_position state t.range.start in
         (* Is is a token declaration? Does it *not* have an alias? *)
         L.flat_map
@@ -591,14 +379,13 @@ class lsp_server =
                     ~message:(`String "There are syntax errors") ();
                 ])
       | ".mly" ->
+          let open Mly in
           let%lwt new_state, new_diags =
             match load_state_from_contents filename contents with
             | Ok new_state ->
-                Hashtbl.replace buffers uri new_state;
+                Hashtbl.replace mly_buffers uri new_state;
                 Lwt.return (Some new_state, [])
-            | Error diags ->
-                (* Reuse the old state *)
-                Lwt.return (Hashtbl.find_opt buffers uri, diags)
+            | Error diags -> Lwt.return (Hashtbl.find_opt mly_buffers uri, diags)
           in
           let diags = O.map_or ~default:[] diagnostics new_state in
           notify_back#send_diagnostic (diags @ new_diags)
@@ -620,7 +407,7 @@ class lsp_server =
     (* On document closes, we remove the state associated to the file from the global
       hashtable state, to avoid leaking memory. *)
     method on_notif_doc_did_close ~notify_back:_ d : unit Linol_lwt.t =
-      Hashtbl.remove buffers d.uri;
+      Hashtbl.remove mly_buffers d.uri;
       Linol_lwt.return ()
   end
 

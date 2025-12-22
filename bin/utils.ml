@@ -13,7 +13,9 @@ module U = CCParse.U
 module Lsp = Linol_lsp.Lsp
 module Loc = M.Located
 module Log = (val Logs.src_log Linol.logs_src)
-open Lsp.Types
+include Lsp.Types
+
+type uri = Lsp.Types.DocumentUri.t
 
 let pr = Pr.printf
 let spr = Pr.sprintf
@@ -131,3 +133,9 @@ end
 
 (** Surround the given string in Markdown code block fences. *)
 let md_fenced ?(flavor = "") s = spr "```%s\n%s\n```" flavor s
+
+(* module LspTypes = struct
+  include Lsp.Types
+  module Position = Position
+  module Range = Position
+end *)
