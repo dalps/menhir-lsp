@@ -131,7 +131,7 @@ let completions_for_action (pos : Position.t) ({ grammar; _ } : state) :
   in
   comps
 
-let completions ?(docs : (string, string) Hashtbl.t = Hashtbl.create 0)
+let default_completions ?(docs : (string, string) Hashtbl.t = Hashtbl.create 0)
     ({ tokens; grammar; _ } : state) : CompletionItem.t list =
   let open MenhirSyntax.Syntax in
   CCList.flat_map
@@ -213,7 +213,7 @@ let percent_completions =
     Keywords.declarations
 
 let standard_lib_completions =
-  completions standard_lib ~docs:Standard.menhir_standard_library_doc
+  default_completions standard_lib ~docs:Standard.menhir_standard_library_doc
 
 let document_symbols ({ grammar = { pg_rules; _ }; tokens; _ } : state) :
     DocumentSymbol.t list =
@@ -319,3 +319,9 @@ let definition (state : state) ~uri ~(pos : Position.t) : Locations.t =
    Location.create ~range:(Range.of_lexical_positions def.p) ~uri)
   |> O.to_list
   |> fun locs -> `Location locs
+
+let completions (state : state) ~(pos : Position.t) : CompletionItem.t list =
+  match completions_for_action pos state with
+  | [] ->
+      default_completions state @ standard_lib_completions @ percent_completions
+  | l -> l

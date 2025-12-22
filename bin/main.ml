@@ -59,18 +59,8 @@ class lsp_server =
         Lwt.return
         @@
         let* comps =
-          self#_dispatch ~notify_back uri
-            ~mll_handler:(fun _state -> [])
-            ~mly_handler:(fun state ->
-              let open Mly in
-              let comps =
-                match completions_for_action pos state with
-                | [] ->
-                    completions state @ standard_lib_completions
-                    @ percent_completions
-                | l -> l
-              in
-              comps)
+          self#_dispatch ~notify_back uri ~mll_handler:(Mll.completions ~pos)
+            ~mly_handler:(Mly.completions ~pos)
         in
         notify_back#send_log_msg ~type_:MessageType.Info
           (Printf.sprintf "# completions: %d" (List.length comps))

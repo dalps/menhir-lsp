@@ -139,3 +139,20 @@ let md_fenced ?(flavor = "") s = spr "```%s\n%s\n```" flavor s
   module Position = Position
   module Range = Position
 end *)
+
+let compile_completions ~(kind : CompletionItemKind.t) :
+    (string * string option * string option * string list) list ->
+    CompletionItem.t list =
+  L.map (fun (label, detail, snippet, docs) ->
+      CompletionItem.create ~kind ~label
+        ?labelDetails:
+          (O.map
+             (fun detail -> CompletionItemLabelDetails.create ~detail ())
+             detail)
+        ?insertText:snippet
+        ?insertTextFormat:(O.map (fun _ -> InsertTextFormat.Snippet) snippet)
+        ~documentation:
+          (`MarkupContent
+             (MarkupContent.create ~kind:Markdown
+                ~value:(String.concat "\n\n" docs)))
+        ())
