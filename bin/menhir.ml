@@ -339,7 +339,8 @@ let prepare_rename (state : state) ~(pos : Position.t) : Range.t option =
   epr "Range for rename is valid: %s\n" (Range.show sym_range);
   sym_range
 
-let rename (state : state) ~uri ~(pos : Position.t) ~(newName: string) : WorkspaceEdit.t =
+let rename (state : state) ~uri ~(pos : Position.t) ~(newName : string) :
+    WorkspaceEdit.t =
   let edits : TextEdit.t list =
     O.(
       let* _sym_range, sym = symbol_at_position state pos in
