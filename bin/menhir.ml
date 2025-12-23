@@ -311,11 +311,31 @@ let definition (state : state) ~uri ~(pos : Position.t) : Locations.t =
   |> fun locs -> `Location locs
 
 let completions (state : state) ~(pos : Position.t) : CompletionItem.t list =
-  match completions_for_action pos state with
-  | [] ->
-      default_completions state @ standard_lib_completions
-      @ Keywords.declarations
-  | l -> l
+  let prelude =
+    L.filter_map
+      (fun ({ v; _ } : declaration located) ->
+        match v with
+        | DCode { p; _ } -> Some (Range.of_lexical_positions p)
+        | _ -> None)
+      state.grammar.pg_declarations
+  in
+  let postlude =
+    O.(
+      state.grammar.pg_postlude
+      >|= (fun { p; _ } -> Range.of_lexical_positions p)
+      |> to_list)
+  in
+  if
+    L.exists
+      (fun r -> Position.compare_inclusion pos r = `Inside)
+      (prelude @ postlude)
+  then []
+  else
+    match completions_for_action pos state with
+    | [] ->
+        default_completions state @ standard_lib_completions
+        @ Keywords.declarations
+    | l -> l
 
 let prepare_rename (state : state) ~(pos : Position.t) : Range.t option =
   let open O in
