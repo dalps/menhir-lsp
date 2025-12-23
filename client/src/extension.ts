@@ -18,7 +18,7 @@ let client: LanguageClient;
 const serverName = "menhir-lsp";
 
 export function activate(context: vscode.ExtensionContext) {
-  const extId = context.extension.packageJSON.name;
+  const _extId = context.extension.packageJSON.name;
 
   const serverOptions: ServerOptions = {
     command: serverName,
@@ -29,13 +29,8 @@ export function activate(context: vscode.ExtensionContext) {
     "Menhir Language Server"
   );
 
-  let traceOutputChannel = vscode.window.createOutputChannel(
-    "Menhir Language Server Trace"
-  );
-
   const clientOptions: LanguageClientOptions = {
     outputChannel,
-    traceOutputChannel,
     documentSelector: [
       { scheme: "file", language: "ocaml.menhir" },
       { scheme: "file", language: "ocaml.ocamllex" },
@@ -49,11 +44,6 @@ export function activate(context: vscode.ExtensionContext) {
     clientOptions
   );
 
-  client.onRequest(RenameRequest.method, () => {
-    outputChannel.append("rename pls?");
-  });
-  client.outputChannel.show();
-
   let command = `which ${serverName}`;
 
   exec(command, async (error: any, _output: any, _stderr: any) => {
@@ -65,14 +55,14 @@ export function activate(context: vscode.ExtensionContext) {
 
     let install = await vscode.window.showErrorMessage(
       `[Menhir] The package ${serverName} is required but not installed. Would you like to install automatically it with opam?`,
-      "Install automatically",
+      `Install ${serverName}`,
       "Cancel"
     );
 
     if (install === undefined || install === "Cancel") return;
 
     vscode.window.showInformationMessage(
-      `[Menhir] Installing ${serverName}. Make sure to reload the window once the installation is over to activate client.`
+      `[Menhir] Installing ${serverName}. Please reload the window once the installation completes to activate client.`
     );
 
     let opamInstallCmd = `opam install ${serverName}`;
@@ -99,30 +89,21 @@ export function activate(context: vscode.ExtensionContext) {
       term: string,
       range: Range,
       rawUri: DocumentUri,
-      edit: WorkspaceEdit
+      occurrences: Range[]
     ) => {
       let input = await vscode.window.showInputBox({
-        prompt: "Insert a new token alias, double quotes included.",
+        prompt: "Enter the unquoted alias",
         title: "Replace all terminal occurrences with alias",
-        placeHolder: 'e.g. "+"',
+        placeHolder: "e.g. +",
       });
 
       if (!input) return;
-      if (!edit.changes) return;
 
-      const uri = vscode.Uri.parse(rawUri);
+      let uri = vscode.Uri.parse(rawUri);
       let w = new vscode.WorkspaceEdit();
 
-      w.replace(uri, liftRange(range), `${term} ${input}`);
-
-      // change the TextEdits received to use the user's typed value
-      [...Object.values(edit.changes)].forEach((textEdits) =>
-        textEdits.forEach((t) => {
-          t.newText = input;
-
-          w.replace(uri, liftRange(t.range), input);
-        })
-      );
+      w.replace(uri, liftRange(range), `${term} "${input}"`);
+      occurrences.forEach((r) => w.replace(uri, liftRange(r), `"${input}"`));
 
       vscode.workspace.applyEdit(w);
     }

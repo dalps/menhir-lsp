@@ -334,37 +334,22 @@ let code_actions (state : state) ~uri ~(range : Range.t) : CodeActionResult.t =
                   ^ " and replace all its occurrences")
                  ~command:"menhir-lsp-client.promptAlias"
                  ~arguments:
-                   Linol_jsonrpc.Import.(
-                     List.
-                       [
-                         `String terminal;
-                         Range.yojson_of_t sym_range;
-                         DocumentUri.yojson_of_t uri;
-                         (* just send the ranges and build the edit on the client *)
-                         WorkspaceEdit.(
-                           yojson_of_t
-                           @@ create
-                                ~changes:
-                                  [
-                                    ( uri,
-                                      L.filter_map
-                                        (fun sym' ->
-                                          let range =
-                                            Range.of_lexical_positions sym'.p
-                                          in
-                                          if_
-                                            (fun _ ->
-                                              sym.v = sym'.v
-                                              && Range.compare sym_range range
-                                                 <> Eq)
-                                            (TextEdit.create
-                                               ~newText:""
-                                                 (* will be set by the client *)
-                                               ~range))
-                                        state.symbols );
-                                  ]
-                                ());
-                       ])
+                   (* send the token name and the ranges of its occurrences to the client *)
+                   [
+                     `String terminal;
+                     Range.yojson_of_t sym_range;
+                     DocumentUri.yojson_of_t uri;
+                     `List
+                       (L.filter_map
+                          (fun sym' ->
+                            let range = Range.of_lexical_positions sym'.p in
+                            if_
+                              (fun _ ->
+                                sym.v = sym'.v
+                                && Range.compare sym_range range <> Eq)
+                              (Range.yojson_of_t range))
+                          state.symbols);
+                   ]
                  ());
           ]
       | { v = { terminal; alias = Some alias; _ }; _ } when terminal = sym.v ->
