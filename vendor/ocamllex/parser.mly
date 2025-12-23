@@ -24,6 +24,10 @@ open Located
 let named_regexps =
   (Hashtbl.create 13 : (string, Range.range * regular_expression) Hashtbl.t)
 
+let raise exn =
+  Hashtbl.reset named_regexps;
+  Stdlib.raise exn
+
 let regexp_for_string s =
   let rec re_string n =
     if n >= String.length s then Epsilon

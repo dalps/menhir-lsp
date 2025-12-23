@@ -117,14 +117,14 @@ class lsp_server =
     method private _on_req_prepare_rename =
       fun ~notify_back ~id:_ ~uri ~pos : Range.t option Lwt.t ->
         self#_dispatch uri ~notify_back ~mly_handler:(Mly.prepare_rename ~pos)
-          ~mll_handler:(Mll.prepare_rename ~notify_back ~pos)
+          ~mll_handler:(Mll.prepare_rename ~pos)
         |> O.flatten |> Lwt.return
 
     method private _on_req_rename =
       fun ~notify_back ~id:_ ~uri ~pos newName : WorkspaceEdit.t Lwt.t ->
         self#_dispatch uri ~notify_back
           ~mly_handler:(Mly.rename ~uri ~pos ~newName)
-          ~mll_handler:(Mll.rename ~notify_back ~uri ~pos ~newName)
+          ~mll_handler:(Mll.rename ~uri ~pos ~newName)
         |> O.get_or ~default:(WorkspaceEdit.create ())
         |> Lwt.return
 

@@ -7,6 +7,13 @@ type state = {
   symbols : string located list;
 }
 
+let rec regexp_bindings = function
+  | Syntax.Sequence (re1, re2) | Alternative (re1, re2) ->
+      regexp_bindings re1 @ regexp_bindings re2
+  | Repetition re -> regexp_bindings re
+  | Bind (re, n) -> n :: regexp_bindings re
+  | _ -> []
+
 let process_symbols (grammar : Syntax.lexer_definition) : string located list =
   let module S = Syntax in
   let open S in
@@ -70,7 +77,21 @@ let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
     let+ entry = grammar.entrypoints in
     let range = Range.of_lexical_positions entry.name.p in
     DocumentSymbol.create ~kind:Function ~name:entry.name.v ~range
-      ~selectionRange:range ())
+      ~selectionRange:range
+      ~children:
+        L.(
+          entry.clauses
+          |> mapi (fun i (regexp, r) ->
+              let range = Range.of_lexical_positions r in
+              DocumentSymbol.create ~kind:Enum ~name:(spr "case %d" i) ~range
+                ~selectionRange:range
+                ~children:
+                  (let+ binder = regexp_bindings regexp in
+                   let range = Range.of_lexical_positions binder.p in
+                   DocumentSymbol.create ~kind:Variable ~name:binder.v ~range
+                     ~selectionRange:range ())
+                ()))
+      ())
   @ Hashtbl.fold
       (fun name (p, _) ->
         let range = Range.of_lexical_positions p in
@@ -192,13 +213,6 @@ and …|};
 
 let completions_for_action (pos : Position.t) ({ grammar; _ } : state) =
   (* in actions, we want to suggest `lexbuf`, the variables bound with `as` in the current clause and the other lexer entrypoints *)
-  let rec visit_regexp = function
-    | Syntax.Sequence (re1, re2) | Alternative (re1, re2) ->
-        visit_regexp re1 @ visit_regexp re2
-    | Repetition re -> visit_regexp re
-    | Bind (re, n) -> n :: visit_regexp re
-    | _ -> []
-  in
   L.(
     let* rule = grammar.entrypoints in
     let* regexp, r = rule.clauses in
@@ -208,7 +222,7 @@ let completions_for_action (pos : Position.t) ({ grammar; _ } : state) =
        CompletionItem.create ~kind:Value ~label:arg.v ())
       @ (let+ entry = grammar.entrypoints in
          CompletionItem.create ~kind:Function ~label:entry.name.v ())
-      @ (let+ binder = visit_regexp regexp in
+      @ (let+ binder = regexp_bindings regexp in
          CompletionItem.create ~kind:Value ~label:binder.v ())
       @ compile_completions ~kind:Value
           [
@@ -256,20 +270,15 @@ let print_symbols ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
     |> spr "\nLexer symbols:\n%s\n")
   |> ignore
 
-let prepare_rename ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
-    (state : state) ~(pos : Position.t) : Range.t option =
+let prepare_rename (state : state) ~(pos : Position.t) : Range.t option =
   let open O in
-  notify_back#send_log_msg ~type_:Info "[ocamllex] Preparing rename" |> ignore;
-  print_symbols ~notify_back state;
   let+ sym_range, _ = symbol_at_position state pos in
   sym_range
 
-let rename ~(notify_back : Linol_lwt.Jsonrpc2.notify_back) (state : state) ~uri
-    ~(pos : Position.t) ~(newName : string) : WorkspaceEdit.t =
+let rename (state : state) ~uri ~(pos : Position.t) ~(newName : string) :
+    WorkspaceEdit.t =
   let edits : TextEdit.t list =
     O.(
-      notify_back#send_log_msg ~type_:Info "[ocamllex] Renaming" |> ignore;
-      print_symbols ~notify_back state;
       let+ _sym_range, sym = symbol_at_position state pos in
       L.filter_map
         (fun (s : string located) ->
