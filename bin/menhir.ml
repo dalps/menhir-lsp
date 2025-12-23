@@ -136,38 +136,19 @@ let default_completions ?(docs : (string, string) Hashtbl.t = Hashtbl.create 0)
   let open MenhirSyntax.Syntax in
   CCList.flat_map
     (fun (t : token located) ->
-      let comp = CompletionItem.create ~kind:CompletionItemKind.Constant in
-      let type_doc =
-        O.(
-          map
-            (fun t ->
-              match t with
-              | Declared { v; _ } | Inferred v ->
-                  `MarkupContent
-                    (MarkupContent.create ~kind:Markdown
-                       ~value:(Utils.md_fenced v)))
-            t.v.ocamltype)
+      let comp = CompletionItem.create ~kind:CompletionItemKind.Value in
+      let typ =
+        O.(t.v.ocamltype >|= function Declared { v; _ } | Inferred v -> v)
       in
-
-      let ld =
-        CompletionItemLabelDetails.create
-          ?detail:
-            O.(
-              t.v.ocamltype >|= fun typ ->
-              ": " ^ match typ with Declared { v; _ } | Inferred v -> v)
-      in
-      comp ~label:t.v.terminal ?documentation:type_doc ~labelDetails:(ld ()) ()
+      comp ~label:t.v.terminal ?detail:typ ()
       :: O.(
-           t.v.alias
-           >|= (fun alias ->
-           let description = "alias for " ^ t.v.terminal in
-           comp ~label:alias ~detail:description
-             ?documentation:type_doc
-               (* This is persistent text that sits next to the label.
-           The previous ~detail argument won't be shown while scrolling
-           if there is ~labelDetails. *)
-             ~labelDetails:(ld ~description:t.v.terminal ())
-             ())
+           (let+ alias = t.v.alias in
+            comp ~label:alias ?detail:typ
+              ~documentation:
+                (`MarkupContent
+                   (MarkupContent.create ~kind:Markdown
+                      ~value:(spr "alias for `%s`" t.v.terminal)))
+              ())
            |> to_list))
     tokens
   @ List.map
@@ -192,25 +173,6 @@ let default_completions ?(docs : (string, string) Hashtbl.t = Hashtbl.create 0)
         in
         comp ())
       grammar.pg_rules
-
-let percent_completions =
-  CCHashtbl.map_list
-    (fun k doclines ->
-      let c =
-        CompletionItem.create ~kind:CompletionItemKind.Keyword
-          ~documentation:
-            (`MarkupContent
-               (MarkupContent.create ~kind:Markdown
-                  ~value:(CCString.concat "\n\n" doclines)))
-      in
-      if k = "token_t" then
-        c ~label:"%token" ~insertTextFormat:InsertTextFormat.Snippet
-          ~insertText:"token <$1> $0"
-          ~labelDetails:
-            (CompletionItemLabelDetails.create ~detail:" <typexpr>" ())
-          ()
-      else c ~label:("%" ^ k) ~insertText:k ())
-    Keywords.declarations
 
 let standard_lib_completions =
   default_completions standard_lib ~docs:Standard.menhir_standard_library_doc
@@ -330,7 +292,8 @@ let definition (state : state) ~uri ~(pos : Position.t) : Locations.t =
 let completions (state : state) ~(pos : Position.t) : CompletionItem.t list =
   match completions_for_action pos state with
   | [] ->
-      default_completions state @ standard_lib_completions @ percent_completions
+      default_completions state @ standard_lib_completions
+      @ Keywords.declarations
   | l -> l
 
 let prepare_rename (state : state) ~(pos : Position.t) : Range.t option =
