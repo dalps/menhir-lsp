@@ -1,21 +1,8 @@
-(* This module is based on Linol's Lwt template:
-https://github.com/c-cube/linol/blob/main/example/template-lwt/main.ml *)
-
 open Utils
-open Loc
 module Mll = Ocamllex
 module Mly = Menhir
 
-(** Lsp server class
-
-    This is the main point of interaction beetween the code checking documents
-    (parsing, typing, etc...), and the code of linol.
-
-    The [Linol_lwt.Jsonrpc2.server] class defines a method for each of the
-    action that the lsp server receives, such as opening of a document, when a
-    document changes, etc.. By default, the method predefined does nothing (or
-    errors out ?), so that users only need to override methods that they want
-    the server to actually meaningfully interpret and respond to. *)
+(* Based on Linol's Lwt template: https://github.com/c-cube/linol/blob/main/example/template-lwt/main.ml *)
 class lsp_server =
   object (self)
     inherit Linol_lwt.Jsonrpc2.server
@@ -121,7 +108,7 @@ class lsp_server =
                  (Position.show r.position));%lwt
             self#_on_req_references ~notify_back ~id ~pos:r.position
               ~uri:r.textDocument.uri
-        | _ -> Lwt.fail_with "unhandled request type"
+        | _ -> Lwt.fail_with "Unhandled request type"
 
     method private _on_req_references =
       fun ~notify_back ~id:_ ~uri ~pos : Location.t list option Lwt.t ->
@@ -131,45 +118,23 @@ class lsp_server =
              ~mll_handler:(Mll.references ~uri ~pos)
 
     method private _on_req_prepare_rename =
-      fun ~notify_back:_ ~id:_ ~uri ~pos : Range.t option Lwt.t ->
-        Lwt.return
-        @@
-        let open O in
-        let* state = Hashtbl.find_opt mly_buffers uri in
-        let open Mly in
-        let+ sym_range, _ = symbol_at_position state pos in
-        epr "Range for rename is valid: %s\n" (Range.show sym_range);
-        sym_range
+      fun ~notify_back ~id:_ ~uri ~pos : Range.t option Lwt.t ->
+        self#_dispatch uri ~notify_back ~mly_handler:(Mly.prepare_rename ~pos)
+          ~mll_handler:(fun _ -> None)
+        |> O.flatten |> Lwt.return
 
     method private _on_req_rename =
-      fun ~notify_back:_ ~id:_ ~uri ~pos newName : WorkspaceEdit.t Lwt.t ->
-        Lwt.return
-        @@
-        (* Gather all the occurrences of the symbol (terminal or non) *)
-        let edits : TextEdit.t list =
-          O.(
-            let* state = Hashtbl.find_opt mly_buffers uri in
-            let open Mly in
-            let* _sym_range, sym = symbol_at_position state pos in
-            epr "I will rename %s\n" sym.v;
-            some
-            @@ L.filter_map
-                 (fun (s : string located) ->
-                   if_
-                     (fun _ -> CCString.equal s.v sym.v)
-                     (* (TextEdit.create ~newText:newName
-              ~range:(Range.of_lexical_positions s.p)) *)
-                     (TextEdit.create ~newText:newName
-                        ~range:(Range.of_lexical_positions s.p)))
-                 state.symbols)
-          |> O.to_list |> L.flatten
-        in
-        WorkspaceEdit.create ~changes:[ (uri, edits) ] ()
+      fun ~notify_back ~id:_ ~uri ~pos newName : WorkspaceEdit.t Lwt.t ->
+        self#_dispatch uri ~notify_back
+          ~mly_handler:(Mly.rename ~uri ~pos ~newName) ~mll_handler:(fun _ ->
+            WorkspaceEdit.create ())
+        |> O.get_or ~default:(WorkspaceEdit.create ())
+        |> Lwt.return
 
     method! on_req_definition =
       fun ~notify_back ~id:_ ~uri ~pos ~workDoneToken:_ ~partialResultToken:_
           _doc_state ->
-        Log.info (fun k -> k "Request definition at pos %s" (Position.show pos));
+        Log.info (fun k -> k "Requested definition at pos %s" (Position.show pos));
         Lwt.return
         @@ self#_dispatch uri ~notify_back
              ~mly_handler:(Mly.definition ~uri ~pos)
@@ -178,19 +143,10 @@ class lsp_server =
     method! config_hover = Some (`Bool true)
 
     method! on_req_hover =
-      fun ~notify_back:_ ~id:_ ~uri ~pos ~workDoneToken:_ _doc_state ->
-        let open O in
-        Lwt.return
-        @@
-        let* state = Hashtbl.find_opt mly_buffers uri in
-        let* contents, range = Mly.hover state pos in
-        Some
-          (Hover.create
-             ~contents:
-               (`MarkupContent
-                  (MarkupContent.create ~kind:MarkupKind.Markdown
-                     ~value:contents))
-             ~range ())
+      fun ~notify_back ~id:_ ~uri ~pos ~workDoneToken:_ _doc_state ->
+        self#_dispatch uri ~notify_back ~mly_handler:(Mly.hover ~pos)
+          ~mll_handler:(fun _ -> None)
+        |> O.flatten |> Lwt.return
 
     method! config_code_action_provider =
       `CodeActionOptions
@@ -201,92 +157,11 @@ class lsp_server =
         }
 
     method! on_req_code_action =
-      fun ~notify_back:_ ~id:_ t ->
-        Lwt.return
-        @@
-        let open O in
-        let uri = t.textDocument.uri in
-        let* state = Hashtbl.find_opt mly_buffers uri in
-        let open Mly in
-        let* sym_range, sym = symbol_at_position state t.range.start in
-        (* Is is a token declaration? Does it *not* have an alias? *)
-        L.flat_map
-          (function
-            | { v = { terminal; alias = None; _ }; _ } when terminal = sym.v ->
-                [
-                  `Command
-                    (Command.create
-                       ~title:
-                         ("Define an alias for " ^ terminal
-                        ^ " and replace all its occurrences")
-                       ~command:"menhir-lsp-client.promptAlias"
-                       ~arguments:
-                         Linol_jsonrpc.Import.(
-                           List.
-                             [
-                               `String terminal;
-                               Range.yojson_of_t sym_range;
-                               DocumentUri.yojson_of_t uri;
-                               (* just send the ranges and build the edit on the client *)
-                               WorkspaceEdit.(
-                                 yojson_of_t
-                                 @@ create
-                                      ~changes:
-                                        [
-                                          ( uri,
-                                            L.filter_map
-                                              (fun sym' ->
-                                                let range =
-                                                  Range.of_lexical_positions
-                                                    sym'.p
-                                                in
-                                                if_
-                                                  (fun _ ->
-                                                    sym.v = sym'.v
-                                                    && Range.compare sym_range
-                                                         range
-                                                       <> Eq)
-                                                  (TextEdit.create
-                                                     ~newText:""
-                                                       (* will be set by the client *)
-                                                     ~range))
-                                              state.symbols );
-                                        ]
-                                      ());
-                             ])
-                       ());
-                ]
-            | { v = { terminal; alias = Some alias; _ }; _ }
-              when terminal = sym.v ->
-                [
-                  `CodeAction
-                    (CodeAction.create ~kind:Refactor
-                       ~title:
-                         ("Replace all occurrences of " ^ terminal
-                        ^ " with alias")
-                       ~edit:
-                         (WorkspaceEdit.create
-                            ~changes:
-                              [
-                                ( uri,
-                                  L.filter_map
-                                    (fun sym ->
-                                      let range =
-                                        Range.of_lexical_positions sym.p
-                                      in
-                                      if_
-                                        (fun _ ->
-                                          sym.v = terminal
-                                          && Range.compare sym_range range <> Eq)
-                                        (TextEdit.create ~newText:alias ~range))
-                                    state.symbols );
-                              ]
-                            ())
-                       ());
-                ]
-            | _ -> [])
-          state.tokens
-        |> some
+      fun ~notify_back ~id:_ { textDocument = { uri }; range; _ } ->
+        self#_dispatch uri ~notify_back
+          ~mly_handler:(Mly.code_actions ~uri ~range) ~mll_handler:(fun _ ->
+            None)
+        |> O.flatten |> Lwt.return
 
     (* We define here a helper method that will:
             - process a document

@@ -242,26 +242,33 @@ let symbol_at_position (state : state) (pos : Position.t) :
 (** Produce hover information at a particular position. For:
     - token aliases, we display their full name;
     - standard library rules, their documentation; *)
-let hover (state : state) (pos : Position.t) =
+let hover (state : state) ~(pos : Position.t) : Hover.t option =
   let open O in
   let* rng, sym = symbol_at_position state pos in
-  (let+ stdlib_doc =
-     Hashtbl.find_opt Standard.menhir_standard_library_doc sym.v
-   in
-   (stdlib_doc, rng))
-  <+> L.find_map
-        (fun ({ v = t; _ } : token located) ->
-          if_
-            (fun _ -> t.alias = Some sym.v || t.terminal = sym.v)
-            ( O.map_or ~default:""
-                (function
-                  | M.BaseTypes.Declared { v; _ } | M.BaseTypes.Inferred v ->
-                      spr "<%s> " v)
-                t.ocamltype
-              ^ t.terminal
-              |> md_fenced,
-              rng ))
-        state.tokens
+  let+ contents, range =
+    (let+ stdlib_doc =
+       Hashtbl.find_opt Standard.menhir_standard_library_doc sym.v
+     in
+     (stdlib_doc, rng))
+    <+> L.find_map
+          (fun ({ v = t; _ } : token located) ->
+            if_
+              (fun _ -> t.alias = Some sym.v || t.terminal = sym.v)
+              ( O.map_or ~default:""
+                  (function
+                    | M.BaseTypes.Declared { v; _ } | M.BaseTypes.Inferred v ->
+                        spr "<%s> " v)
+                  t.ocamltype
+                ^ t.terminal
+                |> md_fenced,
+                rng ))
+          state.tokens
+  in
+  Hover.create
+    ~contents:
+      (`MarkupContent
+         (MarkupContent.create ~kind:MarkupKind.Markdown ~value:contents))
+    ~range ()
 
 let diagnostics (_state : state) : Lsp.Types.Diagnostic.t list =
   (* let open MenhirSyntax.Syntax in
@@ -325,3 +332,104 @@ let completions (state : state) ~(pos : Position.t) : CompletionItem.t list =
   | [] ->
       default_completions state @ standard_lib_completions @ percent_completions
   | l -> l
+
+let prepare_rename (state : state) ~(pos : Position.t) : Range.t option =
+  let open O in
+  let+ sym_range, _ = symbol_at_position state pos in
+  epr "Range for rename is valid: %s\n" (Range.show sym_range);
+  sym_range
+
+let rename (state : state) ~uri ~(pos : Position.t) ~(newName: string) : WorkspaceEdit.t =
+  let edits : TextEdit.t list =
+    O.(
+      let* _sym_range, sym = symbol_at_position state pos in
+      epr "I will rename %s\n" sym.v;
+      some
+      @@ L.filter_map
+           (fun (s : string located) ->
+             if_
+               (fun _ -> CCString.equal s.v sym.v)
+               (* (TextEdit.create ~newText:newName
+              ~range:(Range.of_lexical_positions s.p)) *)
+               (TextEdit.create ~newText:newName
+                  ~range:(Range.of_lexical_positions s.p)))
+           state.symbols)
+    |> O.to_list |> L.flatten
+  in
+  WorkspaceEdit.create ~changes:[ (uri, edits) ] ()
+
+let code_actions (state : state) ~uri ~(range : Range.t) : CodeActionResult.t =
+  let open O in
+  let* sym_range, sym = symbol_at_position state range.start in
+  (* Is is a token declaration? Does it *not* have an alias? *)
+  L.flat_map
+    (function
+      | { v = { terminal; alias = None; _ }; _ } when terminal = sym.v ->
+          [
+            `Command
+              (Command.create
+                 ~title:
+                   ("Define an alias for " ^ terminal
+                  ^ " and replace all its occurrences")
+                 ~command:"menhir-lsp-client.promptAlias"
+                 ~arguments:
+                   Linol_jsonrpc.Import.(
+                     List.
+                       [
+                         `String terminal;
+                         Range.yojson_of_t sym_range;
+                         DocumentUri.yojson_of_t uri;
+                         (* just send the ranges and build the edit on the client *)
+                         WorkspaceEdit.(
+                           yojson_of_t
+                           @@ create
+                                ~changes:
+                                  [
+                                    ( uri,
+                                      L.filter_map
+                                        (fun sym' ->
+                                          let range =
+                                            Range.of_lexical_positions sym'.p
+                                          in
+                                          if_
+                                            (fun _ ->
+                                              sym.v = sym'.v
+                                              && Range.compare sym_range range
+                                                 <> Eq)
+                                            (TextEdit.create
+                                               ~newText:""
+                                                 (* will be set by the client *)
+                                               ~range))
+                                        state.symbols );
+                                  ]
+                                ());
+                       ])
+                 ());
+          ]
+      | { v = { terminal; alias = Some alias; _ }; _ } when terminal = sym.v ->
+          [
+            `CodeAction
+              (CodeAction.create ~kind:Refactor
+                 ~title:
+                   ("Replace all occurrences of " ^ terminal ^ " with alias")
+                 ~edit:
+                   (WorkspaceEdit.create
+                      ~changes:
+                        [
+                          ( uri,
+                            L.filter_map
+                              (fun sym ->
+                                let range = Range.of_lexical_positions sym.p in
+                                if_
+                                  (fun _ ->
+                                    sym.v = terminal
+                                    && Range.compare sym_range range <> Eq)
+                                  (TextEdit.create ~newText:alias ~range))
+                              state.symbols );
+                        ]
+                      ())
+                 ());
+          ]
+      | _ -> [])
+    state.tokens
+  |> some
