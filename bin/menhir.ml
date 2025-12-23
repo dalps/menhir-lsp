@@ -17,6 +17,12 @@ type state = {
   symbols : string located list;
 }
 
+let rec string_of_params : parameter -> string = function
+  | M.Syntax.ParamVar p -> p.v
+  | M.Syntax.ParamApp (p, ps) ->
+      spr "%s(%s)" p.v L.(ps >|= string_of_params |> String.concat ", ")
+  | M.Syntax.ParamAnonymous _ -> ""
+
 let process_symbols (grammar : partial_grammar) :
     M.FrontTypes.symbol located list =
   (* let symbols = ref [] in *)
@@ -121,11 +127,7 @@ let completions_for_action (pos : Position.t) ({ grammar; _ } : state) :
             CCString.chop_prefix ~pre:"_" binder.v
             >|= ( ^ ) "$" |> get_or ~default:binder.v)
         in
-        CompletionItem.create ~kind:Variable
-          ~detail:
-            (match par with
-            | M.Syntax.ParamVar p | M.Syntax.ParamApp (p, _) -> p.v
-            | M.Syntax.ParamAnonymous _ -> "")
+        CompletionItem.create ~kind:Variable ~detail:(string_of_params par)
           ~label:binder ()
       else [])
   in
@@ -180,17 +182,36 @@ let standard_lib_completions =
 let document_symbols ({ grammar = { pg_rules; _ }; tokens; _ } : state) :
     DocumentSymbol.t list =
   (* Here we extract a listing of the defined tokens and grammar rules. *)
-  CCList.(
-    ( tokens >|= fun t ->
-      let range = Range.of_lexical_positions t.p in
-      DocumentSymbol.create ~kind:SymbolKind.Constant ~name:t.v.terminal ~range
+  L.(
+    (let+ t = tokens in
+     let range = Range.of_lexical_positions t.p in
+     DocumentSymbol.create ~kind:SymbolKind.Constant ~name:t.v.terminal ~range
+       ~selectionRange:range
+       ~detail:(O.get_or ~default:"" t.v.alias)
+       ())
+    @ let+ rule = pg_rules in
+      let range = Range.of_lexical_positions rule.pr_nt.p in
+      DocumentSymbol.create ~kind:SymbolKind.Function ~name:rule.pr_nt.v ~range
         ~selectionRange:range
-        ~detail:(CCOption.get_or ~default:"" t.v.alias)
-        () )
-    @ ( pg_rules >|= fun t ->
-        let range = Range.of_lexical_positions t.pr_nt.p in
-        DocumentSymbol.create ~kind:SymbolKind.Function ~name:t.pr_nt.v ~range
-          ~selectionRange:range () ))
+        ~children:
+          (rule.pr_branches
+          |> L.mapi @@ fun i branch ->
+             let range = Range.of_lexical_positions branch.pb_position in
+             DocumentSymbol.create ~kind:SymbolKind.Enum
+               ~name:(spr "<branch %d>" i) ~range ~selectionRange:range
+               ~children:
+                 (let+ binder, par, _ = branch.pb_producers in
+                  let range = Range.of_lexical_positions binder.p in
+                  let binder =
+                    O.(
+                      CCString.chop_prefix ~pre:"_" binder.v
+                      >|= ( ^ ) "$" |> get_or ~default:binder.v)
+                  in
+                  DocumentSymbol.create ~kind:SymbolKind.Variable ~name:binder
+                    ~range ~selectionRange:range ~detail:(string_of_params par)
+                    ())
+               ())
+        ())
 
 let symbol_at_position (state : state) (pos : Position.t) :
     (Range.t * string located) option =
