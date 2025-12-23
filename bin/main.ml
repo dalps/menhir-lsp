@@ -21,13 +21,14 @@ class lsp_server =
       fun uri ~notify_back ~mll_handler ~mly_handler ->
         let filename = DocumentUri.to_path uri in
         let open O in
-        notify_back#send_log_msg ~type_:Debug
-          (spr "Looking for %s's buffer" filename)
-        |> ignore;
         match Filename.extension filename with
         | ".mll" -> Hashtbl.find_opt mll_buffers uri >|= mll_handler
         | ".mly" -> Hashtbl.find_opt mly_buffers uri >|= mly_handler
-        | ext -> failwith @@ spr "Unhandled document type %s" ext
+        | ext ->
+            notify_back#send_log_msg ~type_:Error
+              (spr "Unhandled document type: %s" ext)
+            |> ignore;
+            None
 
     method! config_completion =
       Some
@@ -42,17 +43,17 @@ class lsp_server =
     method! on_req_completion =
       fun ~notify_back ~id:_ ~uri ~pos ~ctx:_ ~workDoneToken:_
           ~partialResultToken:_ _doc_state ->
-        let open O in
         Lwt.return
         @@
-        let* comps =
+        let open O in
+        let+ comps =
           self#_dispatch ~notify_back uri ~mll_handler:(Mll.completions ~pos)
             ~mly_handler:(Mly.completions ~pos)
         in
         notify_back#send_log_msg ~type_:MessageType.Info
           (Printf.sprintf "# completions: %d" (List.length comps))
         |> ignore;
-        Some (`List comps)
+        `List comps
 
     method! config_symbol = Some (`Bool true)
 
@@ -61,17 +62,15 @@ class lsp_server =
           _unit ->
         Lwt.return
         @@
-        let symo =
+        let open O in
+        let+ syms =
           self#_dispatch uri ~notify_back ~mll_handler:Mll.document_symbols
             ~mly_handler:Mly.document_symbols
         in
-        O.map
-          (fun syms ->
-            notify_back#send_log_msg ~type_:MessageType.Info
-              (Printf.sprintf "# symbols: %d" (List.length syms))
-            |> ignore;
-            `DocumentSymbol syms)
-          symo
+        notify_back#send_log_msg ~type_:MessageType.Info
+          (Printf.sprintf "# symbols: %d" (List.length syms))
+        |> ignore;
+        `DocumentSymbol syms
 
     method! config_definition = Some (`Bool true)
 
@@ -98,13 +97,12 @@ class lsp_server =
               ~pos:r.position
         | Lsp.Client_request.TextDocumentRename (r : RenameParams.t) ->
             notify_back#send_log_msg ~type_:Info
-              (spr "Client requested rename at position: %s"
-                 (Position.show r.position));%lwt
+              (spr "Requested rename at position: %s" (Position.show r.position));%lwt
             self#_on_req_rename ~notify_back r.newName ~pos:r.position ~id
               ~uri:r.textDocument.uri
         | Lsp.Client_request.TextDocumentReferences (r : ReferenceParams.t) ->
             notify_back#send_log_msg ~type_:Info
-              (spr "Client requested references at position: %s"
+              (spr "Requested references at position: %s"
                  (Position.show r.position));%lwt
             self#_on_req_references ~notify_back ~id ~pos:r.position
               ~uri:r.textDocument.uri
@@ -112,33 +110,32 @@ class lsp_server =
 
     method private _on_req_references =
       fun ~notify_back ~id:_ ~uri ~pos : Location.t list option Lwt.t ->
-        Lwt.return
-        @@ self#_dispatch uri ~notify_back
-             ~mly_handler:(Mly.references ~uri ~pos)
-             ~mll_handler:(Mll.references ~uri ~pos)
+        self#_dispatch uri ~notify_back ~mly_handler:(Mly.references ~uri ~pos)
+          ~mll_handler:(Mll.references ~uri ~pos)
+        |> Lwt.return
 
     method private _on_req_prepare_rename =
       fun ~notify_back ~id:_ ~uri ~pos : Range.t option Lwt.t ->
         self#_dispatch uri ~notify_back ~mly_handler:(Mly.prepare_rename ~pos)
-          ~mll_handler:(fun _ -> None)
+          ~mll_handler:(Mll.prepare_rename ~notify_back ~pos)
         |> O.flatten |> Lwt.return
 
     method private _on_req_rename =
       fun ~notify_back ~id:_ ~uri ~pos newName : WorkspaceEdit.t Lwt.t ->
         self#_dispatch uri ~notify_back
-          ~mly_handler:(Mly.rename ~uri ~pos ~newName) ~mll_handler:(fun _ ->
-            WorkspaceEdit.create ())
+          ~mly_handler:(Mly.rename ~uri ~pos ~newName)
+          ~mll_handler:(Mll.rename ~notify_back ~uri ~pos ~newName)
         |> O.get_or ~default:(WorkspaceEdit.create ())
         |> Lwt.return
 
     method! on_req_definition =
       fun ~notify_back ~id:_ ~uri ~pos ~workDoneToken:_ ~partialResultToken:_
           _doc_state ->
-        Log.info (fun k -> k "Requested definition at pos %s" (Position.show pos));
-        Lwt.return
-        @@ self#_dispatch uri ~notify_back
-             ~mly_handler:(Mly.definition ~uri ~pos)
-             ~mll_handler:(Mll.definition ~uri ~pos)
+        notify_back#send_log_msg ~type_:Info
+          (spr "Requested definition at pos %s" (Position.show pos));%lwt
+        self#_dispatch uri ~notify_back ~mly_handler:(Mly.definition ~uri ~pos)
+          ~mll_handler:(Mll.definition ~uri ~pos)
+        |> Lwt.return
 
     method! config_hover = Some (`Bool true)
 
@@ -172,7 +169,7 @@ class lsp_server =
         (uri : uri) (contents : string) =
       let filename = DocumentUri.to_path uri in
       notify_back#send_log_msg ~type_:Info
-        (spr "Processing document %s\n" filename);%lwt
+        (spr "Processing document %s" filename);%lwt
       let go buffers loader diagnose =
         let%lwt new_state, new_diags =
           match loader filename contents with
@@ -190,12 +187,11 @@ class lsp_server =
       | ".mly" -> go mly_buffers Mly.load_state_from_contents Mly.diagnostics
       | ext ->
           notify_back#send_log_msg ~type_:Error
-          @@ spr "Unhandled document type %s" ext
+          @@ spr "Unhandled document type: %s" ext
 
     (* We now override the [on_notify_doc_did_open] method that will be called
-      by the server each time a new document is opened. *)
+          by the server each time a new document is opened. *)
     method on_notif_doc_did_open ~notify_back d ~content : unit Linol_lwt.t =
-      prerr_endline "Opened document";
       self#_on_doc ~notify_back d.uri content
 
     (* Similarly, we also override the [on_notify_doc_did_change] method that will be called
@@ -208,6 +204,7 @@ class lsp_server =
       hashtable state, to avoid leaking memory. *)
     method on_notif_doc_did_close ~notify_back:_ d : unit Linol_lwt.t =
       Hashtbl.remove mly_buffers d.uri;
+      Hashtbl.remove mll_buffers d.uri;
       Linol_lwt.return ()
   end
 

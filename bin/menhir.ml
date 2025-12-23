@@ -299,25 +299,22 @@ let completions (state : state) ~(pos : Position.t) : CompletionItem.t list =
 let prepare_rename (state : state) ~(pos : Position.t) : Range.t option =
   let open O in
   let+ sym_range, _ = symbol_at_position state pos in
-  epr "Range for rename is valid: %s\n" (Range.show sym_range);
   sym_range
 
 let rename (state : state) ~uri ~(pos : Position.t) ~(newName : string) :
     WorkspaceEdit.t =
   let edits : TextEdit.t list =
     O.(
-      let* _sym_range, sym = symbol_at_position state pos in
-      epr "I will rename %s\n" sym.v;
-      some
-      @@ L.filter_map
-           (fun (s : string located) ->
-             if_
-               (fun _ -> CCString.equal s.v sym.v)
-               (* (TextEdit.create ~newText:newName
+      let+ _sym_range, sym = symbol_at_position state pos in
+      L.filter_map
+        (fun (s : string located) ->
+          if_
+            (fun _ -> CCString.equal s.v sym.v)
+            (* (TextEdit.create ~newText:newName
               ~range:(Range.of_lexical_positions s.p)) *)
-               (TextEdit.create ~newText:newName
-                  ~range:(Range.of_lexical_positions s.p)))
-           state.symbols)
+            (TextEdit.create ~newText:newName
+               ~range:(Range.of_lexical_positions s.p)))
+        state.symbols)
     |> O.to_list |> L.flatten
   in
   WorkspaceEdit.create ~changes:[ (uri, edits) ] ()

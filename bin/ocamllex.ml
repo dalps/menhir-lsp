@@ -25,9 +25,12 @@ let process_symbols (grammar : Syntax.lexer_definition) : string located list =
       ((name, (loc, regexp)) : string * (location * regular_expression)) =
     locate loc name :: visit_regexp regexp
   in
-  let* s_entries = grammar.entrypoints in
-  let* s_regexps = CCHashtbl.to_list grammar.named_regexps in
-  visit_entry s_entries @ visit_named_regexp s_regexps
+  let f = L.flat_map in
+  let s_entries = f visit_entry grammar.entrypoints in
+  let s_regexps =
+    f visit_named_regexp @@ CCHashtbl.to_list grammar.named_regexps
+  in
+  s_entries @ s_regexps
 
 (* repetitive, move to a functor *)
 let symbol_at_position (state : state) (pos : Position.t) :
@@ -241,3 +244,40 @@ let completions ({ grammar = { header; trailer; _ }; _ } as state : state)
               CompletionItem.create ~kind:Property ~label:name () |> L.cons)
             state.grammar.named_regexps []
     | l -> l
+
+let print_symbols ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
+    (state : state) =
+  notify_back#send_log_msg ~type_:Info
+    (L.mapi
+       (fun i s ->
+         spr "%3d ) %20s at %20s" i s.v Range.(show @@ of_lexical_positions s.p))
+       state.symbols
+    |> CCString.concat "\n"
+    |> spr "\nLexer symbols:\n%s\n")
+  |> ignore
+
+let prepare_rename ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
+    (state : state) ~(pos : Position.t) : Range.t option =
+  let open O in
+  notify_back#send_log_msg ~type_:Info "[ocamllex] Preparing rename" |> ignore;
+  print_symbols ~notify_back state;
+  let+ sym_range, _ = symbol_at_position state pos in
+  sym_range
+
+let rename ~(notify_back : Linol_lwt.Jsonrpc2.notify_back) (state : state) ~uri
+    ~(pos : Position.t) ~(newName : string) : WorkspaceEdit.t =
+  let edits : TextEdit.t list =
+    O.(
+      notify_back#send_log_msg ~type_:Info "[ocamllex] Renaming" |> ignore;
+      print_symbols ~notify_back state;
+      let+ _sym_range, sym = symbol_at_position state pos in
+      L.filter_map
+        (fun (s : string located) ->
+          if_
+            (fun _ -> CCString.equal s.v sym.v)
+            (TextEdit.create ~newText:newName
+               ~range:(Range.of_lexical_positions s.p)))
+        state.symbols)
+    |> O.to_list |> L.flatten
+  in
+  WorkspaceEdit.create ~changes:[ (uri, edits) ] ()
