@@ -45,6 +45,7 @@
 			},
 			{
 				"title": "Menhir: Restart Language Server",
+				"enablement": "never",
 				"command": "menhir-lsp-client.showOutput"
 			},
 			{

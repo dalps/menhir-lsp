@@ -1,20 +1,23 @@
 # Menhir LSP client
 
-VS Code extension providing IntelliSense for [Menhir](https://fpottier.gitlabpages.inria.fr/menhir/) grammars. In order to work, it needs the Menhir language server [menhir-lsp](https://github.com/dalps/menhir-lsp), which can be installed with opam:
+VS Code extension providing IntelliSense for [Menhir](https://fpottier.gitlabpages.inria.fr/menhir/) and [ocamllex](https://ocaml.org/manual/5.4/lexyacc.html). In order to work, it needs the Menhir language server [menhir-lsp](https://github.com/dalps/menhir-lsp), which can be installed with opam:
 
 ```
 opam install menhir-lsp
 ```
 
-Then language support will be available on all your `.mly` files.
+Then enjoy ease of navigation and solid language support for your `.mll` and `.mly` files!
 
 ## Features
 
-* Auto-completion for your grammar's terminals and rules, plus Menhir's standard library rules
-* References View (Shift+F12 on any symbol)
-* Jump to definition (Ctrl-click on any symbol)
-* Hover info for token aliases and standard library rules
+* Context-aware completions for your grammars' terminals and nonterminals, Menhir's standard library rules, named regexes, symbol captures etc.
+* View References (Shift+F12 on any symbol)
+* Jump to Definition (Ctrl-click on any symbol)
+* Hover documentation for token aliases and standard library rules
 * Document Symbols (Ctrl+Shift+O)
+* Rename symbol (F2 on any rule names or token names)
+* Refactorings for Menhir tokens
+* Consistent file icons
 
 ## License
 
