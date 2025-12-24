@@ -1,6 +1,6 @@
 # menhir-lsp
 
-`menhir-lsp` is a Language Server for the OCaml dialects [Menhir](https://fpottier.gitlabpages.inria.fr/menhir/), [ocamlyacc](https://ocaml.org/manual/5.4/lexyacc.html) and [Ocamllex](https://ocaml.org/manual/5.4/lexyacc.html). Its goal is to provide rich IntelliSense features in .mll and .mly files. A [client](client/) for VS Code is available in a [VS Code extension](https://marketplace.visualstudio.com/items?itemName=dalps.menhir-lsp-client).
+`menhir-lsp` is a Language Server for the OCaml dialects [Menhir](https://fpottier.gitlabpages.inria.fr/menhir/) and [ocamllex](https://ocaml.org/manual/5.4/lexyacc.html). Its goal is to provide rich IntelliSense features in .mll and .mly files. A [client](client/) for VS Code is available as a [VS Code extension](https://marketplace.visualstudio.com/items?itemName=dalps.menhir-lsp-client).
 
 ## Capabilities
 
@@ -20,7 +20,9 @@ Installing the server is a simple as:
 opam install menhir-lsp
 ```
 
-The server alone doesn't do much, to do its job it needs a client that speaks the LSP running in your editor. On VS Code, proceed by installing [the extension](https://marketplace.visualstudio.com/items?itemName=dalps.menhir-lsp-client). In case of other editors, register a new client for them. Once started, the LSP client will spawn the server and communicate with it automatically.
+The server alone doesn't do much, to do its job it needs a client that talks the LSP running in your editor. If you use VS Code proceed by installing [the Menhir extension](https://marketplace.visualstudio.com/items?itemName=dalps.menhir-lsp-client), then open an `.mly` or `.mll` document. The LSP client will spawn the server and communicate with it automatically.
+
+For other editors, please refer to their documentation on how to register a client.
 
 ### Manual installation
 
@@ -37,7 +39,7 @@ The server code is based on the [Linol Lwt template](https://github.com/c-cube/l
 
 It also reuses the [Menhir grammar that parses Menhir itself](https://gitlab.inria.fr/fpottier/menhir/-/tree/master/driver/stage2?ref_type=heads) to get the AST representation of the document annotated with locations. Unfortunately the AST offered by the [Menhir SDK](https://ocaml.org/p/menhirSdk/latest) lacks location annotations for various kinds of symbols, so I had to resorted to tweaking the original parser to get things working.
 
-Issues or PRs for missing features, editor support or any improvement are welcome.
+Issues or PRs for missing features, clients for other editors or any bug / improvement are welcome.
 
 ## License
 

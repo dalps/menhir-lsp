@@ -15,9 +15,9 @@
 
 (package
  (name menhir-lsp)
- (synopsis "LSP server for Menhir")
+ (synopsis "Language Server for Menhir and ocamllex")
  (description
-  "An implementation of the Language Server Protocol for Menhir grammars.")
+  "Implementation of the Language Server Protocol for Menhir and ocamllex, providing editors with navigation hints and completions in .mly and .mll files.")
  (depends
   ("ocaml"
    (>= "4.14"))
@@ -34,7 +34,7 @@
   menhirSdk
   menhirLib)
  (tags
-  ("lsp" "menhir")))
+  ("lsp" "menhir" "ocamllex")))
 
 (using menhir 3.0)
 
