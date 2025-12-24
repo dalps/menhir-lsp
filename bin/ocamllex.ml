@@ -81,16 +81,21 @@ let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
       ~children:
         L.(
           entry.clauses
-          |> mapi (fun i (regexp, r) ->
+          |> flat_map_i (fun i (regexp, r) ->
               let range = Range.of_lexical_positions r in
-              DocumentSymbol.create ~kind:Enum ~name:(spr "case %d" i) ~range
-                ~selectionRange:range
-                ~children:
-                  (let+ binder = regexp_bindings regexp in
-                   let range = Range.of_lexical_positions binder.p in
-                   DocumentSymbol.create ~kind:Variable ~name:binder.v ~range
-                     ~selectionRange:range ())
-                ()))
+              match regexp_bindings regexp with
+              | [] -> []
+              | binders ->
+                  [
+                    DocumentSymbol.create ~kind:Enum ~name:(spr "case %d" i)
+                      ~range ~selectionRange:range
+                      ~children:
+                        (let+ binder = binders in
+                         let range = Range.of_lexical_positions binder.p in
+                         DocumentSymbol.create ~kind:Variable ~name:binder.v
+                           ~range ~selectionRange:range ())
+                      ();
+                  ]))
       ())
   @ Hashtbl.fold
       (fun name (p, _) ->

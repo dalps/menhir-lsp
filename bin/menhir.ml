@@ -197,8 +197,8 @@ let document_symbols ({ grammar = { pg_rules; _ }; tokens; _ } : state) :
           (rule.pr_branches
           |> L.mapi @@ fun i branch ->
              let range = Range.of_lexical_positions branch.pb_position in
-             DocumentSymbol.create ~kind:SymbolKind.Enum
-               ~name:(spr "<branch %d>" i) ~range ~selectionRange:range
+             DocumentSymbol.create ~kind:SymbolKind.Enum ~name:(spr "case %d" i)
+               ~range ~selectionRange:range
                ~children:
                  (let+ binder, par, _ = branch.pb_producers in
                   let range = Range.of_lexical_positions binder.p in

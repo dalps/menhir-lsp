@@ -151,8 +151,12 @@ let compile_completions ~(kind : CompletionItemKind.t) :
              detail)
         ?insertText:snippet
         ?insertTextFormat:(O.map (fun _ -> InsertTextFormat.Snippet) snippet)
-        ~documentation:
-          (`MarkupContent
-             (MarkupContent.create ~kind:Markdown
-                ~value:(String.concat "\n\n" docs)))
+        ?documentation:
+          (match docs with
+          | [] -> None
+          | _ ->
+              Some
+                (`MarkupContent
+                   (MarkupContent.create ~kind:Markdown
+                      ~value:(String.concat "\n\n" docs))))
         ())
