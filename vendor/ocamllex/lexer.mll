@@ -39,6 +39,10 @@ let char_for_backslash = function
   | 't' -> '\009'
   | c   -> c
 
+let raise exn =
+  Hashtbl.reset Syntax.named_regexps; (* [menhir-lsp] *)
+  Stdlib.raise exn
+
 let raise_lexical_error lexbuf msg =
   let p = Lexing.lexeme_start_p lexbuf in
   raise (Lexical_error (msg,

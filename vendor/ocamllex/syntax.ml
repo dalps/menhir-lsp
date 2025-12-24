@@ -35,16 +35,20 @@ type regular_expression =
   | Ref of string located (* added by [menhir-lsp] *)
   | Bind of regular_expression * string located
 
-type ('arg,'action) entry =
-  {name:string located;
-   shortest : bool ;
-   args : 'arg ;
-   clauses : (regular_expression * 'action) list}
+type ('arg, 'action) entry = {
+  name : string located;
+  shortest : bool;
+  args : 'arg;
+  clauses : (regular_expression * 'action) list;
+}
 
 type lexer_definition = {
-  header: location;
-  entrypoints: ((string located list, location) entry) list;
-  trailer: location;
+  header : location;
+  entrypoints : (string located list, location) entry list;
+  trailer : location;
   refill_handler : location option;
-  named_regexps: (string, location * regular_expression) Hashtbl.t
+  named_regexps : (string located * regular_expression) list;
 }
+
+let named_regexps : (string, Range.range * regular_expression) Hashtbl.t =
+  Hashtbl.create 13

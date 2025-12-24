@@ -21,9 +21,6 @@ open Located
 
 (* Auxiliaries for the parser. *)
 
-let named_regexps =
-  (Hashtbl.create 13 : (string, Range.range * regular_expression) Hashtbl.t)
-
 let raise exn =
   Hashtbl.reset named_regexps;
   Stdlib.raise exn
@@ -75,16 +72,17 @@ let rec as_cset = function
 %%
 
 lexer_definition:
-    header = header named_regexp* refill_handler = refill_handler? "rule" definitions = separated_list("and", definition) 
+    header = header named_regexps_l = named_regexp* refill_handler = refill_handler? "rule" definitions = separated_list("and", definition) 
     trailer = header "EOF"
-        { {header;
-           refill_handler;
-           entrypoints = definitions;
-           trailer;
-           named_regexps = 
-            let h = Hashtbl.copy named_regexps in 
-            Hashtbl.reset named_regexps;
-            h} }
+        { let v = {
+            header;
+            refill_handler;
+            entrypoints = definitions;
+            trailer;
+            named_regexps = named_regexps_l
+        } in
+        Hashtbl.reset named_regexps;
+        v }
 
 header:
     a = Taction
@@ -93,7 +91,11 @@ header:
         { Range.(pos_zero, pos_zero) }
 
 named_regexp:
-    "let" name = located(Tident) "=" re = regexp { Hashtbl.add named_regexps name.v (name.p, re) }
+    "let" name = located(Tident) "=" re = regexp 
+    {
+        Hashtbl.add named_regexps name.v (name.p, re);
+        (name, re)
+    }
 
 refill_handler:
       "refill" a = Taction { a }

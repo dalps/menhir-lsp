@@ -28,15 +28,10 @@ let process_symbols (grammar : Syntax.lexer_definition) : string located list =
     | Bind (re, n) -> n :: visit_regexp re
     | Ref n -> [ n ]
     | Characters _ | _ -> []
-  and visit_named_regexp
-      ((name, (loc, regexp)) : string * (location * regular_expression)) =
-    locate loc name :: visit_regexp regexp
-  in
+  and visit_named_regexp (name, regexp) = name :: visit_regexp regexp in
   let f = L.flat_map in
   let s_entries = f visit_entry grammar.entrypoints in
-  let s_regexps =
-    f visit_named_regexp @@ CCHashtbl.to_list grammar.named_regexps
-  in
+  let s_regexps = f visit_named_regexp grammar.named_regexps in
   s_entries @ s_regexps
 
 (* repetitive, move to a functor *)
@@ -61,6 +56,13 @@ let load_state_from_contents (_filename : string) (contents : string) :
           [
             Diagnostic.create ~message:(`String msg)
               ~range:(Range.of_lexical_positions p)
+              ();
+          ]
+      | Lexer.Lexical_error (msg, _filename, line, character) ->
+          let pos = Position.create ~character ~line in
+          [
+            Diagnostic.create ~message:(`String msg)
+              ~range:(Range.create ~start:pos ~end_:pos)
               ();
           ]
       | Parser.Error ->
@@ -97,13 +99,12 @@ let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
                       ();
                   ]))
       ())
-  @ Hashtbl.fold
-      (fun name (p, _) ->
-        let range = Range.of_lexical_positions p in
-        DocumentSymbol.create ~kind:Property ~name ~range ~selectionRange:range
-          ()
-        |> L.cons)
-      grammar.named_regexps []
+  @ L.map
+      (fun (name, _) ->
+        let range = Range.of_lexical_positions name.p in
+        DocumentSymbol.create ~kind:Property ~name:name.v ~range
+          ~selectionRange:range ())
+      grammar.named_regexps
 
 let diagnostics _ = []
 
@@ -129,9 +130,8 @@ let definition ({ grammar; _ } as state : state) ~uri ~(pos : Position.t) :
        (fun e -> if_ (fun _ -> String.equal e.Syntax.name.v sym.v) e.name)
        grammar.entrypoints
      <+> L.find_map
-           (fun (name, (range, _)) ->
-             if_ (fun _ -> String.equal name sym.v) (locate range name))
-           (CCHashtbl.to_list grammar.named_regexps)
+           (fun (name, _) -> if_ (fun _ -> String.equal name.v sym.v) name)
+           grammar.named_regexps
    in
    Location.create ~range:(Range.of_lexical_positions def.p) ~uri)
   |> O.to_list
@@ -257,11 +257,11 @@ let completions ({ grammar = { header; trailer; _ }; _ } as state : state)
     match completions_for_action pos state with
     | [] ->
         regex_operator_completions @ keyword_completions
-        @ Hashtbl.fold
-            (fun name (_, _) ->
+        @ L.map
+            (fun (name, _) ->
               (* let _range = Range.of_lexical_positions p in *)
-              CompletionItem.create ~kind:Property ~label:name () |> L.cons)
-            state.grammar.named_regexps []
+              CompletionItem.create ~kind:Property ~label:name.v ())
+            state.grammar.named_regexps
     | l -> l
 
 let print_symbols ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)

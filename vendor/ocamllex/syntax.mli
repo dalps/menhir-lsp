@@ -22,7 +22,7 @@ exception SyntaxError of string located
 type location = Range.range (* [menhir-lsp] changed. *)
 
 type regular_expression =
-    Epsilon
+  | Epsilon
   | Characters of Cset.t
   | Eof
   | Sequence of regular_expression * regular_expression
@@ -31,16 +31,19 @@ type regular_expression =
   | Ref of string located (* added by [menhir-lsp] *)
   | Bind of regular_expression * string located
 
-type ('arg,'action) entry =
-  {name:string  located;
-   shortest : bool ;
-   args : 'arg ;
-   clauses : (regular_expression * 'action) list}
+type ('arg, 'action) entry = {
+  name : string located;
+  shortest : bool;
+  args : 'arg;
+  clauses : (regular_expression * 'action) list;
+}
 
 type lexer_definition = {
-  header: location;
-  entrypoints: ((string located list, location) entry) list;
-  trailer: location;
+  header : location;
+  entrypoints : (string located list, location) entry list;
+  trailer : location;
   refill_handler : location option;
-  named_regexps: (string, location * regular_expression) Hashtbl.t;
+  named_regexps : (string located * regular_expression) list;
 }
+
+val named_regexps : (string, Range.range * regular_expression) Hashtbl.t
