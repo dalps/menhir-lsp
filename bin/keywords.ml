@@ -67,18 +67,18 @@ let position_keywords =
         {|end position of the most recently parsed symbol, otherwise|};
       ] );
     ( {|$startpos|},
-      Some "( $i | id )",
-      None,
+      Some "($i | id)",
+      Some {|\$startpos($0)|},
       [ {|start position of the symbol named `$i` or `id`|} ] );
     ( {|$endpos|},
-      Some {|( $i | id )|},
-      None,
+      Some "($i | id)",
+      Some {|\$endpos($0)|},
       [ {|end position of the symbol named `$i` or `id`|} ] );
     ( {|$symbolstartpos|},
       None,
       None,
       [
-        {|start position of the leftmost symbol `id` such that `$startpos( id )` `!=` `$endpos( id )`;|};
+        {|start position of the leftmost symbol `id` such that `$startpos(id)` `!=` `$endpos(id)`;|};
         {|if there is no such symbol, `$endpos`|};
       ] );
     ( {|$startofs|},
@@ -94,14 +94,14 @@ let position_keywords =
         {|same as `$endpos`, but produce an integer offset instead of a position|};
       ] );
     ( {|$startofs|},
-      Some "( $i | id )",
-      None,
+      Some "($i | id)",
+      Some {|\$startofs($0)|},
       [
         {|same as `$startpos`, but produce an integer offset instead of a position|};
       ] );
     ( {|$endofs|},
-      Some "( $i | id )",
-      None,
+      Some "($i | id)",
+      Some {|\$endofs($0)|},
       [
         {|same as `$endpos`, but produce an integer offset instead of a position|};
       ] );
@@ -113,9 +113,9 @@ let position_keywords =
       ] );
     ({|$loc|}, None, None, [ {|stands for the pair `($startpos, $endpos)`|} ]);
     ( {|$loc|},
-      Some "( id )",
-      None,
-      [ {|stands for the pair `($startpos( id ), $endpos( id ))`|} ] );
+      Some "(id)",
+      Some {|\$loc($0)|},
+      [ {|stands for the pair `($startpos(id), $endpos(id))`|} ] );
     ( {|$sloc|},
       None,
       None,

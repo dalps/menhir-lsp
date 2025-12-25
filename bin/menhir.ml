@@ -156,22 +156,34 @@ let default_completions ?(docs : (string, string) Hashtbl.t = Hashtbl.create 0)
   @ List.map
       (fun (rule : parameterized_rule) ->
         let label = rule.pr_nt.v in
+        let params_o =
+          match rule.pr_parameters with
+          | [] -> None
+          | _ -> Some rule.pr_parameters
+        in
         let comp =
           CompletionItem.create ~kind:CompletionItemKind.Function ~label
             ?documentation:
               O.(
                 CCHashtbl.get docs label >|= fun doc ->
                 `MarkupContent (MarkupContent.create ~kind:Markdown ~value:doc))
-            ~labelDetails:
-              (CompletionItemLabelDetails.create
-                 ~detail:
-                   (match rule.pr_parameters with
-                   | [] -> ""
-                   | _ ->
-                       L.to_string ~start:"(" ~stop:")"
-                         (fun { p = _; v } -> v)
-                         rule.pr_parameters)
-                 ())
+            ?insertTextFormat:
+              O.(
+                let+ _ = params_o in
+                InsertTextFormat.Snippet)
+            ?insertText:
+              O.(
+                let+ _ = params_o in
+                label ^ "($0)")
+            ?labelDetails:
+              O.(
+                let+ params = params_o in
+                CompletionItemLabelDetails.create
+                  ~detail:
+                    (L.to_string ~start:"(" ~stop:")"
+                       (fun { p = _; v } -> v)
+                       params)
+                  ())
         in
         comp ())
       grammar.pg_rules
