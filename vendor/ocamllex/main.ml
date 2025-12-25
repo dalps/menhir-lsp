@@ -5,5 +5,5 @@ let parse_file file =
   close_in inp;
   ast
 
-let parse_string =
-  Fun.compose (Parser.lexer_definition Lexer.main) Lexing.from_string
+let parse_string s =
+  s |> Lexing.from_string |> Parser.lexer_definition Lexer.main
