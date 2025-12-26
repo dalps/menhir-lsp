@@ -346,7 +346,7 @@ let completions (state : state) ~(pos : Position.t) : CompletionItem.t list =
     match completions_for_action pos state with
     | [] ->
         default_completions state @ standard_lib_completions
-        @ Keywords.declarations
+        @ Keywords.declarations @ Keywords.ebnf_operators
     | l -> l
 
 let prepare_rename (state : state) ~(pos : Position.t) : Range.t option =
