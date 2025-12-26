@@ -109,7 +109,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
-  vscode.window.showInformationMessage("Starting Menhir Client...");
+  // vscode.window.showInformationMessage("Starting Menhir Client...");
 }
 
 const liftRange = (r: Range): vscode.Range => {
