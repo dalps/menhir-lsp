@@ -16,6 +16,7 @@ module Log = (val Logs.src_log Linol.logs_src)
 include Lsp.Types
 
 type uri = Lsp.Types.DocumentUri.t
+type word = { v : string; p : Range.t }
 
 let pr = Pr.printf
 let spr = Pr.sprintf

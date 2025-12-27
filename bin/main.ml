@@ -12,6 +12,48 @@ class lsp_server =
     val mll_buffers : (uri, Mll.state) Hashtbl.t = Hashtbl.create 32
     method spawn_query_handler f = Linol_lwt.spawn f
 
+    method private _word_at_position :
+        notify_back:Linol_lwt.Jsonrpc2.notify_back ->
+        pos:Position.t ->
+        uri:uri ->
+        word option =
+      fun ~notify_back ~pos ~uri ->
+        let open O in
+        let* d = self#find_doc uri in
+        let text = d.content in
+        let td =
+          Lsp.Text_document.make ~position_encoding:positionEncoding
+            (DidOpenTextDocumentParams.create
+               ~textDocument:
+                 { text; version = d.version; languageId = d.languageId; uri })
+        in
+        let ofs = Lsp.Text_document.absolute_position td pos in
+        let max_reach = min ofs 500 in
+        (* limit the search to the previous 500 chars *)
+        let prefix = CCString.sub text (ofs - max_reach) max_reach in
+        (* notify_back#send_log_msg ~type_:MessageType.Info
+          (spr "Search prefix: %s" prefix)
+        |> ignore; *)
+        let* start_ofs =
+          try
+            Re.Str.(
+              search_backward
+                (regexp {|[^a-zA-Z0-9\$%_]|})
+                prefix (max_reach - 1))
+            |> some
+          with _ -> None
+        in
+        let length = max_reach - start_ofs - 1 in
+        let start_pos =
+          Position.create ~line:pos.line ~character:(pos.character - length)
+        in
+        let range = Range.create ~start:start_pos ~end_:pos in
+        let word = CCString.sub prefix (start_ofs + 1) length in
+        notify_back#send_log_msg ~type_:MessageType.Info
+          (spr "Word under cursor: |%s| %s" word (Range.show range))
+        |> ignore;
+        Some { v = word; p = range }
+
     method private _dispatch : type r.
         uri ->
         notify_back:Linol_lwt.Jsonrpc2.notify_back ->
