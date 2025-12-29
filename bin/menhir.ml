@@ -207,22 +207,21 @@ let document_symbols ({ grammar = { pg_rules; _ }; tokens; _ } : state) :
         ~selectionRange:range
         ~children:
           (rule.pr_branches
-          |> L.mapi @@ fun i branch ->
-             let range = Range.of_lexical_positions branch.pb_position in
-             DocumentSymbol.create ~kind:SymbolKind.Enum ~name:(spr "case %d" i)
-               ~range ~selectionRange:range
-               ~children:
-                 (let+ binder, par, _ = branch.pb_producers in
-                  let range = Range.of_lexical_positions binder.p in
-                  let binder =
-                    O.(
-                      CCString.chop_prefix ~pre:"_" binder.v
-                      >|= ( ^ ) "$" |> get_or ~default:binder.v)
-                  in
-                  DocumentSymbol.create ~kind:SymbolKind.Variable ~name:binder
-                    ~range ~selectionRange:range ~detail:(string_of_params par)
-                    ())
-               ())
+          |> flat_map_i (fun _i branch ->
+              let* binder, par, _ = branch.pb_producers in
+              let range = Range.of_lexical_positions binder.p in
+              match
+                let open CCParse in
+                parse_string (char '_' *> U.int) binder.v
+              with
+              (* don't show positional binders *)
+              | Ok _ -> []
+              | Error _ ->
+                  [
+                    DocumentSymbol.create ~kind:SymbolKind.Variable
+                      ~name:binder.v ~range ~selectionRange:range
+                      ~detail:(string_of_params par) ();
+                  ]))
         ())
 
 let symbol_at_position (state : state) (pos : Position.t) :
