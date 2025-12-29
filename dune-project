@@ -32,7 +32,9 @@
   ("menhir"
    (>= "20250912"))
   menhirSdk
-  menhirLib)
+  menhirLib
+  ("re"
+   (>= "1.14.0")))
  (tags
   ("lsp" "menhir" "ocamllex")))
 

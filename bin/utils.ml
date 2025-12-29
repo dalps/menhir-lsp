@@ -141,15 +141,21 @@ let md_fenced ?(flavor = "") s = spr "```%s\n%s\n```" flavor s
   module Range = Position
 end *)
 
-let compile_completions ~(kind : CompletionItemKind.t) :
+let compile_completions ?(range : Range.t option) ~(kind : CompletionItemKind.t)
+    :
     (string * string option * string option * string list) list ->
     CompletionItem.t list =
   L.map (fun (label, detail, snippet, docs) ->
-      CompletionItem.create ~kind ~label
+      CompletionItem.create ~kind ~label ~filterText:label
         ?labelDetails:
           (O.map
              (fun detail -> CompletionItemLabelDetails.create ~detail ())
              detail)
+        ?textEdit:
+          O.(
+            let+ r = range in
+            `TextEdit TextEdit.{ newText = label; range = r })
+          (* note: snippets aren't allowed in text edit mode :( *)
         ?insertText:snippet
         ?insertTextFormat:(O.map (fun _ -> InsertTextFormat.Snippet) snippet)
         ?documentation:

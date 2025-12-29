@@ -37,9 +37,7 @@ class lsp_server =
         let* start_ofs =
           try
             Re.Str.(
-              search_backward
-                (regexp {|[^a-zA-Z0-9\$%_]|})
-                prefix (max_reach - 1))
+              search_backward (regexp {|[^a-zA-Z0-9_$%]|}) prefix (max_reach - 1))
             |> some
           with _ -> None
         in
@@ -78,7 +76,7 @@ class lsp_server =
           allCommitCharacters = None;
           completionItem = None;
           resolveProvider = None;
-          triggerCharacters = Some [ "%" ];
+          triggerCharacters = Some [ "%"; "$" ];
           workDoneProgress = None;
         }
 
@@ -88,12 +86,13 @@ class lsp_server =
         Lwt.return
         @@
         let open O in
+        let word = self#_word_at_position ~notify_back ~uri ~pos in
         let+ comps =
           self#_dispatch ~notify_back uri ~mll_handler:(Mll.completions ~pos)
-            ~mly_handler:(Mly.completions ~pos)
+            ~mly_handler:(Mly.completions ~word ~pos)
         in
         notify_back#send_log_msg ~type_:MessageType.Info
-          (Printf.sprintf "# completions: %d" (List.length comps))
+          (spr "# completions: %d" (List.length comps))
         |> ignore;
         `List comps
 
@@ -110,7 +109,7 @@ class lsp_server =
             ~mly_handler:Mly.document_symbols
         in
         notify_back#send_log_msg ~type_:MessageType.Info
-          (Printf.sprintf "# symbols: %d" (List.length syms))
+          (spr "# symbols: %d" (List.length syms))
         |> ignore;
         `DocumentSymbol syms
 

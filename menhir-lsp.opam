@@ -20,6 +20,7 @@ depends: [
   "menhir" {>= "20250912"}
   "menhirSdk"
   "menhirLib"
+  "re" {>= "1.14.0"}
   "odoc" {with-doc}
 ]
 build: [
