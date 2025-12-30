@@ -1,8 +1,8 @@
 {
 	"name": "menhir-lsp-client",
 	"displayName": "Menhir",
-	"description": "IntelliSense for Menhir grammars",
-	"version": "0.0.1",
+	"description": "IntelliSense for Menhir grammars and ocamllex lexers",
+	"version": "0.1.1",
 	"publisher": "dalps",
 	"private": true,
 	"license": "GPL-2.0-only",
@@ -68,7 +68,6 @@
 		"vscode-test": "^1.6.1"
 	},
 	"dependencies": {
-		"glob": "^13.0.0",
 		"vscode-languageclient": "^9.0.1"
 	}
 }

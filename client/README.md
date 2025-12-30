@@ -6,7 +6,7 @@ VS Code extension providing IntelliSense for [Menhir](https://fpottier.gitlabpag
 opam install menhir-lsp
 ```
 
-Then enjoy ease of navigation and solid language support for your `.mll` and `.mly` files!
+Enjoy ease of navigation and solid language support in your `.mll` and `.mly` files!
 
 ## Features
 
@@ -17,7 +17,7 @@ Then enjoy ease of navigation and solid language support for your `.mll` and `.m
 * Document Symbols (Ctrl+Shift+O)
 * Rename symbol (F2 on any rule names or token names)
 * Refactorings for Menhir tokens
-* Consistent file icons
+* Fancy file icons
 
 ## License
 
