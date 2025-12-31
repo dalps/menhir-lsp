@@ -130,6 +130,9 @@ let definition ({ grammar; _ } as state : state) ~uri ~(pos : Position.t) :
   |> O.to_list
   |> fun locs -> `Location locs
 
+let manual_ref ?(label = "Manual") =
+  spr "[%s](https://ocaml.org/manual/5.4/lexyacc.html#%s)" label
+
 let regex_operator_completions : CompletionItem.t list =
   compile_completions ~kind:Operator
     [
@@ -142,6 +145,7 @@ let regex_operator_completions : CompletionItem.t list =
            `regexp2` must be character sets defined with `[` ... `]` (or a \
            single character expression or underscore `_`. Match the difference \
            of the two specified character sets.";
+          manual_ref "ss:ocamllex-regexp";
         ] );
       ( "*",
         None,
@@ -150,6 +154,7 @@ let regex_operator_completions : CompletionItem.t list =
           md_fenced "regexp *";
           "(repetition) Match the concatenation of zero or more strings that \
            match `regexp`.";
+          manual_ref "ss:ocamllex-regexp";
         ] );
       ( "+",
         None,
@@ -158,6 +163,7 @@ let regex_operator_completions : CompletionItem.t list =
           md_fenced "regexp +";
           "(strict repetition) Match the concatenation of one or more strings \
            that match `regexp`.";
+          manual_ref "ss:ocamllex-regexp";
         ] );
       ( "?",
         None,
@@ -165,6 +171,7 @@ let regex_operator_completions : CompletionItem.t list =
         [
           md_fenced "regexp ?";
           "(option) Match the empty string, or a string matching `regexp`.";
+          manual_ref "ss:ocamllex-regexp";
         ] );
       ( "|",
         None,
@@ -175,37 +182,74 @@ let regex_operator_completions : CompletionItem.t list =
            If both `regexp1` and `regexp2` are character sets, this \
            constructions produces another character set, obtained by taking \
            the union of `regexp1` and `regexp2`.";
+          manual_ref "ss:ocamllex-regexp";
         ] );
     ]
 
 let keyword_completions : CompletionItem.t list =
   compile_completions ~kind:Keyword
     [
-      ("let", None, None, [ md_fenced "let ident = regexp" ]);
+      ( "let",
+        None,
+        Some "let ${1:ident} = ${0:regexp}",
+        [
+          md_fenced "let ident = regexp";
+          "Name a regular expression.";
+          manual_ref "ss:ocamllex-named-regexp";
+        ] );
       ( "rule",
         None,
-        None,
+        Some {|rule ${1:entrypoint} = parse
+  | ${2:regexp} { ${0:action} }
+|},
         [
           md_fenced
             {|rule entrypoint1 [arg1… argn] =
-  parse regexp { action }
-      | …
-      | regexp { action }
+    parse regexp { action }
+        | …
+        | regexp { action }
 and entrypoint2 [arg1… argn] =
-  parse …
+    parse …
 and …|};
+          "Define an entry point of the lexer.";
+          manual_ref ~label:"Syntax of lexer definitions" "s:ocamllex-syntax";
         ] );
-      ("and", None, None, []);
-      ("parse", None, None, []);
-      ("shortest", None, None, []);
-      ("refill", None, None, []);
-      ("eof", None, None, [ "Match the end of the lexer input." ]);
+      ( "and",
+        None,
+        None,
+        [ manual_ref ~label:"Syntax of lexer definitions" "s:ocamllex-syntax" ]
+      );
+      ( "parse",
+        None,
+        None,
+        [ manual_ref ~label:"Entry points" "ss:ocamllex-entry-points" ] );
+      ( "shortest",
+        None,
+        None,
+        [ manual_ref ~label:"Entry points" "ss:ocamllex-entry-points" ] );
+      ( "refill",
+        None,
+        Some "refill { $0 }",
+        [
+          md_fenced {|refill {refill_handler}|};
+          "Define a refill handler.";
+          manual_ref "ss:refill-handlers";
+        ] );
+      ( "eof",
+        None,
+        None,
+        [
+          md_fenced "eof";
+          "Match the end of the lexer input.";
+          manual_ref "ss:ocamllex-regexp";
+        ] );
       ( "as",
         None,
         None,
         [
           md_fenced "regexp as ident";
           "Bind the substring matched by `regexp` to identifier `ident`.";
+          manual_ref "ss:ocamllex-variables";
         ] );
     ]
 
@@ -228,11 +272,11 @@ let completions_for_action (pos : Position.t) ({ grammar; _ } : state) =
               None,
               None,
               [
-                "The current lexer buffer.\n\n\
-                 Can be used in conjunction with the operations on lexer \
-                 buffers provided by the `Lexing` standard library module. \
-                 [See examples in the \
-                 manual](https://ocaml.org/manual/5.4/lexyacc.html#ss:ocamllex-actions)";
+                md_fenced "lexbuf : Lexing.lexbuf";
+                "The current lexer buffer.";
+                "Can be used in conjunction with the operations on lexer \
+                 buffers provided by the `Lexing` standard library module.";
+                manual_ref "ss:ocamllex-actions";
               ] );
           ]
     else [])
