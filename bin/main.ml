@@ -225,7 +225,9 @@ class lsp_server =
       in
       match Filename.extension filename with
       | ".mll" -> go mll_buffers Mll.load_state_from_contents Mll.diagnostics
-      | ".mly" -> go mly_buffers Mly.load_state_from_contents Mly.diagnostics
+      | ".mly" ->
+          go mly_buffers Mly.load_state_from_contents
+            (Mly.diagnostics ~notify_back ~uri)
       | ext ->
           notify_back#send_log_msg ~type_:Error
           @@ spr "Unhandled document type: %s" ext

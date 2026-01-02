@@ -275,17 +275,103 @@ let hover (state : state) ~(pos : Position.t) : Hover.t option =
          (MarkupContent.create ~kind:MarkupKind.Markdown ~value:contents))
     ~range ()
 
-let diagnostics (_state : state) : Lsp.Types.Diagnostic.t list =
-  (* let open MenhirSyntax.Syntax in
-  List.map
-    (function
-      | { p; v = { terminal; _ } } ->
-          Diagnostic.create ~severity:DiagnosticSeverity.Information
-            ~message:(`String (Printf.sprintf "%s is a nice token" terminal))
-            ~range:(lsp_range_of_menhir_range p)
-            ())
-    state.tokens *)
-  []
+let diagnostics ~(notify_back : notify_back) ~(uri : uri) (_s : state) :
+    Lsp.Types.Diagnostic.t list =
+  let log = log_info ~notify_back in
+  (* move this code to load function *)
+  let grammar_file = DocumentUri.to_path uri in
+  let s =
+    let inp = Unix.open_process_in "dune describe workspace" in
+    let s = CCSexp.parse_chan inp in
+    In_channel.close inp;
+    s
+  in
+  let root_dir, context =
+    match s with
+    | Ok
+        (`List
+           (`List [ `Atom "root"; `Atom root_dir ]
+           :: `List [ `Atom "build_context"; `Atom context ]
+           :: _)) ->
+        (root_dir, context)
+    | _ -> ("", "")
+  in
+  log (spr "Sys.executable_name: %s" @@ Sys.executable_name);
+  log (spr "Sys.getcwd: %s" @@ Sys.getcwd ());
+  let module P = Stdune.Path in
+  let slug = Filename.(remove_extension grammar_file |> basename) in
+  let p_root = P.of_string root_dir in
+  let p_context = P.of_string (Filename.concat root_dir context) in
+  let p_grammar = P.of_string (Filename.dirname grammar_file) in
+  let p_conflicts =
+    let rel = P.drop_prefix p_grammar ~prefix:p_root in
+    match rel with
+    | None -> p_context
+    (* No config found for <grammar_name>. Make sure (menhir (modules .. <grammar_name> ..)) is present in the stanza's dune file. *)
+    | Some rel -> P.append_local p_context rel
+  in
+  (* if the output of dune describe is not available (e.g. due to error 'A running dune (pid: ..) instance has locked the build directory.'), use the workspace root reported by the client and assume that's the root folder of the dune project. *)
+  let conflicts_file =
+    Filename.concat (P.to_string p_conflicts) (slug ^ ".conflicts")
+  in
+  log (spr "p_conflicts: %s" conflicts_file);
+  try
+    let module P = CCParse in
+    let module S = CCString in
+    let mk_diag (toks : token located list) lines =
+      let message = S.concat "\n" @@ List.rev lines in
+      Diagnostic.create ~range:Range.first_line ~source:conflicts_file
+        ~relatedInformation:
+          L.(
+            let+ tk = toks in
+            log
+            @@ spr "token name: %s %s" tk.v.terminal
+                 Range.(of_lexical_positions tk.p |> show);
+            DiagnosticRelatedInformation.create
+              ~location:
+                (Location.create ~uri ~range:(Range.of_lexical_positions tk.p))
+              ~message:(spr "%s is defined here" tk.v.terminal))
+        ~message:
+          (* Contrary to the OCaml type, the protocol doesn't support Markdown in the diagnostic message. (https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#diagnostic), and in fact the vscode extension crashes. Quite the pickle, because the bits of the conflict message showing derivations trees require a monospace font for best viewing.
+
+            (`MarkupContent (MarkupContent.create ~kind:Markdown ~value:message))
+
+          *)
+          (`String message) ()
+    in
+    let entry_prefix = "** Conflict" in
+    let tokens_prefix = "** Tokens involved:" in
+    In_channel.with_open_text conflicts_file (fun inp ->
+        In_channel.input_all inp
+        (* |> S.replace ~sub:"\n\n" ~by:"\n```\n" *)
+        (* markdown not supported *)
+        |> S.split ~by:"\n"
+        |> L.drop_while (String.equal "")
+        |> List.fold_left
+             (fun acc line ->
+               let chop s =
+                 s |> S.chop_prefix ~pre:"** " |> O.get_or ~default:line
+               in
+               match acc with
+               | _, [], _ -> ([], [ chop line ], [])
+               | toks, current_diag, diags
+                 when String.starts_with ~prefix:entry_prefix line ->
+                   ([], [ chop line ], mk_diag toks current_diag :: diags)
+               | _, current_diag, diags
+                 when String.starts_with ~prefix:tokens_prefix line ->
+                   ( S.chop_prefix ~pre:tokens_prefix line
+                     |> Option.get |> S.trim |> S.split ~by:" "
+                     |> L.map (fun tk ->
+                         L.find
+                           (fun { v; _ } -> S.equal v.terminal tk)
+                           _s.tokens),
+                     chop line :: current_diag,
+                     diags )
+               | toks, current_diag, diags ->
+                   (toks, chop line :: current_diag, diags))
+             ([], [], [])
+        |> fun (toks, last, diags) -> mk_diag toks last :: diags)
+  with _ -> []
 
 let references (state : state) ~uri ~(pos : Position.t) : Location.t list =
   (let open O in
