@@ -172,23 +172,93 @@ let compile_completions ?(range : Range.t option) ~(kind : CompletionItemKind.t)
                       ~value:(String.concat "\n\n" docs))))
         ())
 
-let get_build_dirs () =
-  try
+let build_dirs : (uri, string * string) Hashtbl.t = Hashtbl.create 42
+
+let get_build_dirs uri =
+  let open R in
+  let f _ =
     let s =
       let inp = Unix.open_process_in "dune describe workspace" in
       let s = CCSexp.parse_chan inp in
       In_channel.close inp;
       s
     in
-    let open R in
     match s with
     | Ok
         (`List
            (`List [ `Atom "root"; `Atom root_dir ]
            :: `List [ `Atom "build_context"; `Atom context ]
            :: _)) ->
-        Ok (root_dir, context)
-    | _ -> Error "dune describe output did not match expected pattern"
+        (root_dir, context)
+    | _ -> failwith "bad pattern"
+  in
+  try CCHashtbl.get_or_add build_dirs ~k:uri ~f |> R.return
   with _ ->
-    (* Can fail due to 'A running dune (pid: ..) instance has locked the build directory.') *)
-    Error "dune describe failed"
+    (* May fail due to 'A running dune (pid: ..) instance has locked the build directory.') *)
+    Error "Failed to read dune describe's output"
+
+(** e.g. if [uri] is
+
+    [/home/foo/menhir-lsp/test/calc.mly]
+
+    then [in_build_dir ~ext:".conflicts" uri] is
+
+    [/home/foo/menhir-lsp/_build/default/test/calc.conflicts] *)
+let in_build_dir ?(ext : string option) uri =
+  let module P = Stdune.Path in
+  let module F = Filename in
+  let s_path = DocumentUri.to_path uri in
+  let s_name = F.basename s_path in
+  let s_slug = F.remove_extension s_name in
+  let s_ext = O.get_or ~default:(F.extension s_name) ext in
+  let open R in
+  let* root, ctx = get_build_dirs uri in
+  let p_root = P.of_string root in
+  let p_dir = P.of_string (F.dirname s_path) in
+  match P.drop_prefix p_dir ~prefix:p_root with
+  | None ->
+      Error
+        (spr
+           "No config found for %s. Make sure (menhir (modules .. %s ..)) is \
+            included in the stanza's dune file."
+           s_name s_slug)
+  | Some p_rel ->
+      let p_ctx = P.of_string (F.concat root ctx) in
+      let p_res = P.append_local p_ctx p_rel in
+      let res = F.concat (P.to_string p_res) (s_slug ^ s_ext) in
+      Ok res
+
+module MK = Merlin_kernel
+module QP = Query_protocol
+
+let get_merlin_config ~(notify_back : notify_back) ~(uri : uri) =
+  let path = DocumentUri.to_path uri in
+  let dir = Filename.dirname path in
+  let open O in
+  let+ ctx, config_path = MK.Mconfig_dot.find_project_context dir in
+  let dot, failures = MK.Mconfig_dot.get_config ctx path in
+  let concat = String.concat ", " in
+  log_info ~notify_back
+  @@ spr
+       {|Search result for Merlin config of %s:
+  Errors: %s
+  Source path: %s
+  Build path: %s|}
+       path (concat failures) (concat dot.source_path) (concat dot.build_path);
+  let merlin =
+    MK.Mconfig.merge_merlin_config dot MK.Mconfig.initial.merlin ~failures
+      ~config_path
+  in
+  MK.Mconfig.normalize { MK.Mconfig.initial with merlin }
+
+let get_merlin_compls ~(doc : Lsp.Text_document.t) ~(notify_back : notify_back)
+    ~(uri : uri) ~(pos : Position.t) prefix =
+  let open O in
+  let+ config = get_merlin_config ~notify_back ~uri in
+  let source = MK.Msource.make (Lsp.Text_document.text doc) in
+  let pipeline = MK.Mpipeline.make config source in
+  let logical_pos = Position.logical pos in
+  let query =
+    Query_protocol.Complete_prefix (prefix, logical_pos, [], false, true)
+  in
+  Query_commands.dispatch pipeline query
