@@ -15,12 +15,16 @@ module Loc = M.Located
 module Log = (val Logs.src_log Linol.logs_src)
 include Lsp.Types
 
+type notify_back = Linol_lwt.Jsonrpc2.notify_back
 type uri = Lsp.Types.DocumentUri.t
 type word = { v : string; p : Range.t }
 
 let pr = Pr.printf
 let spr = Pr.sprintf
 let epr = Pr.eprintf
+
+let log_info ~(notify_back : notify_back) s =
+  s |> notify_back#send_log_msg ~type_:Info |> ignore
 
 (** Adapted from ocaml-lsp/ocaml-lsp-server/src/position.ml *)
 module Position = struct
@@ -167,3 +171,24 @@ let compile_completions ?(range : Range.t option) ~(kind : CompletionItemKind.t)
                    (MarkupContent.create ~kind:Markdown
                       ~value:(String.concat "\n\n" docs))))
         ())
+
+let get_build_dirs () =
+  try
+    let s =
+      let inp = Unix.open_process_in "dune describe workspace" in
+      let s = CCSexp.parse_chan inp in
+      In_channel.close inp;
+      s
+    in
+    let open R in
+    match s with
+    | Ok
+        (`List
+           (`List [ `Atom "root"; `Atom root_dir ]
+           :: `List [ `Atom "build_context"; `Atom context ]
+           :: _)) ->
+        Ok (root_dir, context)
+    | _ -> Error "dune describe output did not match expected pattern"
+  with _ ->
+    (* Can fail due to 'A running dune (pid: ..) instance has locked the build directory.') *)
+    Error "dune describe failed"
