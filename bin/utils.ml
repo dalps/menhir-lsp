@@ -3,7 +3,19 @@ module MR = MenhirSyntax.Range
 module L = CCList
 module P = CCParse
 module LA = L.Assoc
-module O = CCOption
+
+module O = struct
+  include CCOption
+
+  (* map_none *)
+  let ( let- ) (a : 'a option) (f : unit -> 'b) : 'b option =
+    match a with None -> Some (f ()) | Some _ -> None
+
+  (* bind_none *)
+  let ( let*- ) (a : 'a option) (f : unit -> 'b option) : 'b option =
+    match a with None -> f () | Some _ -> None
+end
+
 module R = CCResult
 module A = CCArray
 module F = CCFun
@@ -14,10 +26,11 @@ module Lsp = Linol_lsp.Lsp
 module Loc = M.Located
 module Log = (val Logs.src_log Linol.logs_src)
 include Lsp.Types
+module Text_document = Lsp.Text_document
 
 type notify_back = Linol_lwt.Jsonrpc2.notify_back
 type uri = Lsp.Types.DocumentUri.t
-type word = { v : string; p : Range.t }
+type word = { v : string; p : Range.t; td : Text_document.t }
 
 let pr = Pr.printf
 let spr = Pr.sprintf
@@ -231,6 +244,8 @@ let in_build_dir ?(ext : string option) uri =
 module MK = Merlin_kernel
 module QP = Query_protocol
 
+let merlin_configs : (uri, MK.Mconfig.t) Hashtbl.t = Hashtbl.create 42
+
 let get_merlin_config ~(notify_back : notify_back) ~(uri : uri) =
   let path = DocumentUri.to_path uri in
   let dir = Filename.dirname path in
@@ -251,14 +266,45 @@ let get_merlin_config ~(notify_back : notify_back) ~(uri : uri) =
   in
   MK.Mconfig.normalize { MK.Mconfig.initial with merlin }
 
-let get_merlin_compls ~(doc : Lsp.Text_document.t) ~(notify_back : notify_back)
-    ~(uri : uri) ~(pos : Position.t) prefix =
+let find_merlin_config ~notify_back ~uri =
+  let open O in
+  let*- _ = Hashtbl.find_opt merlin_configs uri in
+  log_info ~notify_back @@ spr "couldn't find merlin config for %s, generating new one" (DocumentUri.to_path uri);
+  let+ config = get_merlin_config ~notify_back ~uri in
+  Hashtbl.add merlin_configs uri config;
+  config
+
+(** Source: ocaml-lsp/ocaml-lsp-server/src/compl.ml *)
+let completion_kind kind : CompletionItemKind.t option =
+  match kind with
+  | `Value -> Some Value
+  | `Variant -> Some EnumMember
+  | `Label -> Some Field
+  | `Module -> Some Module
+  | `Modtype -> Some Interface
+  | `MethodCall -> Some Method
+  | `Keyword -> Some Keyword
+  | `Constructor -> Some Constructor
+  | `Type -> Some TypeParameter
+
+let get_merlin_compls ~(notify_back : notify_back) ~(uri : uri)
+    ~(pos : Position.t) (prefix : word) =
   let open O in
   let+ config = get_merlin_config ~notify_back ~uri in
-  let source = MK.Msource.make (Lsp.Text_document.text doc) in
+  let source = MK.Msource.make (Text_document.text prefix.td) in
   let pipeline = MK.Mpipeline.make config source in
-  let logical_pos = Position.logical pos in
-  let query =
-    Query_protocol.Complete_prefix (prefix, logical_pos, [], false, true)
-  in
-  Query_commands.dispatch pipeline query
+  MK.Mpipeline.with_pipeline pipeline (fun _ ->
+      let logical_pos = Position.logical pos in
+      let query =
+        Query_protocol.Complete_prefix (prefix.v, logical_pos, [], false, true)
+      in
+      let compls = Query_commands.dispatch pipeline query in
+      (* from ocaml-lsp/ocaml-lsp-server/src/compl.ml *)
+      let sortText_of_index idx = Printf.sprintf "%04d" idx in
+      L.mapi
+        (fun idx QP.Compl.{ name; kind; desc; _ } ->
+          CompletionItem.create ~label:name ?kind:(completion_kind kind)
+            ~sortText:(sortText_of_index idx) ~detail:desc
+            ~textEdit:(`TextEdit { newText = name; range = prefix.p })
+            ())
+        compls.entries)
