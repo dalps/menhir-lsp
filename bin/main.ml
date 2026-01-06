@@ -37,7 +37,10 @@ class lsp_server =
         let* start_ofs =
           try
             Re.Str.(
-              search_backward (regexp {|[^a-zA-Z0-9_$%]|}) prefix (max_reach - 1))
+              search_backward
+                (regexp {|[^a-zA-Z0-9_$%.]|})
+                (* should include all trigger characters *)
+                prefix (max_reach - 1))
             |> some
           with _ -> None
         in
@@ -76,7 +79,7 @@ class lsp_server =
           allCommitCharacters = None;
           completionItem = None;
           resolveProvider = None;
-          triggerCharacters = Some [ "%"; "$" ];
+          triggerCharacters = Some [ "%"; "$"; "." ];
           workDoneProgress = None;
         }
 
@@ -94,13 +97,14 @@ class lsp_server =
         in
         log_info ~notify_back
         @@ spr "# merlin completions: %d" (L.length merlin_compls);
-        let+ grammar_compls =
+        let grammar_compls =
           self#_dispatch ~notify_back uri ~mll_handler:(Mll.completions ~pos)
             ~mly_handler:(Mly.completions ~word:opt_word ~pos)
+          |> get_or ~default:[]
         in
         log_info ~notify_back
-          (spr "# completions: %d" (List.length grammar_compls));
-        `List (grammar_compls @ merlin_compls)
+          (spr "# completions: %d" (L.length grammar_compls));
+        some @@ `List (grammar_compls @ merlin_compls)
 
     method! config_symbol = Some (`Bool true)
 

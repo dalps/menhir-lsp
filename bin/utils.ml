@@ -39,7 +39,7 @@ let epr = Pr.eprintf
 let log_info ~(notify_back : notify_back) s =
   s |> notify_back#send_log_msg ~type_:Info |> ignore
 
-(** Adapted from ocaml-lsp/ocaml-lsp-server/src/position.ml *)
+(** Adapted from https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/position.ml *)
 module Position = struct
   include Lsp.Types.Position
 
@@ -86,7 +86,7 @@ module Position = struct
     `Logical (line, col)
 end
 
-(** Adapted from ocaml-lsp/ocaml-lsp-server/src/range.ml *)
+(** Adapted from https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/range.ml *)
 module Range = struct
   include Lsp.Types.Range
 
@@ -269,12 +269,15 @@ let get_merlin_config ~(notify_back : notify_back) ~(uri : uri) =
 let find_merlin_config ~notify_back ~uri =
   let open O in
   let*- _ = Hashtbl.find_opt merlin_configs uri in
-  log_info ~notify_back @@ spr "couldn't find merlin config for %s, generating new one" (DocumentUri.to_path uri);
+  log_info ~notify_back
+  @@ spr "couldn't find merlin config for %s, generating new one"
+       (DocumentUri.to_path uri);
   let+ config = get_merlin_config ~notify_back ~uri in
   Hashtbl.add merlin_configs uri config;
   config
 
-(** Source: ocaml-lsp/ocaml-lsp-server/src/compl.ml *)
+(** https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/compl.ml
+*)
 let completion_kind kind : CompletionItemKind.t option =
   match kind with
   | `Value -> Some Value
@@ -299,12 +302,22 @@ let get_merlin_compls ~(notify_back : notify_back) ~(uri : uri)
         Query_protocol.Complete_prefix (prefix.v, logical_pos, [], false, true)
       in
       let compls = Query_commands.dispatch pipeline query in
-      (* from ocaml-lsp/ocaml-lsp-server/src/compl.ml *)
       let sortText_of_index idx = Printf.sprintf "%04d" idx in
+      (* Merlin wants the completion prefix to include the fully qualified module path,
+      but the TextEdit range must not extend before the cursor position, otherwise the completion won't show.
+      Reference: https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/compl.ml *)
+      let range =
+        (let+ prefix = String.split_on_char '.' prefix.v |> L.last_opt in
+         let len = String.length prefix in
+         let character = pos.character - len in
+         let start = { pos with character } in
+         { Range.start; end_ = pos })
+        |> get_or ~default:prefix.p
+      in
       L.mapi
         (fun idx QP.Compl.{ name; kind; desc; _ } ->
           CompletionItem.create ~label:name ?kind:(completion_kind kind)
             ~sortText:(sortText_of_index idx) ~detail:desc
-            ~textEdit:(`TextEdit { newText = name; range = prefix.p })
+            ~textEdit:(`TextEdit { newText = name; range })
             ())
         compls.entries)
