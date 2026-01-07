@@ -3,19 +3,7 @@ module MR = MenhirSyntax.Range
 module L = CCList
 module P = CCParse
 module LA = L.Assoc
-
-module O = struct
-  include CCOption
-
-  (* map_none *)
-  let ( let- ) (a : 'a option) (f : unit -> 'b) : 'b option =
-    match a with None -> Some (f ()) | Some _ -> None
-
-  (* bind_none *)
-  let ( let*- ) (a : 'a option) (f : unit -> 'b option) : 'b option =
-    match a with None -> f () | Some _ -> None
-end
-
+module O = CCOption
 module R = CCResult
 module A = CCArray
 module F = CCFun
@@ -39,7 +27,9 @@ let epr = Pr.eprintf
 let log_info ~(notify_back : notify_back) s =
   s |> notify_back#send_log_msg ~type_:Info |> ignore
 
-(** Adapted from https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/position.ml *)
+(** Adapted from
+    https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/position.ml
+*)
 module Position = struct
   include Lsp.Types.Position
 
@@ -86,7 +76,9 @@ module Position = struct
     `Logical (line, col)
 end
 
-(** Adapted from https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/range.ml *)
+(** Adapted from
+    https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/range.ml
+*)
 module Range = struct
   include Lsp.Types.Range
 
@@ -214,10 +206,10 @@ let get_build_dirs uri =
 
     [/home/foo/menhir-lsp/test/calc.mly]
 
-    then [in_build_dir ~ext:".conflicts" uri] is
+    then [fetch_build_dir ~ext:".conflicts" uri] is
 
     [/home/foo/menhir-lsp/_build/default/test/calc.conflicts] *)
-let in_build_dir ?(ext : string option) uri =
+let fetch_build_dir ?(ext : string option) uri =
   let module P = Stdune.Path in
   let module F = Filename in
   let s_path = DocumentUri.to_path uri in
@@ -268,13 +260,15 @@ let get_merlin_config ~(notify_back : notify_back) ~(uri : uri) =
 
 let find_merlin_config ~notify_back ~uri =
   let open O in
-  let*- _ = Hashtbl.find_opt merlin_configs uri in
-  log_info ~notify_back
-  @@ spr "couldn't find merlin config for %s, generating new one"
-       (DocumentUri.to_path uri);
-  let+ config = get_merlin_config ~notify_back ~uri in
-  Hashtbl.add merlin_configs uri config;
-  config
+  match Hashtbl.find_opt merlin_configs uri with
+  | None ->
+      log_info ~notify_back
+      @@ spr "couldn't find merlin config for %s, generating new one"
+           (DocumentUri.to_path uri);
+      let+ config = get_merlin_config ~notify_back ~uri in
+      Hashtbl.add merlin_configs uri config;
+      config
+  | o -> o
 
 (** https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/compl.ml
 *)
@@ -314,10 +308,14 @@ let get_merlin_compls ~(notify_back : notify_back) ~(uri : uri)
          { Range.start; end_ = pos })
         |> get_or ~default:prefix.p
       in
-      L.mapi
-        (fun idx QP.Compl.{ name; kind; desc; _ } ->
-          CompletionItem.create ~label:name ?kind:(completion_kind kind)
-            ~sortText:(sortText_of_index idx) ~detail:desc
-            ~textEdit:(`TextEdit { newText = name; range })
-            ())
-        compls.entries)
+      let compls =
+        L.mapi
+          (fun idx QP.Compl.{ name; kind; desc; _ } ->
+            CompletionItem.create ~label:name ?kind:(completion_kind kind)
+              ~sortText:(sortText_of_index idx) ~detail:desc
+              ~textEdit:(`TextEdit { newText = name; range })
+              ())
+          compls.entries
+      in
+      log_info ~notify_back @@ spr "# merlin completions: %d" (L.length compls);
+      compls)

@@ -17,30 +17,8 @@ type state = {
   symbols : string located list;
 }
 
-let get_conflicts_file ~uri =
-  let module P = Stdune.Path in
-  let module F = Filename in
-  let grammar_path = DocumentUri.to_path uri in
-  let grammar_name = F.basename grammar_path in
-  let grammar_slug = F.remove_extension grammar_name in
-  let open R in
-  let* root_dir, context = get_build_dirs () in
-  let p_root = P.of_string root_dir in
-  let p_context = P.of_string (F.concat root_dir context) in
-  let p_grammar = P.of_string (F.dirname grammar_path) in
-  match P.drop_prefix p_grammar ~prefix:p_root with
-  | None ->
-      Error
-        (spr
-           "No config found for %s. Make sure (menhir (modules .. %s ..)) is \
-            included in the stanza's dune file."
-           grammar_name grammar_slug)
-  | Some rel ->
-      let p_conflicts = P.append_local p_context rel in
-      let conflicts_file =
-        F.concat (P.to_string p_conflicts) (grammar_slug ^ ".conflicts")
-      in
-      Ok conflicts_file
+let get_cmly_file ~uri = fetch_build_dir ~ext:".cmly" uri
+let get_conflicts_file ~uri = fetch_build_dir ~ext:".conflicts" uri
 
 let rec string_of_params : parameter -> string = function
   | M.Syntax.ParamVar p -> p.v
@@ -127,41 +105,6 @@ let load_state_from_contents (file_name : string) (file_contents : string) :
 let standard_lib =
   Standard.menhir_standard_library_grammar |> load_state_from_partial_grammar
   |> R.get_exn
-
-(** If we are inside a semantic action, we shall suggest things relevant to the
-    action: bound variables, position keywords etc. *)
-let completions_for_action ?range:(ro : Range.t option) (pos : Position.t)
-    ({ grammar; _ } : state) : CompletionItem.t list =
-  let comps =
-    L.(
-      let* rule = grammar.pg_rules in
-      let* branch = rule.pr_branches in
-      let branch_range =
-        Range.of_lexical_positions
-        @@
-        match branch.pb_action.expr with
-        | M.IL.ETextual { p; _ } -> p
-        | _ -> branch.pb_position
-      in
-      if Position.compare_inclusion pos branch_range = `Inside then
-        Keywords.position_keywords ?range:ro ()
-        @
-        let+ binder, par, _ = branch.pb_producers in
-        let binder =
-          O.(
-            CCString.chop_prefix ~pre:"_" binder.v
-            >|= ( ^ ) "$" |> get_or ~default:binder.v)
-        in
-        CompletionItem.create ~kind:Variable ~detail:(string_of_params par)
-          ~label:binder
-          ?textEdit:
-            O.(
-              let+ range = ro in
-              `TextEdit TextEdit.{ newText = binder; range })
-          ()
-      else [])
-  in
-  comps
 
 let default_completions ?(range : Range.t option)
     ?(docs : (string, string) Hashtbl.t = Hashtbl.create 0)
@@ -315,9 +258,9 @@ let diagnostics ~(notify_back : notify_back) ~(uri : uri) (_s : state) :
         ~relatedInformation:
           L.(
             let+ tk = toks in
-            log
+            (* log
             @@ spr "token name: %s %s" tk.v.terminal
-                 Range.(of_lexical_positions tk.p |> show);
+                 Range.(of_lexical_positions tk.p |> show); *)
             DiagnosticRelatedInformation.create
               ~location:
                 (Location.create ~uri ~range:(Range.of_lexical_positions tk.p))
@@ -404,39 +347,90 @@ let definition (state : state) ~uri ~(pos : Position.t) : Locations.t =
   |> O.to_list
   |> fun locs -> `Location locs
 
-let completions (state : state) ~(word : word option) ~(pos : Position.t) :
-    CompletionItem.t list =
-  let prelude =
-    L.filter_map
+let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
+    ~(word : word option) ~(pos : Position.t) ~(uri : uri)
+    ({ grammar; _ } as state : state) : CompletionItem.t list =
+  let pos_inside r = Position.compare_inclusion pos r = `Inside in
+  let ( <|> ) (a : 'a option) (b : 'a option lazy_t) =
+    match (a, b) with
+    | Some a, _ -> Some a
+    | None, (lazy (Some b)) -> Some b
+    | _ -> None
+  in
+  let declaration_completions =
+    L.find_map
       (fun ({ v; _ } : declaration located) ->
         match v with
-        | DCode { p; _ } -> Some (Range.of_lexical_positions p)
+        | DCode { p; _ }
+        | DType (Declared { p; _ }, _)
+        | DToken (Some (Declared { p; _ }), _, _, _)
+        | DParameter { p; _ } ->
+            let range = Range.of_lexical_positions p in
+            O.if_
+              (fun _ -> pos_inside range)
+              (O.(
+                 let* word = word in
+                 get_merlin_compls ~notify_back ~uri ~pos word)
+              |> O.get_or ~default:[])
         | _ -> None)
-      state.grammar.pg_declarations
+      grammar.pg_declarations
   in
-  let postlude =
+  let _postlude =
     O.(
-      state.grammar.pg_postlude
+      grammar.pg_postlude
       >|= (fun { p; _ } -> Range.of_lexical_positions p)
       |> to_list)
   in
-  if
-    L.exists
-      (fun r -> Position.compare_inclusion pos r = `Inside)
-      (prelude @ postlude)
-  then []
-  else
-    let range =
-      O.(
-        let+ { p; _ } = word in
-        p)
-    in
-    match completions_for_action ?range pos state with
-    | [] ->
-        default_completions ?range state
-        @ standard_lib_completions
-        @ Keywords.declarations ?range ()
-    | l -> l
+  let word_range =
+    O.(
+      let+ { p; _ } = word in
+      p)
+  in
+  (* If we are inside a semantic action we shall suggest bound variables, position keywords and OCaml symbols *)
+  let action_completions =
+    L.find_map
+      (fun rule ->
+        L.find_map
+          (fun branch ->
+            let open O in
+            let* action_range =
+              match branch.pb_action.expr with
+              | M.IL.ETextual { p; _ } -> Some (Range.of_lexical_positions p)
+              | _ -> None
+            in
+            if_
+              (fun _ -> pos_inside action_range)
+              (((let* word = word in
+                 get_merlin_compls ~notify_back ~uri ~pos word)
+               |> O.get_or ~default:[])
+              @ Keywords.position_keywords ?range:word_range ()
+              @
+              let open L in
+              let+ binder, par, _ = branch.pb_producers in
+              let binder =
+                O.(
+                  CCString.chop_prefix ~pre:"_" binder.v
+                  >|= ( ^ ) "$" |> get_or ~default:binder.v)
+              in
+              CompletionItem.create ~kind:Variable
+                ~detail:(string_of_params par) ~label:binder
+                ?textEdit:
+                  O.(
+                    let+ range = word_range in
+                    `TextEdit TextEdit.{ newText = binder; range })
+                ()))
+          rule.pr_branches)
+      grammar.pg_rules
+  in
+  let grammar_completions =
+    default_completions ?range:word_range state
+    @ standard_lib_completions
+    @ Keywords.declarations ?range:word_range ()
+  in
+  declaration_completions
+  <|> lazy action_completions
+  <|> lazy (Some grammar_completions)
+  |> O.get_or ~default:[]
 
 let prepare_rename (state : state) ~(pos : Position.t) : Range.t option =
   let open O in

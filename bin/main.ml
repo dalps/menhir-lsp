@@ -86,25 +86,16 @@ class lsp_server =
     method! on_req_completion =
       fun ~notify_back ~id:_ ~uri ~pos ~ctx:_ ~workDoneToken:_
           ~partialResultToken:_ _doc_state ->
-        Lwt.return
-        @@
         let open O in
         let opt_word = self#_word_at_position ~notify_back ~uri ~pos in
-        let merlin_compls =
-          (let* word = opt_word in
-           get_merlin_compls ~notify_back ~uri ~pos word)
-          |> get_or ~default:[]
-        in
-        log_info ~notify_back
-        @@ spr "# merlin completions: %d" (L.length merlin_compls);
         let grammar_compls =
           self#_dispatch ~notify_back uri ~mll_handler:(Mll.completions ~pos)
-            ~mly_handler:(Mly.completions ~word:opt_word ~pos)
+            ~mly_handler:(Mly.completions ~word:opt_word ~notify_back ~pos ~uri)
           |> get_or ~default:[]
         in
         log_info ~notify_back
           (spr "# completions: %d" (L.length grammar_compls));
-        some @@ `List (grammar_compls @ merlin_compls)
+        `List grammar_compls |> some |> Lwt.return
 
     method! config_symbol = Some (`Bool true)
 
