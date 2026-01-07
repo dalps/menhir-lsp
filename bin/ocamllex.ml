@@ -253,53 +253,67 @@ and …|};
         ] );
     ]
 
-let completions_for_action (pos : Position.t) ({ grammar; _ } : state) =
-  (* in actions, we want to suggest `lexbuf`, the variables bound with `as` in the current clause and the other lexer entrypoints *)
-  L.(
-    let* rule = grammar.entrypoints in
-    let* regexp, r = rule.clauses in
-    let range = Range.of_lexical_positions r in
-    if Position.compare_inclusion pos range = `Inside then
-      (let+ arg = rule.args in
-       CompletionItem.create ~kind:Value ~label:arg.v ())
-      @ (let+ entry = grammar.entrypoints in
-         CompletionItem.create ~kind:Function ~label:entry.name.v ())
-      @ (let+ binder = regexp_bindings regexp in
-         CompletionItem.create ~kind:Value ~label:binder.v ())
-      @ compile_completions ~kind:Value
-          [
-            ( "lexbuf",
-              None,
-              None,
-              [
-                md_fenced "lexbuf : Lexing.lexbuf";
-                "The current lexer buffer.";
-                "Can be used in conjunction with the operations on lexer \
-                 buffers provided by the `Lexing` standard library module.";
-                manual_ref "ss:ocamllex-actions";
-              ] );
-          ]
-    else [])
-
-let completions ({ grammar = { header; trailer; _ }; _ } as state : state)
-    ~(pos : Position.t) : CompletionItem.t list =
+let completions ({ grammar = { header; trailer; _ } as grammar; _ } : state)
+    ~(notify_back : Linol_lwt.Jsonrpc2.notify_back) ~(word : word option)
+    ~(pos : Position.t) ~(uri : uri) : CompletionItem.t list =
+  let open O in
+  let pos_inside = Position.is_inside pos in
   let header = Range.of_lexical_positions header in
   let trailer = Range.of_lexical_positions trailer in
-  if
-    Position.(
-      compare_inclusion pos header = `Inside
-      || compare_inclusion pos trailer = `Inside)
-  then []
-  else
-    match completions_for_action pos state with
-    | [] ->
-        regex_operator_completions @ keyword_completions
-        @ L.map
-            (fun (name, _) ->
-              (* let _range = Range.of_lexical_positions p in *)
-              CompletionItem.create ~kind:Property ~label:name.v ())
-            state.grammar.named_regexps
-    | l -> l
+  let merlin_compls () =
+    (let* word = word in
+     get_merlin_compls ~notify_back ~uri ~pos word)
+    |> get_or ~default:[]
+  in
+  let header_completions () =
+    if_ (fun _ -> pos_inside header || pos_inside trailer) (merlin_compls ())
+  in
+  (* Inside actions we shall suggest `lexbuf`, the variables bound with `as` in the current clause, the lexer entrypoints, and OCaml symbols *)
+  let action_completions () =
+    L.find_map
+      (fun (rule : _ Syntax.entry) ->
+        L.find_map
+          (fun (regexp, r) ->
+            let range = Range.of_lexical_positions r in
+            if_
+              (fun _ -> pos_inside range)
+              (L.(
+                 let+ arg = rule.args in
+                 CompletionItem.create ~kind:Value ~label:arg.v ())
+              @ L.(
+                  let+ entry = grammar.entrypoints in
+                  CompletionItem.create ~kind:Function ~label:entry.name.v ())
+              @ L.(
+                  let+ binder = regexp_bindings regexp in
+                  CompletionItem.create ~kind:Value ~label:binder.v ())
+              @ compile_completions ~kind:Value
+                  [
+                    ( "lexbuf",
+                      None,
+                      None,
+                      [
+                        md_fenced "Lexing.lexbuf";
+                        "The current lexer buffer.";
+                        "Can be used in conjunction with the operations on \
+                         lexer buffers provided by the `Lexing` standard \
+                         library module.";
+                        manual_ref "ss:ocamllex-actions";
+                      ] );
+                  ]
+              @ merlin_compls ()))
+          rule.clauses)
+      grammar.entrypoints
+  in
+  let lexer_completions =
+    regex_operator_completions @ keyword_completions
+    @ L.map
+        (fun (name, _) ->
+          (* let _range = Range.of_lexical_positions p in *)
+          CompletionItem.create ~kind:Property ~label:name.v ())
+        grammar.named_regexps
+  in
+  header_completions () <|> action_completions
+  |> get_or ~default:lexer_completions
 
 let print_symbols ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
     (state : state) =

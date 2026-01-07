@@ -87,10 +87,11 @@ class lsp_server =
       fun ~notify_back ~id:_ ~uri ~pos ~ctx:_ ~workDoneToken:_
           ~partialResultToken:_ _doc_state ->
         let open O in
-        let opt_word = self#_word_at_position ~notify_back ~uri ~pos in
+        let word = self#_word_at_position ~notify_back ~uri ~pos in
         let grammar_compls =
-          self#_dispatch ~notify_back uri ~mll_handler:(Mll.completions ~pos)
-            ~mly_handler:(Mly.completions ~word:opt_word ~notify_back ~pos ~uri)
+          self#_dispatch ~notify_back uri
+            ~mll_handler:(Mll.completions ~notify_back ~pos ~uri ~word)
+            ~mly_handler:(Mly.completions ~notify_back ~pos ~uri ~word)
           |> get_or ~default:[]
         in
         log_info ~notify_back

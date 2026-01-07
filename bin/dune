@@ -1,5 +1,16 @@
 (executable
  (public_name menhir-lsp)
  (name main)
- (preprocess (pps lwt_ppx))
- (libraries menhirSyntax ocamllexSyntax linol linol-lwt containers ordering re))
+ (preprocess
+  (pps lwt_ppx))
+ (libraries
+  merlin-lib.kernel
+  merlin-lib.query_commands
+  menhirSyntax
+  ocamllexSyntax
+  linol
+  linol-lwt
+  containers
+  ordering
+  re
+  stdune))

@@ -3,7 +3,14 @@ module MR = MenhirSyntax.Range
 module L = CCList
 module P = CCParse
 module LA = L.Assoc
-module O = CCOption
+
+module O = struct
+  include CCOption
+
+  let ( <|> ) (a : 'a option) (b : unit -> 'a option) =
+    match (a, b) with Some a, _ -> Some a | None, f -> f ()
+end
+
 module R = CCResult
 module A = CCArray
 module F = CCFun
@@ -69,6 +76,8 @@ module Position = struct
     | Gt, Gt -> `Outside (abs (r.end_ - t))
     | Eq, Lt | Gt, Eq | Eq, Eq | Gt, Lt -> `Inside
     | Eq, Gt | Lt, Eq | Lt, Gt -> assert false (* uncanny *)
+
+  let is_inside (t : t) r = compare_inclusion t r = `Inside
 
   let logical position =
     let line = position.line + 1 in
