@@ -266,7 +266,8 @@ let completions ({ grammar = { header; trailer; _ } as grammar; _ } : state)
     |> get_or ~default:[]
   in
   let header_completions () =
-    if_ (fun _ -> pos_inside header || pos_inside trailer) (merlin_compls ())
+    if pos_inside header || pos_inside trailer then Some (merlin_compls ())
+    else None
   in
   (* Inside actions we shall suggest `lexbuf`, the variables bound with `as` in the current clause, the lexer entrypoints, and OCaml symbols *)
   let action_completions () =
@@ -275,11 +276,10 @@ let completions ({ grammar = { header; trailer; _ } as grammar; _ } : state)
         L.find_map
           (fun (regexp, r) ->
             let range = Range.of_lexical_positions r in
-            if_
-              (fun _ -> pos_inside range)
-              (L.(
-                 let+ arg = rule.args in
-                 CompletionItem.create ~kind:Value ~label:arg.v ())
+            if pos_inside range then
+              L.(
+                let+ arg = rule.args in
+                CompletionItem.create ~kind:Value ~label:arg.v ())
               @ L.(
                   let+ entry = grammar.entrypoints in
                   CompletionItem.create ~kind:Function ~label:entry.name.v ())
@@ -300,7 +300,9 @@ let completions ({ grammar = { header; trailer; _ } as grammar; _ } : state)
                         manual_ref "ss:ocamllex-actions";
                       ] );
                   ]
-              @ merlin_compls ()))
+              @ merlin_compls ()
+              |> some
+            else None)
           rule.clauses)
       grammar.entrypoints
   in

@@ -354,6 +354,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
   let pos_inside = Position.is_inside pos in
   let merlin_compls () =
     (let* word = word in
+     log_info ~notify_back "hello?";
      get_merlin_compls ~notify_back ~uri ~pos word)
     |> get_or ~default:[]
   in
@@ -366,7 +367,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         | DToken (Some (Declared { p; _ }), _, _, _)
         | DParameter { p; _ } ->
             let range = Range.of_lexical_positions p in
-            if_ (fun _ -> pos_inside range) (merlin_compls ())
+            if pos_inside range then Some (merlin_compls ()) else None
         | _ -> None)
       grammar.pg_declarations
   in
@@ -390,9 +391,8 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
               | M.IL.ETextual { p; _ } -> Some (Range.of_lexical_positions p)
               | _ -> None
             in
-            if_
-              (fun _ -> pos_inside action_range)
-              (Keywords.position_keywords ?range:word_range ()
+            if pos_inside action_range then
+              Keywords.position_keywords ?range:word_range ()
               @ (let open L in
                  let+ binder, par, _ = branch.pb_producers in
                  let binder =
@@ -407,7 +407,9 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
                        let+ range = word_range in
                        `TextEdit TextEdit.{ newText = binder; range })
                    ())
-              @ merlin_compls ()))
+              @ merlin_compls ()
+              |> some
+            else None)
           rule.pr_branches)
       grammar.pg_rules
   in
