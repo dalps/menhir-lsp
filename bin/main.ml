@@ -22,12 +22,12 @@ class lsp_server =
         let* d = self#find_doc uri in
         let text = d.content in
         let td =
-          Lsp.Text_document.make ~position_encoding:positionEncoding
+          Text_document.make ~position_encoding:positionEncoding
             (DidOpenTextDocumentParams.create
                ~textDocument:
                  { text; version = d.version; languageId = d.languageId; uri })
         in
-        let ofs = Lsp.Text_document.absolute_position td pos in
+        let ofs = Text_document.absolute_position td pos in
         let max_reach = min ofs 500 in
         (* limit the search to the previous 500 chars *)
         let prefix = CCString.sub text (ofs - max_reach) max_reach in
@@ -37,7 +37,10 @@ class lsp_server =
         let* start_ofs =
           try
             Re.Str.(
-              search_backward (regexp {|[^a-zA-Z0-9_$%]|}) prefix (max_reach - 1))
+              search_backward
+                (regexp {|[^a-zA-Z0-9_$%.]|})
+                (* should include all trigger characters *)
+                prefix (max_reach - 1))
             |> some
           with _ -> None
         in
@@ -50,7 +53,7 @@ class lsp_server =
         notify_back#send_log_msg ~type_:MessageType.Info
           (spr "Word under cursor: |%s| %s" word (Range.show range))
         |> ignore;
-        Some { v = word; p = range }
+        Some { v = word; p = range; td }
 
     method private _dispatch : type r.
         uri ->
@@ -76,25 +79,24 @@ class lsp_server =
           allCommitCharacters = None;
           completionItem = None;
           resolveProvider = None;
-          triggerCharacters = Some [ "%"; "$" ];
+          triggerCharacters = Some [ "%"; "$"; "." ];
           workDoneProgress = None;
         }
 
     method! on_req_completion =
       fun ~notify_back ~id:_ ~uri ~pos ~ctx:_ ~workDoneToken:_
           ~partialResultToken:_ _doc_state ->
-        Lwt.return
-        @@
         let open O in
         let word = self#_word_at_position ~notify_back ~uri ~pos in
-        let+ comps =
-          self#_dispatch ~notify_back uri ~mll_handler:(Mll.completions ~pos)
-            ~mly_handler:(Mly.completions ~word ~pos)
+        let grammar_compls =
+          self#_dispatch ~notify_back uri
+            ~mll_handler:(Mll.completions ~notify_back ~pos ~uri ~word)
+            ~mly_handler:(Mly.completions ~notify_back ~pos ~uri ~word)
+          |> get_or ~default:[]
         in
-        notify_back#send_log_msg ~type_:MessageType.Info
-          (spr "# completions: %d" (List.length comps))
-        |> ignore;
-        `List comps
+        log_info ~notify_back
+          (spr "# completions: %d" (L.length grammar_compls));
+        `List grammar_compls |> some |> Lwt.return
 
     method! config_symbol = Some (`Bool true)
 
@@ -212,17 +214,18 @@ class lsp_server =
       notify_back#send_log_msg ~type_:Info
         (spr "Processing document %s" filename);%lwt
       let go buffers loader diagnose =
-        let%lwt new_state, new_diags =
+        let new_state, new_diags =
           match loader filename contents with
           | Ok new_state ->
               Hashtbl.replace buffers uri new_state;
-              Lwt.return (Some new_state, [])
-          | Error diags -> Lwt.return (Hashtbl.find_opt buffers uri, diags)
+              (Some new_state, [])
+          | Error diags -> (Hashtbl.find_opt buffers uri, diags)
         in
         (* diagnoses for the new state (empty) *)
         let diags = O.map_or ~default:[] diagnose new_state in
         notify_back#send_diagnostic (diags @ new_diags)
       in
+      (* consider matching on TextDocumentItem.languageId *)
       match Filename.extension filename with
       | ".mll" -> go mll_buffers Mll.load_state_from_contents Mll.diagnostics
       | ".mly" ->
@@ -233,8 +236,10 @@ class lsp_server =
           @@ spr "Unhandled document type: %s" ext
 
     (* We now override the [on_notify_doc_did_open] method that will be called
-          by the server each time a new document is opened. *)
+            by the server each time a new document is opened. *)
     method on_notif_doc_did_open ~notify_back d ~content : unit Linol_lwt.t =
+      find_merlin_config ~notify_back ~uri:d.uri |> ignore;
+      notify_back#send_log_msg ~type_:Info (spr "Language id: %s" d.languageId);%lwt
       self#_on_doc ~notify_back d.uri content
 
     (* Similarly, we also override the [on_notify_doc_did_change] method that will be called

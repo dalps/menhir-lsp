@@ -92,8 +92,7 @@ If a quoted identifier `qid_i` is present, then it is considered an alias for th
       None,
       [
         md_fenced "%public option(X):\n    | { None }\n    | x = X { Some x }";
-        "exposes the nonterminal symbol `option` for use within client grammar \
-         modules";
+        "exposes the nonterminal symbol `option` to client grammar modules.";
         manual_ref "%3Asplit";
       ] );
     ( "%inline",
