@@ -39,8 +39,11 @@ let pr = Pr.printf
 let spr = Pr.sprintf
 let epr = Pr.eprintf
 
-let log_info ~(notify_back : notify_back) s =
-  s |> notify_back#send_log_msg ~type_:Info |> ignore
+let log ~(notify_back : notify_back) ~type_ =
+  Printf.ksprintf (fun s -> notify_back#send_log_msg ~type_ s |> ignore)
+
+let log_info ~(notify_back : notify_back) = log ~notify_back ~type_:Info
+let log_error ~(notify_back : notify_back) = log ~notify_back ~type_:Error
 
 (** Adapted from
     https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/position.ml
@@ -262,12 +265,11 @@ let get_merlin_config ~(notify_back : notify_back) ~(uri : uri) =
   let dot, failures = MK.Mconfig_dot.get_config ctx path in
   let concat = String.concat ", " in
   log_info ~notify_back
-  @@ spr
-       {|Search result for Merlin config of %s:
+    {|Search result for Merlin config of %s:
   Errors: %s
   Source path: %s
   Build path: %s|}
-       path (concat failures) (concat dot.source_path) (concat dot.build_path);
+    path (concat failures) (concat dot.source_path) (concat dot.build_path);
   let merlin =
     MK.Mconfig.merge_merlin_config dot MK.Mconfig.initial.merlin ~failures
       ~config_path
@@ -279,8 +281,8 @@ let find_merlin_config ~notify_back ~uri =
   match Hashtbl.find_opt merlin_configs uri with
   | None ->
       log_info ~notify_back
-      @@ spr "couldn't find merlin config for %s, generating new one"
-           (DocumentUri.to_path uri);
+        "couldn't find merlin config for %s, generating new one"
+        (DocumentUri.to_path uri);
       let+ config = get_merlin_config ~notify_back ~uri in
       Hashtbl.add merlin_configs uri config;
       config
@@ -333,5 +335,5 @@ let get_merlin_compls ~(notify_back : notify_back) ~(uri : uri)
               ())
           compls.entries
       in
-      log_info ~notify_back @@ spr "# merlin completions: %d" (L.length compls);
+      log_info ~notify_back "# merlin completions: %d" (L.length compls);
       compls)

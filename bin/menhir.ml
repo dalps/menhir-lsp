@@ -249,7 +249,7 @@ let diagnostics ~(notify_back : notify_back) ~(uri : uri) (_s : state) :
   try
     let open R in
     let conflicts_file = get_conflicts_file ~uri |> get_exn in
-    log @@ spr "conflicts_file: %s" conflicts_file;
+    log "conflicts_file: %s" conflicts_file;
     let module P = CCParse in
     let module S = CCString in
     let mk_diag (toks : token located list) lines =
@@ -259,7 +259,7 @@ let diagnostics ~(notify_back : notify_back) ~(uri : uri) (_s : state) :
           L.(
             let+ tk = toks in
             (* log
-            @@ spr "token name: %s %s" tk.v.terminal
+             "token name: %s %s" tk.v.terminal
                  Range.(of_lexical_positions tk.p |> show); *)
             DiagnosticRelatedInformation.create
               ~location:
