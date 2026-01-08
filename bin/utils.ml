@@ -9,9 +9,16 @@ module O = struct
 
   let ( <|> ) (a : 'a option) (b : unit -> 'a option) =
     match (a, b) with Some a, _ -> Some a | None, f -> f ()
+
+  let get_or_nil (t : 'a list t) : 'a list = get_or ~default:[] t
 end
 
-module R = CCResult
+module R = struct
+  include CCResult
+
+  let get_or_nil (t : ('a list, 'err) t) : 'a list = get_or ~default:[] t
+end
+
 module A = CCArray
 module F = CCFun
 module C = CCChar
@@ -21,6 +28,7 @@ module Lsp = Linol_lsp.Lsp
 module Loc = M.Located
 module Log = (val Logs.src_log Linol.logs_src)
 include Lsp.Types
+module Uri = DocumentUri
 module Text_document = Lsp.Text_document
 
 type notify_back = Linol_lwt.Jsonrpc2.notify_back
@@ -186,7 +194,7 @@ let compile_completions ?(range : Range.t option) ~(kind : CompletionItemKind.t)
                       ~value:(String.concat "\n\n" docs))))
         ())
 
-let _build_dir  = ref (Error "")
+let _build_dir = ref (Error "")
 
 let get_build_dir _ =
   let f () =

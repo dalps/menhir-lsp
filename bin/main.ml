@@ -134,34 +134,34 @@ class lsp_server =
           let module P = Stdune.Path in
           let module F = Filename in
           (let+ root, ctx = get_build_dir () in
-           L.map
-             (fun ch ->
-               let s_path = ch.FileEvent.uri |> DocumentUri.to_path in
-               log_info ~notify_back @@ spr "Watched file change: %s" s_path;
+           L.filter_map
+             (fun FileEvent.{ uri; _ } ->
+               let s_path = Uri.to_path uri in
+               log_info ~notify_back @@ spr "Watched file changed: %s" s_path;
                let p_path = P.of_string s_path in
                let p_build = P.of_string F.(concat root ctx) in
-               match P.drop_prefix p_path ~prefix:p_build with
-               | None -> ()
-               | Some p ->
-                   let uri =
-                     DocumentUri.of_path
-                       F.(
-                         concat root
-                           ( P.Local.to_string p |> F.remove_extension
-                           |> fun s -> s ^ ".mly" ))
-                   in
-
-                   log_info ~notify_back
-                   @@ spr "reconstructed source path: %s"
-                        (DocumentUri.to_path uri);
-                   (let open O in
-                    let+ state = Hashtbl.find_opt mly_buffers uri in
-                    let diags = Mly.diagnostics ~notify_back ~uri state in
-                    log_info ~notify_back
-                    @@ spr "# conflicts: %d" (L.length diags);
-                    notify_back#send_diagnostic diags)
-                   (* doesn't work :/ *)
-                   |> ignore)
+               let open O in
+               let* p_source = P.drop_prefix p_path ~prefix:p_build in
+               let uri =
+                 Uri.of_path
+                   F.(
+                     concat root
+                       ((P.Local.to_string p_source |> remove_extension)
+                       ^ ".mly"))
+               in
+               log_info ~notify_back
+               @@ spr "Reconstructed source path: %s" (Uri.to_path uri);
+               let+ state = Hashtbl.find_opt mly_buffers uri in
+               let diags = Mly.diagnostics ~notify_back ~uri state in
+               log_info ~notify_back @@ spr "# conflicts: %d" (L.length diags);
+               log_info ~notify_back
+               @@ spr "ONH notify_back#uri: %s"
+                    (notify_back#get_uri |> O.map_or Uri.to_string ~default:"");
+               notify_back#set_uri uri;
+               log_info ~notify_back
+               @@ spr "after setting ONH notify_back#uri: %s"
+                    (notify_back#get_uri |> O.map_or Uri.to_string ~default:"");
+               notify_back#send_diagnostic diags)
              params.changes)
           |> ignore;
           Lwt.return ()
@@ -179,14 +179,14 @@ class lsp_server =
             self#_on_req_prepare_rename ~notify_back ~id ~uri:r.textDocument.uri
               ~pos:r.position
         | Lsp.Client_request.TextDocumentRename (r : RenameParams.t) ->
-            notify_back#send_log_msg ~type_:Info
-              (spr "Requested rename at position: %s" (Position.show r.position));%lwt
+            log_info ~notify_back
+              (spr "Requested rename at position: %s" (Position.show r.position));
             self#_on_req_rename ~notify_back r.newName ~pos:r.position ~id
               ~uri:r.textDocument.uri
         | Lsp.Client_request.TextDocumentReferences (r : ReferenceParams.t) ->
-            notify_back#send_log_msg ~type_:Info
+            log_info ~notify_back
               (spr "Requested references at position: %s"
-                 (Position.show r.position));%lwt
+                 (Position.show r.position));
             self#_on_req_references ~notify_back ~id ~pos:r.position
               ~uri:r.textDocument.uri
         | _ -> Lwt.fail_with "Unhandled request type"
@@ -214,8 +214,8 @@ class lsp_server =
     method! on_req_definition =
       fun ~notify_back ~id:_ ~uri ~pos ~workDoneToken:_ ~partialResultToken:_
           _doc_state ->
-        notify_back#send_log_msg ~type_:Info
-          (spr "Requested definition at pos %s" (Position.show pos));%lwt
+        log_info ~notify_back
+          (spr "Requested definition at pos %s" (Position.show pos));
         self#_dispatch uri ~notify_back ~mly_handler:(Mly.definition ~uri ~pos)
           ~mll_handler:(Mll.definition ~uri ~pos)
         |> Lwt.return
@@ -251,8 +251,7 @@ class lsp_server =
     method private _on_doc ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         (uri : uri) (contents : string) : unit Lwt.t =
       let filename = DocumentUri.to_path uri in
-      notify_back#send_log_msg ~type_:Info
-        (spr "Processing document %s" filename);%lwt
+      log_info ~notify_back (spr "Processing document %s" filename);
       let go buffers loader diagnose =
         let new_state, new_diags =
           match loader filename contents with
@@ -262,13 +261,18 @@ class lsp_server =
           | Error diags -> (Hashtbl.find_opt buffers uri, diags)
         in
         (* diagnoses for the new state (empty) *)
+        log_info ~notify_back
+        @@ spr "notify_back#uri: %s"
+             (notify_back#get_uri |> O.map_or Uri.to_string ~default:"");
         let diags = O.map_or ~default:[] diagnose new_state in
         notify_back#send_diagnostic (diags @ new_diags)
       in
       (* consider matching on TextDocumentItem.languageId *)
       match Filename.extension filename with
       | ".mll" -> go mll_buffers Mll.load_state_from_contents Mll.diagnostics
-      | ".mly" -> go mly_buffers Mly.load_state_from_contents (fun _ -> [])
+      | ".mly" ->
+          go mly_buffers Mly.load_state_from_contents
+            (Mly.diagnostics ~notify_back ~uri)
       | ext ->
           notify_back#send_log_msg ~type_:Error
           @@ spr "Unhandled document type: %s" ext
@@ -276,8 +280,9 @@ class lsp_server =
     (* We now override the [on_notify_doc_did_open] method that will be called
             by the server each time a new document is opened. *)
     method on_notif_doc_did_open ~notify_back d ~content : unit Linol_lwt.t =
+      get_build_dir () |> ignore;
       find_merlin_config ~notify_back ~uri:d.uri |> ignore;
-      notify_back#send_log_msg ~type_:Info (spr "Language id: %s" d.languageId);%lwt
+      log_info ~notify_back (spr "Language id: %s" d.languageId);
       self#_on_doc ~notify_back d.uri content
 
     (* Similarly, we also override the [on_notify_doc_did_change] method that will be called
