@@ -127,6 +127,46 @@ class lsp_server =
                { prepareProvider = Some true; workDoneProgress = None });
       }
 
+    method! on_notification_unhandled ~notify_back =
+      function
+      | DidChangeWatchedFiles params ->
+          let open R in
+          let module P = Stdune.Path in
+          let module F = Filename in
+          (let+ root, ctx = get_build_dir () in
+           L.map
+             (fun ch ->
+               let s_path = ch.FileEvent.uri |> DocumentUri.to_path in
+               log_info ~notify_back @@ spr "Watched file change: %s" s_path;
+               let p_path = P.of_string s_path in
+               let p_build = P.of_string F.(concat root ctx) in
+               match P.drop_prefix p_path ~prefix:p_build with
+               | None -> ()
+               | Some p ->
+                   let uri =
+                     DocumentUri.of_path
+                       F.(
+                         concat root
+                           ( P.Local.to_string p |> F.remove_extension
+                           |> fun s -> s ^ ".mly" ))
+                   in
+
+                   log_info ~notify_back
+                   @@ spr "reconstructed source path: %s"
+                        (DocumentUri.to_path uri);
+                   (let open O in
+                    let+ state = Hashtbl.find_opt mly_buffers uri in
+                    let diags = Mly.diagnostics ~notify_back ~uri state in
+                    log_info ~notify_back
+                    @@ spr "# conflicts: %d" (L.length diags);
+                    notify_back#send_diagnostic diags)
+                   (* doesn't work :/ *)
+                   |> ignore)
+             params.changes)
+          |> ignore;
+          Lwt.return ()
+      | _ -> Lwt.return ()
+
     method! on_request_unhandled : type r.
         notify_back:Linol_lwt.Jsonrpc2.notify_back ->
         id:Linol_jsonrpc.Jsonrpc.Id.t ->
@@ -209,7 +249,7 @@ class lsp_server =
        - return the diagnostics from the new state
     *)
     method private _on_doc ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
-        (uri : uri) (contents : string) =
+        (uri : uri) (contents : string) : unit Lwt.t =
       let filename = DocumentUri.to_path uri in
       notify_back#send_log_msg ~type_:Info
         (spr "Processing document %s" filename);%lwt
@@ -228,9 +268,7 @@ class lsp_server =
       (* consider matching on TextDocumentItem.languageId *)
       match Filename.extension filename with
       | ".mll" -> go mll_buffers Mll.load_state_from_contents Mll.diagnostics
-      | ".mly" ->
-          go mly_buffers Mly.load_state_from_contents
-            (Mly.diagnostics ~notify_back ~uri)
+      | ".mly" -> go mly_buffers Mly.load_state_from_contents (fun _ -> [])
       | ext ->
           notify_back#send_log_msg ~type_:Error
           @@ spr "Unhandled document type: %s" ext

@@ -186,30 +186,29 @@ let compile_completions ?(range : Range.t option) ~(kind : CompletionItemKind.t)
                       ~value:(String.concat "\n\n" docs))))
         ())
 
-let build_dirs : (uri, string * string) Hashtbl.t = Hashtbl.create 42
+let _build_dir  = ref (Error "")
 
-let get_build_dirs uri =
-  let open R in
-  let f _ =
-    let s =
+let get_build_dir _ =
+  let f () =
+    let err = Error "Failure: dune describe" in
+    try
       let inp = Unix.open_process_in "dune describe workspace" in
       let s = CCSexp.parse_chan inp in
       In_channel.close inp;
-      s
-    in
-    match s with
-    | Ok
-        (`List
-           (`List [ `Atom "root"; `Atom root_dir ]
-           :: `List [ `Atom "build_context"; `Atom context ]
-           :: _)) ->
-        (root_dir, context)
-    | _ -> failwith "bad pattern"
+      match s with
+      | Ok
+          (`List
+             (`List [ `Atom "root"; `Atom root_dir ]
+             :: `List [ `Atom "build_context"; `Atom context ]
+             :: _)) ->
+          _build_dir := Ok (root_dir, context);
+          !_build_dir
+      | _ -> err
+    with _ ->
+      (* May fail due to 'A running dune (pid: ..) instance has locked the build directory.') *)
+      err
   in
-  try CCHashtbl.get_or_add build_dirs ~k:uri ~f |> R.return
-  with _ ->
-    (* May fail due to 'A running dune (pid: ..) instance has locked the build directory.') *)
-    Error "Failed to read dune describe's output"
+  match !_build_dir with Ok _ -> !_build_dir | Error _ -> f ()
 
 (** e.g. if [uri] is
 
@@ -226,7 +225,7 @@ let fetch_build_dir ?(ext : string option) uri =
   let s_slug = F.remove_extension s_name in
   let s_ext = O.get_or ~default:(F.extension s_name) ext in
   let open R in
-  let* root, ctx = get_build_dirs uri in
+  let* root, ctx = get_build_dir () in
   let p_root = P.of_string root in
   let p_dir = P.of_string (F.dirname s_path) in
   match P.drop_prefix p_dir ~prefix:p_root with
