@@ -9,9 +9,16 @@ module O = struct
 
   let ( <|> ) (a : 'a option) (b : unit -> 'a option) =
     match (a, b) with Some a, _ -> Some a | None, f -> f ()
+
+  let get_or_nil (t : 'a list t) : 'a list = get_or ~default:[] t
 end
 
-module R = CCResult
+module R = struct
+  include CCResult
+
+  let get_or_nil (t : ('a list, 'err) t) : 'a list = get_or ~default:[] t
+end
+
 module A = CCArray
 module F = CCFun
 module C = CCChar
@@ -21,6 +28,7 @@ module Lsp = Linol_lsp.Lsp
 module Loc = M.Located
 module Log = (val Logs.src_log Linol.logs_src)
 include Lsp.Types
+module Uri = DocumentUri
 module Text_document = Lsp.Text_document
 
 type notify_back = Linol_lwt.Jsonrpc2.notify_back
@@ -31,8 +39,11 @@ let pr = Pr.printf
 let spr = Pr.sprintf
 let epr = Pr.eprintf
 
-let log_info ~(notify_back : notify_back) s =
-  s |> notify_back#send_log_msg ~type_:Info |> ignore
+let log ~(notify_back : notify_back) ~type_ =
+  Printf.ksprintf (fun s -> notify_back#send_log_msg ~type_ s |> ignore)
+
+let log_info ~(notify_back : notify_back) = log ~notify_back ~type_:Info
+let log_error ~(notify_back : notify_back) = log ~notify_back ~type_:Error
 
 (** Adapted from
     https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/position.ml
@@ -186,30 +197,29 @@ let compile_completions ?(range : Range.t option) ~(kind : CompletionItemKind.t)
                       ~value:(String.concat "\n\n" docs))))
         ())
 
-let build_dirs : (uri, string * string) Hashtbl.t = Hashtbl.create 42
+let _build_dir = ref (Error "")
 
-let get_build_dirs uri =
-  let open R in
-  let f _ =
-    let s =
+let get_build_dir _ =
+  let f () =
+    let err = Error "Failure: dune describe" in
+    try
       let inp = Unix.open_process_in "dune describe workspace" in
       let s = CCSexp.parse_chan inp in
       In_channel.close inp;
-      s
-    in
-    match s with
-    | Ok
-        (`List
-           (`List [ `Atom "root"; `Atom root_dir ]
-           :: `List [ `Atom "build_context"; `Atom context ]
-           :: _)) ->
-        (root_dir, context)
-    | _ -> failwith "bad pattern"
+      match s with
+      | Ok
+          (`List
+             (`List [ `Atom "root"; `Atom root_dir ]
+             :: `List [ `Atom "build_context"; `Atom context ]
+             :: _)) ->
+          _build_dir := Ok (root_dir, context);
+          !_build_dir
+      | _ -> err
+    with _ ->
+      (* May fail due to 'A running dune (pid: ..) instance has locked the build directory.') *)
+      err
   in
-  try CCHashtbl.get_or_add build_dirs ~k:uri ~f |> R.return
-  with _ ->
-    (* May fail due to 'A running dune (pid: ..) instance has locked the build directory.') *)
-    Error "Failed to read dune describe's output"
+  match !_build_dir with Ok _ -> !_build_dir | Error _ -> f ()
 
 (** e.g. if [uri] is
 
@@ -226,7 +236,7 @@ let fetch_build_dir ?(ext : string option) uri =
   let s_slug = F.remove_extension s_name in
   let s_ext = O.get_or ~default:(F.extension s_name) ext in
   let open R in
-  let* root, ctx = get_build_dirs uri in
+  let* root, ctx = get_build_dir () in
   let p_root = P.of_string root in
   let p_dir = P.of_string (F.dirname s_path) in
   match P.drop_prefix p_dir ~prefix:p_root with
@@ -255,12 +265,11 @@ let get_merlin_config ~(notify_back : notify_back) ~(uri : uri) =
   let dot, failures = MK.Mconfig_dot.get_config ctx path in
   let concat = String.concat ", " in
   log_info ~notify_back
-  @@ spr
-       {|Search result for Merlin config of %s:
+    {|Search result for Merlin config of %s:
   Errors: %s
   Source path: %s
   Build path: %s|}
-       path (concat failures) (concat dot.source_path) (concat dot.build_path);
+    path (concat failures) (concat dot.source_path) (concat dot.build_path);
   let merlin =
     MK.Mconfig.merge_merlin_config dot MK.Mconfig.initial.merlin ~failures
       ~config_path
@@ -272,8 +281,8 @@ let find_merlin_config ~notify_back ~uri =
   match Hashtbl.find_opt merlin_configs uri with
   | None ->
       log_info ~notify_back
-      @@ spr "couldn't find merlin config for %s, generating new one"
-           (DocumentUri.to_path uri);
+        "couldn't find merlin config for %s, generating new one"
+        (DocumentUri.to_path uri);
       let+ config = get_merlin_config ~notify_back ~uri in
       Hashtbl.add merlin_configs uri config;
       config
@@ -326,5 +335,5 @@ let get_merlin_compls ~(notify_back : notify_back) ~(uri : uri)
               ())
           compls.entries
       in
-      log_info ~notify_back @@ spr "# merlin completions: %d" (L.length compls);
+      log_info ~notify_back "# merlin completions: %d" (L.length compls);
       compls)

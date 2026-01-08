@@ -35,6 +35,11 @@ export function activate(context: vscode.ExtensionContext) {
       { scheme: "file", language: "ocaml.menhir" },
       { scheme: "file", language: "ocaml.ocamllex" },
     ],
+    synchronize: {
+      fileEvents: vscode.workspace.createFileSystemWatcher(
+        "**/*.conflicts"
+      ),
+    },
   };
 
   client = new LanguageClient(

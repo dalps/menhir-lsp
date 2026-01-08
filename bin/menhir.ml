@@ -17,8 +17,8 @@ type state = {
   symbols : string located list;
 }
 
-let get_cmly_file ~uri = fetch_build_dir ~ext:".cmly" uri
-let get_conflicts_file ~uri = fetch_build_dir ~ext:".conflicts" uri
+let get_cmly_file = fetch_build_dir ~ext:".cmly"
+let get_conflicts_file = fetch_build_dir ~ext:".conflicts"
 
 let rec string_of_params : parameter -> string = function
   | M.Syntax.ParamVar p -> p.v
@@ -244,63 +244,62 @@ let hover (state : state) ~(pos : Position.t) : Hover.t option =
     ~range ()
 
 let diagnostics ~(notify_back : notify_back) ~(uri : uri) (_s : state) :
-    Lsp.Types.Diagnostic.t list =
+    Diagnostic.t list =
   let log = log_info ~notify_back in
-  try
-    let open R in
-    let conflicts_file = get_conflicts_file ~uri |> get_exn in
-    log @@ spr "conflicts_file: %s" conflicts_file;
-    let module P = CCParse in
-    let module S = CCString in
-    let mk_diag (toks : token located list) lines =
-      let message = S.concat "\n" @@ lines in
-      Diagnostic.create ~range:Range.first_line ~source:conflicts_file
-        ~relatedInformation:
-          L.(
-            let+ tk = toks in
-            (* log
-            @@ spr "token name: %s %s" tk.v.terminal
+  let open R in
+  get_or_nil
+  @@
+  let* conflicts_file = get_conflicts_file uri in
+  log "conflicts_file: %s" conflicts_file;
+  let module P = CCParse in
+  let module S = CCString in
+  let mk_diag (toks : token located list) lines =
+    let message = S.concat "\n" @@ lines in
+    Diagnostic.create ~range:Range.first_line ~source:conflicts_file
+      ~relatedInformation:
+        L.(
+          let+ tk = toks in
+          (* log
+             "token name: %s %s" tk.v.terminal
                  Range.(of_lexical_positions tk.p |> show); *)
-            DiagnosticRelatedInformation.create
-              ~location:
-                (Location.create ~uri ~range:(Range.of_lexical_positions tk.p))
-              ~message:(spr "%s is involved." tk.v.terminal))
-        ~message:
-          (* Contrary to the OCaml type, the protocol doesn't support Markdown in the diagnostic message. (https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#diagnostic), and in fact the vscode extension crashes. Quite the pickle, because the bits of the conflict message showing derivations trees require a monospace font for best viewing.
+          DiagnosticRelatedInformation.create
+            ~location:
+              (Location.create ~uri ~range:(Range.of_lexical_positions tk.p))
+            ~message:(spr "%s is involved." tk.v.terminal))
+      ~message:
+        (* Contrary to the OCaml type, the protocol doesn't support Markdown in the diagnostic message. (https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#diagnostic), and in fact the vscode extension crashes. Quite the pickle, because the bits of the conflict message showing derivations trees require a monospace font for best viewing.
 
             (`MarkupContent (MarkupContent.create ~kind:Markdown ~value:message))
 
           *)
-          (`String message) ()
-    in
-    let tokens_prefix = "** Tokens involved:" in
-    In_channel.with_open_text conflicts_file (fun inp ->
-        In_channel.input_all inp |> S.trim |> S.split ~by:"\n"
-        (* |> S.replace ~sub:"\n\n" ~by:"\n```\n" *)
-        (* markdown not supported *)
-        |> fun lines ->
-        List.fold_right
-          (fun line acc ->
-            let chop s =
-              s |> S.chop_prefix ~pre:"** " |> O.get_or ~default:line
-            in
-            match acc with
-            | toks, current_diag, diags
-              when String.starts_with ~prefix:"** Conflict" line ->
-                ([], [], mk_diag toks (chop line :: current_diag) :: diags)
-            | _, current_diag, diags
-              when String.starts_with ~prefix:tokens_prefix line ->
-                ( S.chop_prefix ~pre:tokens_prefix line
-                  |> Option.get |> S.trim |> S.split ~by:" "
-                  |> L.map (fun tk ->
-                      L.find (fun { v; _ } -> S.equal v.terminal tk) _s.tokens),
-                  chop line :: current_diag,
-                  diags )
-            | toks, current_diag, diags ->
-                (toks, chop line :: current_diag, diags))
-          lines ([], [], [])
-        |> fun (_, _, diags) -> diags)
-  with _ -> []
+        (`String message) ()
+  in
+  let tokens_prefix = "** Tokens involved:" in
+  In_channel.with_open_text conflicts_file (fun inp ->
+      In_channel.input_all inp |> S.trim |> S.split ~by:"\n"
+      (* |> S.replace ~sub:"\n\n" ~by:"\n```\n" *)
+      (* markdown not supported *)
+      |> fun lines ->
+      List.fold_right
+        (fun line acc ->
+          let chop s =
+            s |> S.chop_prefix ~pre:"** " |> O.get_or ~default:line
+          in
+          match acc with
+          | toks, current_diag, diags
+            when String.starts_with ~prefix:"** Conflict" line ->
+              ([], [], mk_diag toks (chop line :: current_diag) :: diags)
+          | _, current_diag, diags
+            when String.starts_with ~prefix:tokens_prefix line ->
+              ( S.chop_prefix ~pre:tokens_prefix line
+                |> Option.get |> S.trim |> S.split ~by:" "
+                |> L.map (fun tk ->
+                    L.find (fun { v; _ } -> S.equal v.terminal tk) _s.tokens),
+                chop line :: current_diag,
+                diags )
+          | toks, current_diag, diags -> (toks, chop line :: current_diag, diags))
+        lines ([], [], [])
+      |> fun (_, _, diags) -> Ok diags)
 
 let references (state : state) ~uri ~(pos : Position.t) : Location.t list =
   (let open O in
@@ -354,6 +353,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
   let pos_inside = Position.is_inside pos in
   let merlin_compls () =
     (let* word = word in
+     log_info ~notify_back "hello?";
      get_merlin_compls ~notify_back ~uri ~pos word)
     |> get_or ~default:[]
   in
@@ -366,7 +366,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         | DToken (Some (Declared { p; _ }), _, _, _)
         | DParameter { p; _ } ->
             let range = Range.of_lexical_positions p in
-            if_ (fun _ -> pos_inside range) (merlin_compls ())
+            if pos_inside range then Some (merlin_compls ()) else None
         | _ -> None)
       grammar.pg_declarations
   in
@@ -390,9 +390,8 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
               | M.IL.ETextual { p; _ } -> Some (Range.of_lexical_positions p)
               | _ -> None
             in
-            if_
-              (fun _ -> pos_inside action_range)
-              (Keywords.position_keywords ?range:word_range ()
+            if pos_inside action_range then
+              Keywords.position_keywords ?range:word_range ()
               @ (let open L in
                  let+ binder, par, _ = branch.pb_producers in
                  let binder =
@@ -407,7 +406,9 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
                        let+ range = word_range in
                        `TextEdit TextEdit.{ newText = binder; range })
                    ())
-              @ merlin_compls ()))
+              @ merlin_compls ()
+              |> some
+            else None)
           rule.pr_branches)
       grammar.pg_rules
   in
