@@ -14,3 +14,7 @@ menhir-rand:
 
 menhir-interpret:
     ledit | menhir test/calc.mly --infer --interpret --interpret-show-cst --trace
+
+menhir-graph:
+    menhir --infer --dump test/calc.mly --automaton-graph
+    dot -Tpng test/calc.dot > test/calc.png

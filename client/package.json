@@ -1,8 +1,8 @@
 {
 	"name": "menhir-lsp-client",
 	"displayName": "Menhir",
-	"description": "IntelliSense for Menhir grammars and ocamllex lexers",
-	"version": "0.1.1",
+	"description": "IntelliSense for Menhir grammars and Ocamllex lexers",
+	"version": "0.1.2",
 	"publisher": "dalps",
 	"private": true,
 	"license": "GPL-2.0-only",

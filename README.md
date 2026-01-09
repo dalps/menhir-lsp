@@ -1,6 +1,6 @@
 # Menhir LSP
 
-`menhir-lsp` is a Language Server for the OCaml dialects [Menhir](https://fpottier.gitlabpages.inria.fr/menhir/) and [ocamllex](https://ocaml.org/manual/5.4/lexyacc.html). Its goal is to provide rich IntelliSense in `.mly` and `.mll` files in client editors. A [client](client/) for VS Code is available as a [VS Code extension](https://marketplace.visualstudio.com/items?itemName=dalps.menhir-lsp-client).
+`menhir-lsp` is a Language Server for the OCaml dialects [Menhir](https://fpottier.gitlabpages.inria.fr/menhir/) and [Ocamllex](https://ocaml.org/manual/5.4/lexyacc.html). Its goal is to provide rich IntelliSense in `.mly` and `.mll` files in client editors. A [client](client/) for VS Code is available as a [VS Code extension](https://marketplace.visualstudio.com/items?itemName=dalps.menhir-lsp-client).
 
 ## Capabilities
 
@@ -37,7 +37,7 @@ opam install .
 
 The server's code depends on [Linol](https://github.com/c-cube/linol), an OCaml package that simplifies the development of Language Servers.
 
-It is also based on the source codes of both [Menhir](https://gitlab.inria.fr/fpottier/menhir) and [ocamllex](https://github.com/ocaml/ocaml/tree/trunk/lex), [modified](vendor/) so their parsers stores location annotations in the AST and doesn't exit the server's process when a syntax error occurs.
+It is also based on the source codes of both [Menhir](https://gitlab.inria.fr/fpottier/menhir) and [Ocamllex](https://github.com/ocaml/ocaml/tree/trunk/lex), [modified](vendor/) so their parsers stores location annotations in the AST and doesn't exit the server's process when a syntax error occurs.
 
 Issues or PRs for missing features, clients for other editors or any bug / improvement are welcome.
 

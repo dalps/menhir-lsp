@@ -15,9 +15,9 @@
 
 (package
  (name menhir-lsp)
- (synopsis "Language Server for Menhir and ocamllex")
+ (synopsis "Language Server for Menhir and Ocamllex")
  (description
-  "Implementation of the Language Server Protocol for Menhir and ocamllex, providing editors with navigation hints and completions in .mly and .mll files.")
+  "Implementation of the Language Server Protocol for Menhir and Ocamllex, providing editors with navigation hints and completions in .mly and .mll files.")
  (depends
   ("ocaml"
    (>= "4.14"))
@@ -34,7 +34,9 @@
   menhirSdk
   menhirLib
   ("re"
-   (>= "1.14.0")))
+   (>= "1.14.0"))
+  merlin-lib
+  ("stdune" (>= "3.20.2")))
  (tags
   ("lsp" "menhir" "ocamllex")))
 
