@@ -60,51 +60,34 @@ let process_symbols (grammar : partial_grammar) :
   let s_rules = f visit_parameterized_rule grammar.pg_rules in
   s_decls @ s_rules
 
-let load_state_from_partial_grammar (grammar : M.Syntax.partial_grammar) :
-    (state, Diagnostic.t list) result =
+let load_state_from_partial_grammar (grammar : M.Syntax.partial_grammar) =
   let symbols = process_symbols grammar in
-  try
-    let tokens : tokens =
-      List.filter_map
-        (function
-          | ({
-               p;
-               v = M.Syntax.DToken (ocamltype, terminal, alias, _attributes);
-             } :
-              M.Syntax.declaration located) ->
-              Some
-                { p; v = ({ ocamltype; terminal; alias; _attributes } : token) }
-          | _ -> None)
-        grammar.pg_declarations
-    in
-    Ok { grammar; tokens; symbols }
-  with exn ->
-    let diags =
-      match exn with
-      | M.ParserAux.ParserError { v = msg; p }
-      | M.Lexer.LexerError { v = msg; p } ->
-          [
-            Diagnostic.create ~message:(`String msg)
-              ~range:(Range.of_lexical_positions p)
-              ();
-          ]
-      | M.Parser.Error ->
-          [
-            Diagnostic.create ~message:(`String "There are syntax errors.")
-              ~range:Range.first_line ();
-          ]
-      | _ -> []
-    in
-    Error diags
+  let tokens : tokens =
+    List.filter_map
+      (function
+        | ({ p; v = M.Syntax.DToken (ocamltype, terminal, alias, _attributes) } :
+            M.Syntax.declaration located) ->
+            Some
+              { p; v = ({ ocamltype; terminal; alias; _attributes } : token) }
+        | _ -> None)
+      grammar.pg_declarations
+  in
+  { grammar; tokens; symbols }
 
 let load_state_from_contents (file_name : string) (file_contents : string) :
     (state, Diagnostic.t list) result =
+  let open R in
+  let mk_diag msg range =
+    Diagnostic.create ~message:(`String msg) ~range () ~source:server_name
+  in
   M.Main.load_grammar_from_contents 0 file_name file_contents
-  |> load_state_from_partial_grammar
+  |> map_err (fun (msg, rng) ->
+      mk_diag msg (Range.of_lexical_positions rng) :: [])
+  |> map load_state_from_partial_grammar
 
 let standard_lib =
-  Standard.menhir_standard_library_grammar |> load_state_from_partial_grammar
-  |> R.get_exn
+  Standard.menhir_standard_library_grammar |> R.get_exn
+  |> load_state_from_partial_grammar
 
 let default_completions ?(range : Range.t option)
     ?(docs : (string, string) Hashtbl.t = Hashtbl.create 0)

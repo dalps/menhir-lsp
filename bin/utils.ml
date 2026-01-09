@@ -35,6 +35,8 @@ type notify_back = Linol_lwt.Jsonrpc2.notify_back
 type uri = Lsp.Types.DocumentUri.t
 type word = { v : string; p : Range.t; td : Text_document.t }
 
+let server_name = "menhir-lsp"
+
 let pr = Pr.printf
 let spr = Pr.sprintf
 let epr = Pr.eprintf

@@ -20,7 +20,10 @@ open Parser
 
 (* Auxiliaries for the lexical analyzer *)
 
-exception Lexical_error of string * string * int * int
+exception Lexical_error of string Located.located
+
+let get_range lexbuf =
+  Range.make Lexing.(lexeme_start_p lexbuf, lexeme_end_p lexbuf)
 
 let string_buff = Buffer.create 256
 
@@ -44,22 +47,9 @@ let raise exn =
   Stdlib.raise exn
 
 let raise_lexical_error lexbuf msg =
-  let p = Lexing.lexeme_start_p lexbuf in
-  raise (Lexical_error (msg,
-                        p.Lexing.pos_fname,
-                        p.Lexing.pos_lnum,
-                        p.Lexing.pos_cnum - p.Lexing.pos_bol + 1))
+  raise (Lexical_error (Located.locate (get_range lexbuf) msg))
 
-let handle_lexical_error fn arg lexbuf =
-  let p = Lexing.lexeme_start_p lexbuf in
-  let line = p.Lexing.pos_lnum
-  and column = p.Lexing.pos_cnum - p.Lexing.pos_bol + 1
-  and file = p.Lexing.pos_fname
-  in
-  try
-    fn arg lexbuf
-  with Lexical_error (msg, "", 0, 0) ->
-    raise(Lexical_error(msg, file, line, column))
+let handle_lexical_error fn arg lexbuf = fn arg lexbuf
 
 let warning lexbuf msg =
   let p = Lexing.lexeme_start_p lexbuf in
@@ -256,7 +246,7 @@ and string in_pattern = parse
       store_string_char c ;
       string in_pattern lexbuf }
   | eof
-    { raise(Lexical_error("unterminated string", "", 0, 0)) }
+    { raise_lexical_error lexbuf "unterminated string" }
   | '\013'* '\010' as s
     { if in_pattern <> Comment then
         warning lexbuf (Printf.sprintf "unescaped newline in string") ;
@@ -272,7 +262,7 @@ and quoted_string delim = parse
     { incr_loc lexbuf 0;
       quoted_string delim lexbuf }
   | eof
-    { raise (Lexical_error ("unterminated string", "", 0, 0)) }
+    { raise_lexical_error lexbuf "unterminated string" }
   | '|' (lowercase* as delim') '}'
     { if delim <> delim' then
       quoted_string delim lexbuf }
@@ -300,7 +290,7 @@ and comment depth = parse
     { skip_char lexbuf ;
       comment depth lexbuf }
   | eof
-    { raise(Lexical_error("unterminated comment", "", 0, 0)) }
+    { raise_lexical_error lexbuf "unterminated comment" }
   | '\010'
     { incr_loc lexbuf 0;
       comment depth lexbuf }
@@ -336,7 +326,7 @@ and action stk = parse
     { comment 0 lexbuf;
       action stk lexbuf }
   | eof
-    { raise (Lexical_error("unterminated action", "", 0, 0)) }
+    { raise_lexical_error lexbuf "unterminated action" }
   | '\010'
     { incr_loc lexbuf 0;
       action stk lexbuf }

@@ -45,34 +45,17 @@ let symbol_at_position (state : state) (pos : Position.t) :
 
 let load_state_from_contents (_filename : string) (contents : string) :
     (state, Diagnostic.t list) result =
-  try
-    let grammar = OcamllexSyntax.Main.parse_string contents in
-    let symbols = process_symbols grammar in
-    Ok { grammar; symbols }
-  with exn ->
-    let diags =
-      match exn with
-      | Syntax.SyntaxError { v = msg; p } ->
-          [
-            Diagnostic.create ~message:(`String msg)
-              ~range:(Range.of_lexical_positions p)
-              ();
-          ]
-      | Lexer.Lexical_error (msg, _filename, line, character) ->
-          let pos = Position.create ~character ~line in
-          [
-            Diagnostic.create ~message:(`String msg)
-              ~range:(Range.create ~start:pos ~end_:pos)
-              ();
-          ]
-      | Parser.Error ->
-          [
-            Diagnostic.create ~message:(`String "There are syntax errors.")
-              ~range:Range.first_line ();
-          ]
-      | _ -> []
-    in
-    Error diags
+  let open R in
+  let mk_diag msg range =
+    Diagnostic.create ~message:(`String msg) ~range () ~source:server_name
+  in
+  let+ grammar =
+    OcamllexSyntax.Main.parse_string contents
+    |> map_err (fun (msg, rng) ->
+        mk_diag msg (Range.of_lexical_positions rng) :: [])
+  in
+  let symbols = process_symbols grammar in
+  { grammar; symbols }
 
 let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
   L.(

@@ -28,8 +28,15 @@ let parse_file filename =
 
 (* The entry point. *)
 
-let parse priority lexbuf =
+let parse priority lexbuf :
+    (Syntax.partial_grammar, string * Range.range) result =
   Lexer.priority := priority;
   let lexer = Lexer.main in
-
-  Parser.grammar lexer lexbuf
+  try Ok (Parser.grammar lexer lexbuf) with
+  | ParserAux.ParserError { v; p } | Lexer.LexerError { v; p } -> Error (v, p)
+  | _ ->
+      let range =
+        Range.make Lexing.(lexeme_start_p lexbuf, lexeme_end_p lexbuf)
+      in
+      Error
+        (Printf.sprintf "Syntax error near '%s'" @@ Lexing.lexeme lexbuf, range)
