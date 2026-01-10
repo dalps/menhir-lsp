@@ -22,24 +22,30 @@ opam install menhir-lsp
 
 The server alone doesn't do much, to do its job it needs a client that talks the LSP running in your editor. If you use VS Code proceed by installing [the Menhir extension](https://marketplace.visualstudio.com/items?itemName=dalps.menhir-lsp-client), then open an `.mly` or `.mll` document. The LSP client will launch the server and communicate with it automatically.
 
-For other editors, please refer to their documentation on how to register a client.
+For other editors, please refer to their documentation on how to register an LSP client.
 
 ### Manual installation
 
-Run these commands if the opam package is down or you want to hack on the server.
+Run these commands should the opam package not work or you want to hack on the server.
 
 ```
 git clone https://github.com/dalps/menhir-lsp && cd menhir-lsp
 opam install .
 ```
 
-## Development notes
+## Development
 
 The server's code depends on [Linol](https://github.com/c-cube/linol), an OCaml package that simplifies the development of Language Servers.
 
-It is also based on the source codes of both [Menhir](https://gitlab.inria.fr/fpottier/menhir) and [Ocamllex](https://github.com/ocaml/ocaml/tree/trunk/lex), [modified](vendor/) so their parsers stores location annotations in the AST and doesn't exit the server's process when a syntax error occurs.
+It is also based on the original code of both [Menhir](https://gitlab.inria.fr/fpottier/menhir) and [Ocamllex](https://github.com/ocaml/ocaml/tree/trunk/lex), whose parsers I [modified](/vendor/) in order to annotate their ASTs with source locations and make error recovery possible.
 
-Issues or PRs for missing features, clients for other editors or any bug / improvement are welcome.
+Additional references: [ocaml-lsp](https://github.com/ocaml/ocaml-lsp), [atd-lsp](github.com/ahrefs/atd-lsp), [catala-lsp](https://github.com/CatalaLang/catala-language-server). These were huge help material for implementing common LSP tasks in OCaml.
+
+### Editor support
+
+Currently only VS Code is supported, but not everyone uses VS Code. If you think this is useful and would like to have `menhir-lsp` work in your preferred editor, please consider contributing a new client / extension / adapter through a PR. I'm planning to maintain only the VS Code client since that it is my daily, fairly easy to extend, editor.
+
+Issues for bugs / missing features are welcome.
 
 ## License
 
