@@ -9,6 +9,12 @@ watch:
 install: build
     dune install
 
+# 1. check if tag arg is valid
+# 2. upload the executable
+upload-binary tag:
+    git tag -l {{ tag }} 
+    gh release upload {{ tag }} _build/install/default/bin/menhir-lsp#"menhir-lsp v{{ tag }}, x86-64, for GNU/Linux 3.2.0"
+
 menhir-rand:
     menhir test/calc.mly --infer --random-sentence expr --random-sentence-length 3 --random-self-init
 
