@@ -1,0 +1,7 @@
+(executable
+ (package menhir-dap)
+ (public_name menhir-dap)
+ (name main)
+ (preprocess
+  (pps lwt_ppx))
+ (libraries menhirSyntax ocamllexSyntax containers ordering re stdune dap.rpc_lwt dap.types))

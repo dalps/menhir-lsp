@@ -36,9 +36,32 @@
   ("re"
    (>= "1.14.0"))
   merlin-lib
-  ("stdune" (>= "3.20.2")))
+  ("stdune"
+   (>= "3.20.2")))
  (tags
   ("lsp" "menhir" "ocamllex")))
+
+(package
+ (name menhir-dap)
+ (synopsis "Debug Adapter for Menhir grammars")
+ (description
+  "Implementation of the Debug Adapter Protocol for Menhir, providing IDEs with breakpoints and a frontend for automaton inspection of Menhir grammars.")
+ (depends
+  ("ocaml"
+   (>= "4.14"))
+  lwt_ppx
+  ("containers"
+   (>= "3.6"))
+  ("ordering"
+   (>= "3.20.2"))
+  ("menhir"
+   (>= "20250912"))
+  menhirSdk
+  menhirLib
+  ("re"
+   (>= "1.14.0")))
+ (tags
+  ("dap" "debugger" "menhir")))
 
 (using menhir 3.0)
 

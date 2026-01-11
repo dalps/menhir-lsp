@@ -9,6 +9,12 @@ watch:
 install: build
     dune install
 
+run-dap:
+    dune exec menhir-dap
+
+install-dap: build
+    dune install menhir-dap
+
 # 1. check if tag arg is valid
 # 2. upload the executable
 upload-binary tag:

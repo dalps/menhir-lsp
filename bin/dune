@@ -1,4 +1,5 @@
 (executable
+ (package menhir-lsp)
  (public_name menhir-lsp)
  (name main)
  (preprocess
