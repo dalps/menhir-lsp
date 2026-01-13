@@ -16,17 +16,21 @@ install-dap: build
     dune install menhir-dap
 
 # 1. check if tag arg is valid
+
 # 2. upload the executable
-upload-binary tag:
+upload-binary tag: install
     git tag -l {{ tag }} 
-    gh release upload {{ tag }} _build/install/default/bin/menhir-lsp#"menhir-lsp v{{ tag }}, x86-64, for GNU/Linux 3.2.0"
+    gh release upload {{ tag }} _build/install/default/bin/menhir-lsp#"menhir-lsp v{{ tag }}, {{ arch() }}, {{ os() }}"
 
-menhir-rand:
-    menhir test/calc.mly --infer --random-sentence expr --random-sentence-length 3 --random-self-init
+# shell( 'file _build/default/bin/main.exe | cut -d "," -f 2,7' )
 
-menhir-interpret:
-    ledit | menhir test/calc.mly --infer --interpret --interpret-show-cst --trace
+menhir-rand grammar rule len="3":
+    menhir {{ grammar }} --infer --random-sentence {{ rule }} --random-sentence-length {{ len }} --random-self-init
 
-menhir-graph:
-    menhir --infer --dump test/calc.mly --automaton-graph
-    dot -Tpng test/calc.dot > test/calc.png
+menhir-interpret grammar:
+    ledit | menhir {{ grammar }} --infer --interpret --interpret-show-cst --trace
+
+menhir-graph grammar:
+    menhir --infer --dump {{ grammar }} --automaton-graph
+    dot -Tpng {{ without_extension(grammar) }}.dot > {{ without_extension(grammar) }}.png
+    rm -f {{ without_extension(grammar) }}.ml {{ without_extension(grammar) }}.mli

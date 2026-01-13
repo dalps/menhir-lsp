@@ -21,5 +21,6 @@ bundle:
 package version:
     vsce pack {{ version }} -o vsix/
 
-publish:
-    vsce publish
+# version format: major.minor.patch
+publish version:
+    vsce publish {{ version }}
