@@ -336,7 +336,6 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
   let pos_inside = Position.is_inside pos in
   let merlin_compls () =
     (let* word = word in
-     log_info ~notify_back "hello?";
      get_merlin_compls ~notify_back ~uri ~pos word)
     |> get_or ~default:[]
   in

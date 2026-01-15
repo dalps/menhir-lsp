@@ -28,31 +28,31 @@ class lsp_server =
                  { text; version = d.version; languageId = d.languageId; uri })
         in
         let ofs = Text_document.absolute_position td pos in
+        (* Limit the search to the previous 500 chars. *)
         let max_reach = min ofs 500 in
-        (* limit the search to the previous 500 chars *)
-        let prefix = CCString.sub text (ofs - max_reach) max_reach in
-        (* notify_back#send_log_msg ~type_:MessageType.Info
-          (spr "Search prefix: %s" prefix)
-        |> ignore; *)
-        let* start_ofs =
+        let prefix = String.sub text (ofs - max_reach) max_reach in
+        log_info ~notify_back "Search prefix at offset %d: %s, max reach: %d"
+          ofs prefix max_reach;
+        (* The offset of the character right before what we want to complete. *)
+        let start_ofs =
           try
             Re.Str.(
               search_backward
+                (* This should include all trigger characters. *)
                 (regexp {|[^a-zA-Z0-9_$%.]|})
-                (* should include all trigger characters *)
-                prefix (max_reach - 1))
-            |> some
-          with _ -> None
+                prefix max_reach)
+          with _ ->
+            log_info ~notify_back "Couldn't find start_ofs, defaulting to -1";
+            -1
         in
-        let length = max_reach - start_ofs - 1 in
+        let length = max_reach - (start_ofs + 1) in
         let start_pos =
           Position.create ~line:pos.line ~character:(pos.character - length)
         in
         let range = Range.create ~start:start_pos ~end_:pos in
-        let word = CCString.sub prefix (start_ofs + 1) length in
-        notify_back#send_log_msg ~type_:MessageType.Info
-          (spr "Word under cursor: |%s| %s" word (Range.show range))
-        |> ignore;
+        let word = String.sub prefix (start_ofs + 1) length in
+        log_info ~notify_back "Word under cursor: |%s|, range: %s, length: %d"
+          word (Range.show range) length;
         Some { v = word; p = range; td }
 
     method private _dispatch : type r.
@@ -68,9 +68,7 @@ class lsp_server =
         | ".mll" -> Hashtbl.find_opt mll_buffers uri >|= mll_handler
         | ".mly" -> Hashtbl.find_opt mly_buffers uri >|= mly_handler
         | ext ->
-            notify_back#send_log_msg ~type_:Error
-              (spr "Unhandled document type: %s" ext)
-            |> ignore;
+            log_error ~notify_back "Unhandled document type: %s" ext;
             None
 
     method! config_completion =
