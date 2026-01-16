@@ -1,7 +1,7 @@
 set allow-duplicate-recipes := true
 
-entrypoints := "src/extension.ts"
-common_opts := "--format=cjs --platform=node --bundle --external:vscode --outfile='out/extension.js'"
+entrypoints := "src/extension.ts src/test/*.ts"
+common_opts := "--format=cjs --platform=node --bundle --external:vscode --outdir='out'"
 
 default: build
 
@@ -11,6 +11,9 @@ build:
 # [working-directory: '..']
 # install:
 #     dune install --build-info
+
+test: build
+    node out/test/runTest.js
 
 watch:
     esbuild {{ entrypoints }} {{ common_opts }} --sourcemap --watch

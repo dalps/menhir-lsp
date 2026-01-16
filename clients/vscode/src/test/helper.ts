@@ -29,7 +29,8 @@ async function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export const getDocPath = (p: string) => path.resolve(__dirname, "samples", p);
+export const getDocPath = (p: string) =>
+  path.resolve(__dirname, "../../samples", p);
 
 export const getDocUri = (p: string) => Uri.file(getDocPath(p));
 

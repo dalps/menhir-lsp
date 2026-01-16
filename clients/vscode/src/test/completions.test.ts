@@ -3,15 +3,35 @@ import { Position, Range, Uri } from "vscode";
 import * as assert from "assert";
 import { activate, getDocUri } from "./helper";
 
+/**
+ * Run with: Ctrl+Shift+D 
+ */
 suite("Should do completion", () => {
   const uri = getDocUri("grammar6.mly");
 
   test("Completes a token symbol", async () => {
     await testCompletion(uri, new Position(0, 0), {
       items: [
-        { label: "Ta", kind: vscode.CompletionItemKind.Enum },
-        { label: "Tb", kind: vscode.CompletionItemKind.Enum },
-        { label: "Tc", kind: vscode.CompletionItemKind.Enum },
+        { label: "TOKEN_A", kind: vscode.CompletionItemKind.Value },
+        { label: "TOKEN_B", kind: vscode.CompletionItemKind.Value },
+        { label: "Tc", kind: vscode.CompletionItemKind.Value },
+      ],
+    });
+  });
+
+  test("Completes start rule's type parameter", async () => {
+    await testCompletion(uri, new Position(4, 9), {
+      items: [{ label: "unit", kind: vscode.CompletionItemKind.TypeParameter }],
+    });
+  });
+
+  test("Completes a semantic action", async () => {
+    await testCompletion(uri, new Position(9, 21), {
+      items: [
+        { label: "$1", kind: vscode.CompletionItemKind.Variable },
+        { label: "$2", kind: vscode.CompletionItemKind.Variable },
+        { label: "$3", kind: vscode.CompletionItemKind.Variable },
+        { label: "Lexing", kind: vscode.CompletionItemKind.Module },
       ],
     });
   });
@@ -31,9 +51,12 @@ async function testCompletion(
   )) as vscode.CompletionList;
 
   assert.ok(actualCompletionList.items.length >= 2);
+
   expectedCompletionList.items.forEach((expected, i) => {
-    const actual = actualCompletionList.items[i];
-    assert.equal(actual.label, expected.label);
-    assert.equal(actual.kind, expected.kind);
+    const actual = actualCompletionList.items.find(
+      (actual) =>
+        actual.label === expected.label && actual.kind === expected.kind
+    );
+    assert.ok(actual);
   });
 }

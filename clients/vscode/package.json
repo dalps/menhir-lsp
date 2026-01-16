@@ -63,8 +63,11 @@
 		"watch": "just watch"
 	},
 	"devDependencies": {
+		"@types/mocha": "^10.0.10",
 		"@types/node": "^24.10.1",
 		"@types/vscode": "^1.73.0",
+		"@vscode/test-electron": "^2.5.2",
+		"mocha": "^11.7.5",
 		"vscode-test": "^1.6.1"
 	},
 	"dependencies": {
