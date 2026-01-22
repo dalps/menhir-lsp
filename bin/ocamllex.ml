@@ -249,8 +249,13 @@ let completions ({ grammar = { header; trailer; _ } as grammar; _ } : state)
     |> get_or ~default:[]
   in
   let header_completions () =
-    if pos_inside header || pos_inside trailer then Some (merlin_compls ())
-    else None
+    if_ (fun _ -> pos_inside header || pos_inside trailer) (merlin_compls ())
+  in
+  let refill_handler_completions () =
+    let* range = grammar.refill_handler in
+    if_
+      (fun _ -> pos_inside (Range.of_lexical_positions range))
+      (merlin_compls ())
   in
   (* Inside actions we shall suggest `lexbuf`, the variables bound with `as` in the current clause, the lexer entrypoints, and OCaml symbols *)
   let action_completions () =
@@ -297,7 +302,7 @@ let completions ({ grammar = { header; trailer; _ } as grammar; _ } : state)
           CompletionItem.create ~kind:Property ~label:name.v ())
         grammar.named_regexps
   in
-  header_completions () <|> action_completions
+  header_completions () <|> refill_handler_completions <|> action_completions
   |> get_or ~default:lexer_completions
 
 let print_symbols ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
