@@ -58,7 +58,7 @@ let rec as_cset = function
 
 %token <string> Tident
 %token <int> Tchar
-%token <string> Tstring
+%token <string Located.located> Tstring
 %token <Syntax.location> Taction
 %token Trule "rule" Tparse "parse" Tparse_shortest "shortest" Tand "and" Tequal "=" Tend "EOF" Tor "|" Tunderscore "_" Teof
        Tlbracket "[" Trbracket "]" Trefill "refill"
@@ -130,7 +130,7 @@ regexp:
         { locate u.p Eof }
   | c = located(Tchar)
         { locate c.p @@ Characters (locate c.p (Character c, Cset.singleton c.v)) }
-  | s = located(Tstring)
+  | s = Tstring
         { locate s.p (regexp_for_string s.v s.p) }
   | lbr = located("[") cls = char_class rbr = located("]")
         { locate (startp lbr, endp rbr) (Characters cls) }

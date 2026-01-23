@@ -5,6 +5,7 @@ open Located
 type state = {
   grammar : Syntax.lexer_definition;
   symbols : string located list;
+  regexps : Syntax.regular_expression located list;
 }
 
 let rec regexp_bindings = function
@@ -55,7 +56,15 @@ let load_state_from_contents (_filename : string) (contents : string) :
         mk_diag msg (Range.of_lexical_positions rng) :: [])
   in
   let symbols = process_symbols grammar in
-  { grammar; symbols }
+  let regexps =
+    L.(
+      (let+ _, re = grammar.named_regexps in
+       re)
+      @ let* entry = grammar.entrypoints in
+        let+ re, _ = entry.clauses in
+        re)
+  in
+  { grammar; symbols; regexps }
 
 let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
   L.(
@@ -338,6 +347,31 @@ let rename (state : state) ~uri ~(pos : Position.t) ~(newName : string) :
   WorkspaceEdit.create ~changes:[ (uri, edits) ] ()
 
 (* extract_to_named_regex_code_action *)
+
+let selection_range ({ regexps; _ } : state) ~uri:_ ~(pos : Position.t) :
+    SelectionRange.t list =
+  let open L in
+  let* re = regexps in
+  let if_ (range : Lexing.position * Lexing.position) =
+    (* let parent = O.map Range.of_lexical_positions parent in *)
+    let range = Range.of_lexical_positions range in
+    if Position.is_inside pos range then [ SelectionRange.create ~range () ]
+    else []
+  in
+  (* traverse the regexp and collect all the containing nodes *)
+  let rec visit ({ p; v } : Syntax.regular_expression located) :
+      SelectionRange.t list =
+    match v with
+    | Syntax.Epsilon -> if_ p
+    | Syntax.Characters { p; _ } -> if_ p
+    | Syntax.Eof -> if_ p
+    | Syntax.Sequence (e1, e2) | Syntax.Alternative (e1, e2) ->
+        visit e1 @ visit e2
+    | Syntax.Repetition e -> visit e
+    | Syntax.Ref { p; _ } -> if_ p
+    | Syntax.Bind (e, _) -> visit e @ if_ p
+  in
+  visit re
 
 (* let code_actions (state : state) ~uri ~(range : Range.t) : CodeActionResult.t =
   None *)

@@ -156,8 +156,9 @@ rule main = parse
       | s -> Tident s }
   | '"'
     { reset_string_buffer();
-      handle_lexical_error string Pattern lexbuf;
-      Tstring(get_stored_string()) }
+      let startp = Lexing.lexeme_start_p lexbuf in
+      let endp = handle_lexical_error string Pattern lexbuf in
+      Tstring (Located.locate (startp, endp) (get_stored_string())) } (* [menhir-lsp] located. *)
 (* note: ''' is a valid character literal (by contrast with the compiler) *)
   | "'" [^ '\\'] "'"
     { Tchar(Char.code(Lexing.lexeme_char lexbuf 1)) }
@@ -180,9 +181,9 @@ rule main = parse
         (Printf.sprintf "illegal escape sequence \\%c" c)
     }
   | '{'
-    { let p1 = Lexing.lexeme_end_p lexbuf in
-      let p2 = handle_lexical_error action [] lexbuf in
-      Taction((p1, p2)) }
+    { let startp = Lexing.lexeme_end_p lexbuf in
+      let endp = handle_lexical_error action [] lexbuf in
+      Taction((startp, endp)) }
   | '='  { Tequal }
   | '|'  { Tor }
   | '['  { Tlbracket }
@@ -205,7 +206,7 @@ rule main = parse
 (* String parsing comes from the compiler lexer *)
 and string in_pattern = parse
     '"'
-    { () }
+    { Lexing.lexeme_end_p lexbuf } (* [menhir-lsp] produce pos instead of () *)
   | '\\' ('\013'* '\010') ([' ' '\009'] * as spaces)
     { incr_loc lexbuf (String.length spaces);
       string in_pattern lexbuf }
@@ -280,7 +281,7 @@ and comment depth = parse
   | "*)" { if depth > 0 then comment (depth - 1) lexbuf }
   | '"'
     { reset_string_buffer();
-      string Comment lexbuf;
+      string Comment lexbuf |> ignore;
       reset_string_buffer();
       comment depth lexbuf }
   | '{' ('%' '%'? extattrident blank*)? (lowercase* as delim) "|"
@@ -308,12 +309,12 @@ and action stk = parse
       | _ -> raise_lexical_error lexbuf "Unmatched ) in action" }
   | '}'
     { match stk with
-      | [] -> Lexing.lexeme_start_p lexbuf (* [menhir-lsp] need position. *)
+      | [] -> Lexing.lexeme_end_p lexbuf (* [menhir-lsp] need position. *)
       | '{' :: stk' -> action stk' lexbuf
       | _ -> raise_lexical_error lexbuf "Unmatched } in action" }
   | '"'
     { reset_string_buffer();
-      handle_lexical_error string Action lexbuf;
+      handle_lexical_error string Action lexbuf |> ignore;
       reset_string_buffer();
       action stk lexbuf }
   | '{' ('%' '%'? extattrident blank*)? (lowercase* as delim) "|"
