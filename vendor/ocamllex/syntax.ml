@@ -27,13 +27,13 @@ type location = range
 
 type regular_expression =
   | Epsilon
-  | Characters of Cset.t
+  | Characters of Cset.t located
   | Eof
-  | Sequence of regular_expression * regular_expression
-  | Alternative of regular_expression * regular_expression
-  | Repetition of regular_expression
+  | Sequence of regular_expression located * regular_expression located
+  | Alternative of regular_expression located * regular_expression located
+  | Repetition of regular_expression located
   | Ref of string located (* added by [menhir-lsp] *)
-  | Bind of regular_expression * string located
+  | Bind of regular_expression located * string located
 
 type ('arg, 'action) entry = {
   name : string located;

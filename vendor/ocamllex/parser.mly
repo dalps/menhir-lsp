@@ -25,28 +25,30 @@ let raise exn =
   Hashtbl.reset named_regexps;
   Stdlib.raise exn
 
-let regexp_for_string s =
+let regexp_for_string s loc =
   let rec re_string n =
     if n >= String.length s then Epsilon
     else if succ n = String.length s then
-      Characters (Cset.singleton (Char.code s.[n]))
+      Characters (locate loc @@ Cset.singleton (Char.code s.[n]))
     else
       Sequence
-        (Characters(Cset.singleton (Char.code s.[n])),
-         re_string (succ n))
+        (locate loc (Characters (locate loc @@ Cset.singleton (Char.code s.[n]))),
+        (locate loc @@ re_string (succ n)))
   in re_string 0
 
 let rec remove_as = function
-  | Bind (e,_) -> remove_as e
-  | Epsilon|Eof|Characters _ as e -> e
-  | Sequence (e1, e2) -> Sequence (remove_as e1, remove_as e2)
-  | Alternative (e1, e2) -> Alternative (remove_as e1, remove_as e2)
-  | Ref ide -> remove_as (Hashtbl.find named_regexps ide.v |> snd) (* [menhir-lsp] handled. *)
-  | Repetition e -> Repetition (remove_as e)
+  | { v; p } ->
+    match v with
+    | Bind (e,_) -> remove_as e
+    | Epsilon|Eof|Characters _ as e -> locate p e
+    | Sequence (e1, e2) -> locate p @@ Sequence (remove_as e1, remove_as e2)
+    | Alternative (e1, e2) -> locate p @@ Alternative (remove_as e1, remove_as e2)
+    | Ref ide -> remove_as @@ locate p (Hashtbl.find named_regexps ide.v |> snd) (* [menhir-lsp] handled. *)
+    | Repetition e -> locate p @@ Repetition (remove_as e)
 
 let rec as_cset = function
-  | Characters s -> s
-  | Alternative (e1, e2) -> Cset.union (as_cset e1) (as_cset e2)
+  | Characters s -> s.v
+  | Alternative (e1, e2) -> Cset.union (as_cset e1.v) (as_cset e2.v)
   | _ -> raise Cset.Bad
 
 %}
@@ -68,6 +70,7 @@ let rec as_cset = function
 
 %start lexer_definition
 %type <Syntax.lexer_definition> lexer_definition
+%type <Syntax.regular_expression located> regexp
 
 %%
 
@@ -115,42 +118,54 @@ case:
         { (re, a) }
 
 regexp:
-    "_"
-        { Characters Cset.all_chars }
-  | Teof
-        { Eof }
-  | c = Tchar
-        { Characters (Cset.singleton c) }
-  | s = Tstring
-        { regexp_for_string s }
-  | "[" cls = char_class "]"
-        { Characters cls }
-  | re = regexp "*"
-        { Repetition re }
-  | re = regexp "?"
-        { Alternative(Epsilon, re) }
-  | re = regexp "+"
-        { Sequence(Repetition (remove_as re), re) }
+    u = located("_")
+        { locate u.p (Characters (locate u.p Cset.all_chars)) }
+  | u = located(Teof)
+        { locate u.p Eof }
+  | c = located(Tchar)
+        { locate c.p @@ Characters (locate c.p @@ Cset.singleton c.v) }
+  | s = located(Tstring)
+        { locate s.p (regexp_for_string s.v s.p) }
+  | lbr = located("[") cls = char_class rbr = located("]")
+        { locate Range.(startp lbr, endp rbr) (Characters cls) }
+  | re = regexp op = located("*")
+        { locate Range.(startp re.p, endp op) (Repetition re) }
+  | re = regexp op = located("?")
+        { 
+          let p = Range.(startp re.p, endp op) in
+          locate p (Alternative(locate p Epsilon, re)) }
+  | re = regexp op = located("+")
+        {
+          let p = Range.(startp re.p, endp op) in
+          locate p (Sequence(locate p @@ Repetition (remove_as re), re)) }
   | re1 = regexp "#" re2 = regexp
         {
+          let as_cset re = 
+            try
+              as_cset re.v
+            with Cset.Bad ->
+              raise (SyntaxError (locate re.p "character set expected."))
+          in
           let s1 = as_cset re1
           and s2 = as_cset re2 in
-          Characters (Cset.diff s1 s2)
+          let p = Range.(startp re1.p, endp re2.p) in 
+          locate p @@ Characters (locate p @@ Cset.diff s1 s2)
         }
   | re1 = regexp "|" re2 = regexp
-        { Alternative(re1, re2) }
+        { locate Range.(startp re1.p, endp re2.p) @@ Alternative(re1, re2) }
   | re1 = regexp re2 = regexp %prec CONCAT
-        { Sequence(re1, re2) }
+        { locate Range.(startp re1.p, endp re2.p) @@ Sequence(re1, re2) }
   | "(" re = regexp ")"
         { re }
   | ide = located(Tident)
         { try
             Hashtbl.find named_regexps ide.v |> ignore;
-            Ref ide
+            locate ide.p @@ Ref ide
           with Not_found ->
             let msg = Printf.sprintf "Reference to unbound regexp name `%s'.\n" ide.v in
             raise (SyntaxError (locate ide.p msg)) }
-  | re = regexp "as" ide = located(ident) { Bind (re, ide) }
+  | re = regexp "as" ide = located(ident)
+      { locate Range.(startp re.p, endp ide.p) (Bind (re, ide)) }
 
 ident:
   ide = Tident { ide }
