@@ -28,11 +28,14 @@ let raise exn =
 let regexp_for_string s loc =
   let rec re_string n =
     if n >= String.length s then Epsilon
-    else if succ n = String.length s then
-      Characters (locate loc @@ Cset.singleton (Char.code s.[n]))
+    else
+    let c = (Char.code s.[n]) in
+    let c = Characters (locate loc @@ (Character (locate loc c), Cset.singleton c)) in
+    if succ n = String.length s then
+      c
     else
       Sequence
-        (locate loc (Characters (locate loc @@ Cset.singleton (Char.code s.[n]))),
+        (locate loc c,
         (locate loc @@ re_string (succ n)))
   in re_string 0
 
@@ -43,11 +46,11 @@ let rec remove_as = function
     | Epsilon|Eof|Characters _ as e -> locate p e
     | Sequence (e1, e2) -> locate p @@ Sequence (remove_as e1, remove_as e2)
     | Alternative (e1, e2) -> locate p @@ Alternative (remove_as e1, remove_as e2)
-    | Ref ide -> remove_as @@ locate p (Hashtbl.find named_regexps ide.v |> snd) (* [menhir-lsp] handled. *)
+    | Ref ide -> remove_as @@ (Hashtbl.find named_regexps ide.v |> snd) (* [menhir-lsp] handled. *)
     | Repetition e -> locate p @@ Repetition (remove_as e)
 
 let rec as_cset = function
-  | Characters s -> s.v
+  | Characters s -> snd s.v
   | Alternative (e1, e2) -> Cset.union (as_cset e1.v) (as_cset e2.v)
   | _ -> raise Cset.Bad
 
@@ -71,6 +74,9 @@ let rec as_cset = function
 %start lexer_definition
 %type <Syntax.lexer_definition> lexer_definition
 %type <Syntax.regular_expression located> regexp
+
+%type <(character_class * Cset.t) located> char_class
+%type <(character_class * Cset.t) located> char_class1
 
 %%
 
@@ -119,24 +125,24 @@ case:
 
 regexp:
     u = located("_")
-        { locate u.p (Characters (locate u.p Cset.all_chars)) }
+        { locate u.p (Characters (locate u.p (Wildcard, Cset.all_chars))) }
   | u = located(Teof)
         { locate u.p Eof }
   | c = located(Tchar)
-        { locate c.p @@ Characters (locate c.p @@ Cset.singleton c.v) }
+        { locate c.p @@ Characters (locate c.p (Character c, Cset.singleton c.v)) }
   | s = located(Tstring)
         { locate s.p (regexp_for_string s.v s.p) }
   | lbr = located("[") cls = char_class rbr = located("]")
-        { locate Range.(startp lbr, endp rbr) (Characters cls) }
+        { locate (startp lbr, endp rbr) (Characters cls) }
   | re = regexp op = located("*")
-        { locate Range.(startp re.p, endp op) (Repetition re) }
+        { locate (startp re, endp op) (Repetition re) }
   | re = regexp op = located("?")
         { 
-          let p = Range.(startp re.p, endp op) in
+          let p = (startp re, endp op) in
           locate p (Alternative(locate p Epsilon, re)) }
   | re = regexp op = located("+")
         {
-          let p = Range.(startp re.p, endp op) in
+          let p = (startp re, endp op) in
           locate p (Sequence(locate p @@ Repetition (remove_as re), re)) }
   | re1 = regexp "#" re2 = regexp
         {
@@ -148,13 +154,14 @@ regexp:
           in
           let s1 = as_cset re1
           and s2 = as_cset re2 in
-          let p = Range.(startp re1.p, endp re2.p) in 
-          locate p @@ Characters (locate p @@ Cset.diff s1 s2)
+          let p = (startp re1, endp re2) in
+          let cl = Difference (re1, re2) in
+          locate p @@ Characters (locate p (cl, Cset.diff s1 s2))
         }
   | re1 = regexp "|" re2 = regexp
-        { locate Range.(startp re1.p, endp re2.p) @@ Alternative(re1, re2) }
+        { locate (startp re1, endp re2) @@ Alternative(re1, re2) }
   | re1 = regexp re2 = regexp %prec CONCAT
-        { locate Range.(startp re1.p, endp re2.p) @@ Sequence(re1, re2) }
+        { locate (startp re1, endp re2) @@ Sequence(re1, re2) }
   | "(" re = regexp ")"
         { re }
   | ide = located(Tident)
@@ -165,24 +172,26 @@ regexp:
             let msg = Printf.sprintf "Reference to unbound regexp name `%s'.\n" ide.v in
             raise (SyntaxError (locate ide.p msg)) }
   | re = regexp "as" ide = located(ident)
-      { locate Range.(startp re.p, endp ide.p) (Bind (re, ide)) }
+      { locate (startp re, endp ide) (Bind (re, ide)) }
 
 ident:
   ide = Tident { ide }
 
 char_class:
-    "^" cls = char_class1
-        { Cset.complement cls }
+    op = located("^") cls = char_class1
+        { locate (startp op, endp cls) (Complement (locate cls.p (cls.v |> fst)), Cset.complement (cls.v |> snd)) }
   | cls = char_class1
         { cls }
 
 char_class1:
-    c1 = Tchar "-" c2 = Tchar
-        { Cset.interval c1 c2 }
-  | c = Tchar
-        { Cset.singleton c }
+    c1 = located(Tchar) "-" c2 = located(Tchar)
+        { locate (startp c1, endp c2) (Range (c1, c2), Cset.interval c1.v c2.v) }
+  | c = located(Tchar)
+        { locate c.p (Character c, Cset.singleton c.v) }
   | cls1 = char_class1 cls2 = char_class1 %prec CONCAT
-        { Cset.union cls1 cls2 }
+        { locate (startp cls1, endp cls2) 
+            (Union (locate cls1.p (cls1.v |> fst), locate cls2.p (cls2.v |> fst)), 
+              Cset.union (cls1.v |> snd) (cls2.v |> snd)) }
 
 
 (* -------------------------------------------------------------------------- *)
@@ -192,6 +201,6 @@ char_class1:
 
 located(X):
   x = X
-    { Located.locate $loc x }
+    { locate $loc x }
 
 %%

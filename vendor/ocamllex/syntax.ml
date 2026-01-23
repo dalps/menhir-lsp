@@ -25,9 +25,17 @@ exception SyntaxError of string located
 
 type location = range
 
-type regular_expression =
+type character_class =
+  | Wildcard
+  | Character of int located
+  | Range of int located * int located
+  | Union of character_class located * character_class located
+  | Difference of regular_expression located * regular_expression located
+  | Complement of character_class located
+
+and regular_expression =
   | Epsilon
-  | Characters of Cset.t located
+  | Characters of (character_class * Cset.t) located
   | Eof
   | Sequence of regular_expression located * regular_expression located
   | Alternative of regular_expression located * regular_expression located
@@ -39,7 +47,7 @@ type ('arg, 'action) entry = {
   name : string located;
   shortest : bool;
   args : 'arg;
-  clauses : (regular_expression * 'action) list;
+  clauses : (regular_expression located * 'action) list;
 }
 
 type lexer_definition = {
@@ -47,8 +55,9 @@ type lexer_definition = {
   entrypoints : (string located list, location) entry list;
   trailer : location;
   refill_handler : location option;
-  named_regexps : (string located * regular_expression) list;
+  named_regexps : (string located * regular_expression located) list;
 }
 
-let named_regexps : (string, Range.range * regular_expression) Hashtbl.t =
+let named_regexps : (string, Range.range * regular_expression located) Hashtbl.t
+    =
   Hashtbl.create 13

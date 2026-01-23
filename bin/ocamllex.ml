@@ -9,9 +9,9 @@ type state = {
 
 let rec regexp_bindings = function
   | Syntax.Sequence (re1, re2) | Alternative (re1, re2) ->
-      regexp_bindings re1 @ regexp_bindings re2
-  | Repetition re -> regexp_bindings re
-  | Bind (re, n) -> n :: regexp_bindings re
+      regexp_bindings re1.v @ regexp_bindings re2.v
+  | Repetition re -> regexp_bindings re.v
+  | Bind (re, n) -> n :: regexp_bindings re.v
   | _ -> []
 
 let process_symbols (grammar : Syntax.lexer_definition) : string located list =
@@ -20,15 +20,15 @@ let process_symbols (grammar : Syntax.lexer_definition) : string located list =
   let open L in
   let rec visit_entry (entry : (string located list, location) entry) =
     (entry.name :: entry.args)
-    @ (entry.clauses >>= fun (re, _action) -> visit_regexp re)
+    @ (entry.clauses >>= fun (re, _action) -> visit_regexp re.v)
   and visit_regexp = function
     | Sequence (re1, re2) | Alternative (re1, re2) ->
-        visit_regexp re1 @ visit_regexp re2
-    | Repetition re -> visit_regexp re
-    | Bind (re, n) -> n :: visit_regexp re
+        visit_regexp re1.v @ visit_regexp re2.v
+    | Repetition re -> visit_regexp re.v
+    | Bind (re, n) -> n :: visit_regexp re.v
     | Ref n -> [ n ]
     | Characters _ | _ -> []
-  and visit_named_regexp (name, regexp) = name :: visit_regexp regexp in
+  and visit_named_regexp (name, regexp) = name :: visit_regexp regexp.v in
   let f = L.flat_map in
   let s_entries = f visit_entry grammar.entrypoints in
   let s_regexps = f visit_named_regexp grammar.named_regexps in
@@ -66,7 +66,7 @@ let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
       ~children:
         (entry.clauses
         |> flat_map_i (fun _i (regexp, _) ->
-            match regexp_bindings regexp with
+            match regexp_bindings regexp.v with
             | [] -> []
             | binders ->
                 let+ binder = binders in
@@ -272,7 +272,7 @@ let completions ({ grammar = { header; trailer; _ } as grammar; _ } : state)
                   let+ entry = grammar.entrypoints in
                   CompletionItem.create ~kind:Function ~label:entry.name.v ())
               @ L.(
-                  let+ binder = regexp_bindings regexp in
+                  let+ binder = regexp_bindings regexp.v in
                   CompletionItem.create ~kind:Value ~label:binder.v ())
               @ compile_completions ~kind:Value
                   [
@@ -336,3 +336,8 @@ let rename (state : state) ~uri ~(pos : Position.t) ~(newName : string) :
     |> O.to_list |> L.flatten
   in
   WorkspaceEdit.create ~changes:[ (uri, edits) ] ()
+
+(* extract_to_named_regex_code_action *)
+
+(* let code_actions (state : state) ~uri ~(range : Range.t) : CodeActionResult.t =
+  None *)
