@@ -31,8 +31,8 @@ class lsp_server =
         (* Limit the search to the previous 500 chars. *)
         let max_reach = min ofs 500 in
         let prefix = String.sub text (ofs - max_reach) max_reach in
-        log_info ~notify_back "Search prefix at offset %d: %s, max reach: %d"
-          ofs prefix max_reach;
+        (* log_info ~notify_back "Search prefix at offset %d: %s, max reach: %d"
+          ofs prefix max_reach; *)
         (* The offset of the character right before what we want to complete. *)
         let start_ofs =
           try
@@ -42,7 +42,7 @@ class lsp_server =
                 (regexp {|[^a-zA-Z0-9_$%.]|})
                 prefix max_reach)
           with _ ->
-            log_info ~notify_back "Couldn't find start_ofs, defaulting to -1";
+            (* log_info ~notify_back "Couldn't find start_ofs, defaulting to -1"; *)
             -1
         in
         let length = max_reach - (start_ofs + 1) in
@@ -122,6 +122,7 @@ class lsp_server =
           Some
             (`RenameOptions
                { prepareProvider = Some true; workDoneProgress = None });
+        selectionRangeProvider = Some (`Bool true);
       }
 
     method! on_notification_unhandled ~notify_back =
@@ -179,6 +180,10 @@ class lsp_server =
               (Position.show r.position);
             self#_on_req_references ~notify_back ~id ~pos:r.position
               ~uri:r.textDocument.uri
+        | Lsp.Client_request.SelectionRange (r : SelectionRangeParams.t) ->
+            log_info ~notify_back "Requested selection range at positions: %s"
+              (L.to_string Position.show r.positions);
+            self#_on_req_selection_range ~notify_back ~r
         | _ -> Lwt.fail_with "Unhandled request type"
 
     method private _on_req_references =
@@ -232,6 +237,16 @@ class lsp_server =
           ~mly_handler:(Mly.code_actions ~uri ~range) ~mll_handler:(fun _ ->
             None)
         |> O.flatten |> Lwt.return
+
+    method private _on_req_selection_range ~notify_back ~r :
+        SelectionRange.t list Lwt.t =
+      self#_dispatch r.textDocument.uri ~notify_back
+        ~mll_handler:
+          (* We don't support multiple positions yet. *)
+          (Mll.selection_range ~notify_back ~uri:r.textDocument.uri
+             ~pos:(L.hd r.positions))
+        ~mly_handler:(fun _ -> [])
+      |> O.to_list |> L.flatten |> Lwt.return
 
     (* We define here a helper method that will:
             - process a document

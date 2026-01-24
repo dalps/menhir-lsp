@@ -162,8 +162,8 @@ regexp:
         { locate (startp re1, endp re2) @@ Alternative(re1, re2) }
   | re1 = regexp re2 = regexp %prec CONCAT
         { locate (startp re1, endp re2) @@ Sequence(re1, re2) }
-  | "(" re = regexp ")"
-        { re }
+  | lpr = located("(") re = regexp rpr = located(")")
+        { locate (startp lpr, endp rpr) re.v }
   | ide = located(Tident)
         { try
             Hashtbl.find named_regexps ide.v |> ignore;
