@@ -25,34 +25,31 @@ let raise exn =
   Hashtbl.reset named_regexps;
   Stdlib.raise exn
 
-let regexp_for_string s loc =
+let _regexp_for_string s =
   let rec re_string n =
     if n >= String.length s then Epsilon
-    else
-    let c = (Char.code s.[n]) in
-    let c = Characters (locate loc @@ (Character (locate loc c), Cset.singleton c)) in
-    if succ n = String.length s then
-      c
+    else if succ n = String.length s then
+      Characters (Cset.singleton (Char.code s.[n]))
     else
       Sequence
-        (locate loc c,
-        (locate loc @@ re_string (succ n)))
+        (Characters(Cset.singleton (Char.code s.[n])),
+         re_string (succ n))
   in re_string 0
 
 let rec remove_as = function
-  | { v; p } ->
-    match v with
-    | Bind (e,_) -> remove_as e
-    | Epsilon|Eof|Characters _ as e -> locate p e
-    | Sequence (e1, e2) -> locate p @@ Sequence (remove_as e1, remove_as e2)
-    | Alternative (e1, e2) -> locate p @@ Alternative (remove_as e1, remove_as e2)
-    | Ref ide -> remove_as @@ (Hashtbl.find named_regexps ide.v |> snd) (* [menhir-lsp] handled. *)
-    | Repetition e -> locate p @@ Repetition (remove_as e)
+  | Bind (e,_) -> remove_as e
+  | Epsilon|Eof|Characters _ as e -> e
+  | Sequence (e1, e2) -> Sequence (remove_as e1, remove_as e2)
+  | Alternative (e1, e2) -> Alternative (remove_as e1, remove_as e2)
+  | Repetition e -> Repetition (remove_as e)
 
 let rec as_cset = function
-  | Characters s -> snd s.v
-  | Alternative (e1, e2) -> Cset.union (as_cset e1.v) (as_cset e2.v)
+  | Characters s -> s
+  | Alternative (e1, e2) -> Cset.union (as_cset e1) (as_cset e2)
   | _ -> raise Cset.Bad
+
+let _remove_as = remove_as
+let _as_cset = as_cset
 
 %}
 
@@ -73,10 +70,10 @@ let rec as_cset = function
 
 %start lexer_definition
 %type <Syntax.lexer_definition> lexer_definition
-%type <Syntax.regular_expression located> regexp
+%type <Syntax.regular_expression_syntax located> regexp
 
-%type <(character_class * Cset.t) located> char_class
-%type <(character_class * Cset.t) located> char_class1
+%type <(character_class_syntax * Cset.t) located> char_class
+%type <(character_class_syntax * Cset.t) located> char_class1
 
 %%
 
@@ -125,45 +122,37 @@ case:
 
 regexp:
     u = located("_")
-        { locate u.p (Characters (locate u.p (Wildcard, Cset.all_chars))) }
+        { locate u.p @@ CharSet (locate u.p @@ Wildcard u) }
   | u = located(Teof)
-        { locate u.p Eof }
+        { locate u.p @@ EOF u }
   | c = located(Tchar)
-        { locate c.p @@ Characters (locate c.p (Character c, Cset.singleton c.v)) }
+        { locate c.p @@ CharSet (locate c.p @@ Character c) }
   | s = Tstring
-        { locate s.p (regexp_for_string s.v s.p) }
+        { locate s.p @@ String s }
   | lbr = located("[") cls = char_class rbr = located("]")
-        { locate (startp lbr, endp rbr) (Characters cls) }
+        { locate (startp lbr, endp rbr) @@ CharSet { cls with v = cls.v |> fst } }
   | re = regexp op = located("*")
-        { locate (startp re, endp op) (Repetition re) }
+        { locate (startp re, endp op) @@ Rep re }
   | re = regexp op = located("?")
-        { 
-          let p = (startp re, endp op) in
-          locate p (Alternative(locate p Epsilon, re)) }
+        { locate (startp re, endp op) @@ Option re }
   | re = regexp op = located("+")
-        {
-          let p = (startp re, endp op) in
-          locate p (Sequence(locate p @@ Repetition (remove_as re), re)) }
+        { locate (startp re, endp op) @@ Rep1 re }
   | re1 = regexp "#" re2 = regexp
         {
-          let as_cset re = 
+          let _as_cset re = 
             try
               as_cset re.v
             with Cset.Bad ->
               raise (SyntaxError (locate re.p "character set expected."))
           in
-          let s1 = as_cset re1
-          and s2 = as_cset re2 in
-          let p = (startp re1, endp re2) in
-          let cl = Difference (re1, re2) in
-          locate p @@ Characters (locate p (cl, Cset.diff s1 s2))
+          locate (startp re1, endp re2) @@ CharSetDifference (re1, re2)
         }
   | re1 = regexp "|" re2 = regexp
-        { locate (startp re1, endp re2) @@ Alternative(re1, re2) }
+        { locate (startp re1, endp re2) @@ Alt (re1, re2) }
   | re1 = regexp re2 = regexp %prec CONCAT
-        { locate (startp re1, endp re2) @@ Sequence(re1, re2) }
+        { locate (startp re1, endp re2) @@ Seq (re1, re2) }
   | lpr = located("(") re = regexp rpr = located(")")
-        { locate (startp lpr, endp rpr) re.v }
+        { locate (startp lpr, endp rpr) (Group re) }
   | ide = located(Tident)
         { try
             Hashtbl.find named_regexps ide.v |> ignore;
@@ -172,7 +161,7 @@ regexp:
             let msg = Printf.sprintf "Reference to unbound regexp name `%s'.\n" ide.v in
             raise (SyntaxError (locate ide.p msg)) }
   | re = regexp "as" ide = located(ident)
-      { locate (startp re, endp ide) (Bind (re, ide)) }
+      { locate (startp re, endp ide) @@ As (re, ide) }
 
 ident:
   ide = Tident { ide }

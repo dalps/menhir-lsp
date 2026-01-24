@@ -5,15 +5,19 @@ open Located
 type state = {
   grammar : Syntax.lexer_definition;
   symbols : string located list;
-  regexps : Syntax.regular_expression located list;
+  regexps : Syntax.regular_expression_syntax located list;
 }
 
-let rec regexp_bindings = function
-  | Syntax.Sequence (re1, re2) | Alternative (re1, re2) ->
-      regexp_bindings re1.v @ regexp_bindings re2.v
-  | Repetition re -> regexp_bindings re.v
-  | Bind (re, n) -> n :: regexp_bindings re.v
-  | _ -> []
+let regexp_bindings =
+  let v =
+    object
+      inherit [_] Syntax.regexp_reduce
+      method zero = []
+      method plus = ( @ )
+      method! visit_As = fun _ _re name -> [ name ]
+    end
+  in
+  v#visit_regular_expression_syntax ()
 
 let process_symbols (grammar : Syntax.lexer_definition) : string located list =
   let module S = Syntax in
@@ -22,13 +26,16 @@ let process_symbols (grammar : Syntax.lexer_definition) : string located list =
   let rec visit_entry (entry : (string located list, location) entry) =
     (entry.name :: entry.args)
     @ (entry.clauses >>= fun (re, _action) -> visit_regexp re.v)
-  and visit_regexp = function
-    | Sequence (re1, re2) | Alternative (re1, re2) ->
-        visit_regexp re1.v @ visit_regexp re2.v
-    | Repetition re -> visit_regexp re.v
-    | Bind (re, n) -> n :: visit_regexp re.v
-    | Ref n -> [ n ]
-    | Characters _ | _ -> []
+  and visit_regexp =
+    let v =
+      object
+        inherit [_] regexp_reduce
+        method zero = []
+        method plus = ( @ )
+        method! visit_Ref = fun _ name -> [ name ]
+      end
+    in
+    v#visit_regular_expression_syntax ()
   and visit_named_regexp (name, regexp) = name :: visit_regexp regexp.v in
   let f = L.flat_map in
   let s_entries = f visit_entry grammar.entrypoints in
@@ -352,47 +359,31 @@ let selection_range ({ regexps; _ } : state) ~uri:_ ~(pos : Position.t)
     ~(notify_back : notify_back) : SelectionRange.t list =
   let open L in
   let* re = regexps in
-  let if_ ?(parent : SelectionRange.t option)
-      (range : Lexing.position * Lexing.position) =
-    (* let parent = O.map Range.of_lexical_positions parent in *)
-    let range = Range.of_lexical_positions range in
-    if Position.is_inside pos range then
-      [ SelectionRange.create ?parent ~range () ]
-    else []
-  in
-  (* traverse the regexp and collect all the containing nodes *)
+  let range0 = Range.of_lexical_positions re.p in
+  let parent_ref = ref @@ SelectionRange.create ~range:range0 () in
+  (* This visitor descends the regexp syntax tree nodes which contain pos, connecting them in a ladder of [SelectionRange]s. *)
+  let v =
+    object
+      inherit [_] Syntax.regexp_iter
 
-  let rec visit_regexp ?(parent : SelectionRange.t option)
-      ({ p; v } : Syntax.regular_expression located) : SelectionRange.t list =
-    let range = Range.of_lexical_positions p in
-    let parent = SelectionRange.create ?parent ~range () in
-    match v with
-    | Syntax.Epsilon -> if_ ~parent p
-    | Syntax.Characters { p; v } -> visit_char_class ~parent { p; v = fst v }
-    | Syntax.Eof -> if_ ~parent p
-    | Syntax.Sequence (e1, e2) | Syntax.Alternative (e1, e2) ->
-        visit_regexp ~parent e1 @ visit_regexp ~parent e2
-    | Syntax.Repetition e -> visit_regexp ~parent e
-    | Syntax.Ref { p; _ } -> if_ ~parent p
-    | Syntax.Bind (e, _) -> visit_regexp ~parent e @ if_ ~parent p
-  and visit_char_class ?(parent : SelectionRange.t option)
-      ({ p; v } : Syntax.character_class located) : SelectionRange.t list =
-    let range = Range.of_lexical_positions p in
-    let parent = SelectionRange.create ?parent ~range () in
-    match v with
-    | Syntax.Wildcard -> if_ ~parent p
-    | Syntax.Character { p; _ } -> if_ ~parent p
-    | Syntax.Difference (cls1, cls2) ->
-        visit_regexp ~parent cls1 @ visit_regexp ~parent cls2
-    | Syntax.Range (c1, c2) -> if_ ~parent c1.p @ if_ ~parent c2.p
-    | Syntax.Union (cls1, cls2) ->
-        visit_char_class ~parent cls1 @ visit_char_class ~parent cls2
-    | Syntax.Complement cls -> visit_char_class ~parent cls
+      method! visit_located =
+        fun visit_a _env located ->
+          let range = Range.of_lexical_positions located.p in
+
+          if Position.is_inside pos range then (
+            parent_ref := SelectionRange.create ~parent:!parent_ref ~range ();
+            visit_a _env located.v)
+          else ()
+    end
   in
-  let res = visit_regexp re in
-  (* log_info ~notify_back "Ranges for pos %s: %s" (Position.show pos)
-    (L.to_string (fun s -> Range.show s.SelectionRange.range) res); *)
-  res
+
+  if Position.is_inside pos range0 then (
+    v#visit_regular_expression_syntax () re.v;
+    let res = [ !parent_ref ] in
+    log_info ~notify_back "Range for pos %s: %s" (Position.show pos)
+      (Range.show !parent_ref.SelectionRange.range);
+    res)
+  else []
 
 (* let code_actions (state : state) ~uri ~(range : Range.t) : CodeActionResult.t =
   None *)
