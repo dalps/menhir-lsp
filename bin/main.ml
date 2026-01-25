@@ -12,6 +12,15 @@ class lsp_server =
     val mll_buffers : (uri, Mll.state) Hashtbl.t = Hashtbl.create 32
     method spawn_query_handler f = Linol_lwt.spawn f
 
+    method private get_text_document ~(uri : uri) : Text_document.t option =
+      let open O in
+      let+ d = self#find_doc uri in
+      let text = d.content in
+      Text_document.make ~position_encoding:positionEncoding
+        (DidOpenTextDocumentParams.create
+           ~textDocument:
+             { text; version = d.version; languageId = d.languageId; uri })
+
     method private _word_at_position :
         notify_back:Linol_lwt.Jsonrpc2.notify_back ->
         pos:Position.t ->
@@ -19,14 +28,8 @@ class lsp_server =
         word option =
       fun ~notify_back ~pos ~uri ->
         let open O in
-        let* d = self#find_doc uri in
-        let text = d.content in
-        let td =
-          Text_document.make ~position_encoding:positionEncoding
-            (DidOpenTextDocumentParams.create
-               ~textDocument:
-                 { text; version = d.version; languageId = d.languageId; uri })
-        in
+        let* td = self#get_text_document ~uri in
+        let text = Text_document.text td in
         let ofs = Text_document.absolute_position td pos in
         (* Limit the search to the previous 500 chars. *)
         let max_reach = min ofs 500 in
@@ -234,18 +237,18 @@ class lsp_server =
     method! on_req_code_action =
       fun ~notify_back ~id:_ { textDocument = { uri }; range; _ } ->
         self#_dispatch uri ~notify_back
-          ~mly_handler:(Mly.code_actions ~uri ~range) ~mll_handler:(fun _ ->
-            None)
+          ~mly_handler:(Mly.code_actions ~uri ~range) ~mll_handler:(fun state ->
+            let open O in
+            let* doc = self#get_text_document ~uri in
+            Mll.code_actions ~doc ~range state)
         |> O.flatten |> Lwt.return
 
     method private _on_req_selection_range ~notify_back ~r :
         SelectionRange.t list Lwt.t =
       self#_dispatch r.textDocument.uri ~notify_back
         ~mll_handler:
-          (* We don't support multiple positions yet. *)
           (Mll.selection_range ~notify_back ~uri:r.textDocument.uri
-             ~pos:(L.hd r.positions))
-        ~mly_handler:(fun _ -> [])
+             ~positions:r.positions) ~mly_handler:(fun _ -> [])
       |> O.to_list |> L.flatten |> Lwt.return
 
     (* We define here a helper method that will:

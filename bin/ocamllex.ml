@@ -353,11 +353,11 @@ let rename (state : state) ~uri ~(pos : Position.t) ~(newName : string) :
   in
   WorkspaceEdit.create ~changes:[ (uri, edits) ] ()
 
-(* extract_to_named_regex_code_action *)
-
-let selection_range ({ regexps; _ } : state) ~uri:_ ~(pos : Position.t)
-    ~(notify_back : notify_back) : SelectionRange.t list =
+let selection_range ({ regexps; _ } : state) ~uri:_
+    ~(positions : Position.t list) ~(notify_back : notify_back) :
+    SelectionRange.t list =
   let open L in
+  let@* i, pos = positions in
   let* re = regexps in
   let range0 = Range.of_lexical_positions re.p in
   let parent_ref = ref @@ SelectionRange.create ~range:range0 () in
@@ -373,17 +373,71 @@ let selection_range ({ regexps; _ } : state) ~uri:_ ~(pos : Position.t)
           if Position.is_inside pos range then (
             parent_ref := SelectionRange.create ~parent:!parent_ref ~range ();
             visit_a _env located.v)
-          else ()
     end
   in
 
   if Position.is_inside pos range0 then (
     v#visit_regular_expression_syntax () re.v;
     let res = [ !parent_ref ] in
-    log_info ~notify_back "Range for pos %s: %s" (Position.show pos)
+    log_info ~notify_back "Range for pos #%d %s: %s" i (Position.show pos)
       (Range.show !parent_ref.SelectionRange.range);
     res)
   else []
 
-(* let code_actions (state : state) ~uri ~(range : Range.t) : CodeActionResult.t =
-  None *)
+(** We implement a code action that extracts a named regexp from a valid
+    selection. Inspired by ocaml-lsp's 'Extract local' action. *)
+let code_actions ({ regexps; grammar; _ } : state) ~(doc : Text_document.t)
+    ~range:(rng : Range.t) : CodeActionResult.t =
+  (* Search the smallest regexp node that contains [range]. *)
+  let module TD = Text_document in
+  let uri = TD.documentUri doc in
+  let open L in
+  find_map
+    (fun re ->
+      let node : Range.t option ref = ref None in
+      let v =
+        object
+          inherit [_] Syntax.regexp_iter
+
+          method! visit_located =
+            fun visit_a _env located ->
+              let range = Range.of_lexical_positions located.p in
+
+              if Range.contains range rng then (
+                node := Some range;
+                visit_a _env located.v)
+        end
+      in
+      v#visit_regular_expression_syntax () re.v;
+      let open O in
+      let* extract_range = !node in
+      (* TODO: wrap ranges of classes classes in brackets: 'a'-'z' -> 'A'-'Z' *)
+      let* local_text = substring doc extract_range in
+      (* The very end of the last declared named regexp, e.g.:
+        ...
+        let blah = ['0'-'9']+
+                            ^
+      *)
+      let* { end_ = edit_pos; _ } =
+        last_opt grammar.named_regexps
+        >|= snd >|= Located.position >|= Range.of_lexical_positions
+      in
+      let new_name = "regexp_name" in
+      let newText = spr "\nlet %s = %s" new_name local_text in
+      let insert_range = Range.create ~start:edit_pos ~end_:edit_pos in
+      let edits =
+        [
+          TextEdit.create ~newText ~range:insert_range;
+          (* The syntax does not allow references inside character sets. When the extract action takes place inside a character set, you need to break it down into a union, or make it smarter than this. *)
+          TextEdit.create ~newText:new_name ~range:extract_range;
+        ]
+      in
+      (* TODO: invoke rename command through the ~command field *)
+      let extract_action =
+        CodeAction.create ~title:"Extract to named regexp"
+          ~kind:CodeActionKind.RefactorExtract
+          ~edit:(WorkspaceEdit.create ~changes:[ (uri, edits) ] ())
+          ()
+      in
+      Some [ `CodeAction extract_action ])
+    regexps
