@@ -15,10 +15,11 @@ The extension will activate and launch the server upon opening a file ending wit
 * Context-aware completions for your grammar's terminals and nonterminals, Menhir's standard library rules, named regexes, captured variables, OCaml modules and constants, etc.
 * References View (Shift+F12 on any symbol)
 * Jump to Definition (Ctrl+Click on any symbol)
-* Hover documentation for token aliases and3 Menhir's standard library rules
+* Hover documentation for token aliases and Menhir's standard library rules
 * Document Symbols (Ctrl+Shift+O)
 * Rename symbol (F2 on a rule name or a token name)
-* Refactorings for Menhir tokens
+* Refactorings for Menhir tokens and Ocamllex regular expressions (Cltr+.)
+* Selection ranges (Shift+Alt+← / Shift+Alt+→ to respectively shrink / expand your selection on a regular expression)
 * Fancy file icons
 
 ## License

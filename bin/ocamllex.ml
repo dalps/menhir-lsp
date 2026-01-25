@@ -388,16 +388,19 @@ let selection_range ({ regexps; _ } : state) ~uri:_
     selection. Inspired by ocaml-lsp's 'Extract local' action. *)
 let code_actions ({ regexps; grammar; _ } : state) ~(doc : Text_document.t)
     ~range:(rng : Range.t) : CodeActionResult.t =
-  (* Search the smallest regexp node that contains [range]. *)
   let module TD = Text_document in
   let uri = TD.documentUri doc in
   let open L in
   find_map
     (fun re ->
       let node : Range.t option ref = ref None in
+      (* This visitor searches the smallest regexp node that contains [range] and stores it into [node]. *)
       let v =
         object
           inherit [_] Syntax.regexp_iter
+
+          (* Bail out on character sets, so the replacement always produces valid code. *)
+          method! visit_character_class_syntax = fun _env _cls -> node := None
 
           method! visit_located =
             fun visit_a _env located ->
@@ -411,7 +414,6 @@ let code_actions ({ regexps; grammar; _ } : state) ~(doc : Text_document.t)
       v#visit_regular_expression_syntax () re.v;
       let open O in
       let* extract_range = !node in
-      (* TODO: wrap ranges of classes classes in brackets: 'a'-'z' -> 'A'-'Z' *)
       let* local_text = substring doc extract_range in
       (* The very end of the last declared named regexp, e.g.:
         ...
@@ -428,15 +430,16 @@ let code_actions ({ regexps; grammar; _ } : state) ~(doc : Text_document.t)
       let edits =
         [
           TextEdit.create ~newText ~range:insert_range;
-          (* The syntax does not allow references inside character sets. When the extract action takes place inside a character set, you need to break it down into a union, or make it smarter than this. *)
           TextEdit.create ~newText:new_name ~range:extract_range;
         ]
       in
-      (* TODO: invoke rename command through the ~command field *)
       let extract_action =
         CodeAction.create ~title:"Extract to named regexp"
           ~kind:CodeActionKind.RefactorExtract
           ~edit:(WorkspaceEdit.create ~changes:[ (uri, edits) ] ())
+          ~command:
+            (Command.create ~title:"Give it a good name"
+               ~command:"editor.action.rename" ())
           ()
       in
       Some [ `CodeAction extract_action ])
