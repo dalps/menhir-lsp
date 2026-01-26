@@ -25,7 +25,7 @@ let raise exn =
   Hashtbl.reset named_regexps;
   Stdlib.raise exn
 
-let _regexp_for_string s =
+let regexp_for_string s =
   let rec re_string n =
     if n >= String.length s then Epsilon
     else if succ n = String.length s then
@@ -48,9 +48,6 @@ let rec as_cset = function
   | Alternative (e1, e2) -> Cset.union (as_cset e1) (as_cset e2)
   | _ -> raise Cset.Bad
 
-let _remove_as = remove_as
-let _as_cset = as_cset
-
 %}
 
 %token <string> Tident
@@ -70,10 +67,9 @@ let _as_cset = as_cset
 
 %start lexer_definition
 %type <Syntax.lexer_definition> lexer_definition
-%type <Syntax.regular_expression_syntax located> regexp
-
-%type <(character_class_syntax * Cset.t) located> char_class
-%type <(character_class_syntax * Cset.t) located> char_class1
+%type <Syntax.regular_expression_syntax located * regular_expression> regexp
+%type <character_class_syntax located * Cset.t> char_class
+%type <character_class_syntax located * Cset.t> char_class1
 
 %%
 
@@ -95,12 +91,11 @@ header:
 
 named_regexp:
     let_ = located("let") name = located(Tident) "=" regexp = regexp 
-    {
-        let range = (startp let_, endp regexp) in
-        let res = { name; regexp } in 
-        Hashtbl.add named_regexps name.v @@ locate range res;
-        res
-    }
+    { let re, r = regexp in
+      let range = (startp let_, endp re) in
+      let res = { name; regexp = re } in 
+      Hashtbl.add named_regexps name.v @@ (locate range res, r);
+      res }
 
 refill_handler:
       "refill" a = Taction { a }
@@ -108,9 +103,8 @@ refill_handler:
 (* [menhir-lsp] located name and args. *)
 definition:
     name = located(Tident) args = list(located(Tident)) "=" shortest = located(parse_or_shortest) clauses = entry
-        { 
-            let _range = (startp shortest, endp shortest) in
-            {name ; shortest ; args ; clauses} }
+    { let _range = (startp shortest, endp shortest) in
+      {name ; shortest ; args ; clauses} }
 
 parse_or_shortest:
     "parse"     { true }
@@ -121,69 +115,96 @@ entry:
 
 case:
     re = regexp a = Taction
-        { (re, a) }
+        { (fst re, a) }
 
+(* The semantic actions are really ugly because they produce two things: in the first component, we wrap each regexp AST node with its region in the source file, the second component preserves the original semantics of Ocamllex that computes character sets and validates references. *)
 regexp:
     u = located("_")
-        { locate u.p @@ CharSet (locate u.p @@ Wildcard u) }
+        { locate u.p @@ CharSet (locate u.p @@ Wildcard u), Characters Cset.all_chars }
   | u = located(Teof)
-        { locate u.p @@ EOF u }
+        { locate u.p @@ EOF u, Eof }
   | c = located(Tchar)
-        { locate c.p @@ CharSet (locate c.p @@ Character c) }
+        { locate c.p @@ CharSet (locate c.p @@ Character c), Characters (Cset.singleton c.v) }
   | s = Tstring
-        { locate s.p @@ String s }
+        { locate s.p @@ String s, regexp_for_string s.v }
   | lbr = located("[") cls = char_class rbr = located("]")
-        { locate (startp lbr, endp rbr) @@ CharSet { cls with v = cls.v |> fst } }
+        { let cls, cset = cls in
+          locate (startp lbr, endp rbr) @@ CharSet cls, Characters cset }
   | re = regexp op = located("*")
-        { locate (startp re, endp op) @@ Rep re }
+        { let re, r = re in
+          locate (startp re, endp op) @@ Rep re, Repetition r }
   | re = regexp op = located("?")
-        { locate (startp re, endp op) @@ Option re }
+        { let re, r = re in
+          locate (startp re, endp op) @@ Option re, Alternative(Epsilon, r) }
   | re = regexp op = located("+")
-        { locate (startp re, endp op) @@ Rep1 re }
+        { let re, r = re in
+          locate (startp re, endp op) @@ Rep1 re, Sequence(Repetition (remove_as r), r) }
   | re1 = regexp "#" re2 = regexp
         {
-          let _as_cset re = 
+          let re1, r1 = re1 in
+          let re2, r2 = re2 in
+          let as_cset re = 
             try
               as_cset re.v
             with Cset.Bad ->
-              raise (SyntaxError (locate re.p "character set expected."))
+              let explanation =
+                match re.v with
+                  Repetition _ 
+                | Sequence _ -> "\nA sequence is not a valid character set." 
+                | _ -> ""
+              in
+              raise (SyntaxError (locate re.p @@ "character set expected.\n\nThis regexp must be a character set defined with […] or a single character expression or underscore _." ^ explanation))
           in
-          locate (startp re1, endp re2) @@ CharSetDifference (re1, re2)
+          let s1 = as_cset (locate re1.p r1)
+          and s2 = as_cset (locate re2.p r2)
+          in
+          locate (startp re1, endp re2) @@ CharSetDifference (re1, re2), Characters (Cset.diff s1 s2)
         }
   | re1 = regexp "|" re2 = regexp
-        { locate (startp re1, endp re2) @@ Alt (re1, re2) }
+        { let re1, r1 = re1 in
+          let re2, r2 = re2 in
+          locate (startp re1, endp re2) @@ Alt (re1, re2), Alternative (r1, r2) }
   | re1 = regexp re2 = regexp %prec CONCAT
-        { locate (startp re1, endp re2) @@ Seq (re1, re2) }
+        { let re1, r1 = re1 in
+          let re2, r2 = re2 in
+          locate (startp re1, endp re2) @@ Seq (re1, re2), Sequence (r1, r2) }
   | lpr = located("(") re = regexp rpr = located(")")
-        { locate (startp lpr, endp rpr) (Group re) }
+        { let re, r = re in
+          locate (startp lpr, endp rpr) (Group re), r }
   | ide = located(Tident)
         { try
-            Hashtbl.find named_regexps ide.v |> ignore;
-            locate ide.p @@ Ref ide
+            let _re, r = Hashtbl.find named_regexps ide.v in
+            locate ide.p @@ Ref ide, r
           with Not_found ->
             let msg = Printf.sprintf "Reference to unbound regexp name `%s'.\n" ide.v in
             raise (SyntaxError (locate ide.p msg)) }
   | re = regexp "as" ide = located(ident)
-      { locate (startp re, endp ide) @@ As (re, ide) }
+        { let re, r = re in
+          locate (startp re, endp ide) @@ As (re, ide), Bind (r, ide) }
 
 ident:
   ide = Tident { ide }
 
+(* [menhir-lsp] This rule produces two things as well: AST annotated with source locations * character set. *)
 char_class:
     op = located("^") cls = char_class1
-        { locate (startp op, endp cls) (Complement (locate cls.p (cls.v |> fst)), Cset.complement (cls.v |> snd)) }
+        { let cls, cset = cls in
+          locate (startp op, endp cls) @@ Complement cls,
+            Cset.complement cset }
   | cls = char_class1
         { cls }
 
 char_class1:
     c1 = located(Tchar) "-" c2 = located(Tchar)
-        { locate (startp c1, endp c2) (Range (c1, c2), Cset.interval c1.v c2.v) }
+        { locate (startp c1, endp c2) @@ Range (c1, c2),
+            Cset.interval c1.v c2.v }
   | c = located(Tchar)
-        { locate c.p (Character c, Cset.singleton c.v) }
+        { locate c.p @@ Character c, Cset.singleton c.v }
   | cls1 = char_class1 cls2 = char_class1 %prec CONCAT
-        { locate (startp cls1, endp cls2) 
-            (Union (locate cls1.p (cls1.v |> fst), locate cls2.p (cls2.v |> fst)), 
-              Cset.union (cls1.v |> snd) (cls2.v |> snd)) }
+        { let cls1, cset1 = cls1 in
+          let cls2, cset2 = cls2 in
+          locate (startp cls1, endp cls2) @@ Union (cls1, cls2),
+            Cset.union cset1 cset2 }
 
 
 (* -------------------------------------------------------------------------- *)
