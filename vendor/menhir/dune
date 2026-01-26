@@ -2,6 +2,8 @@
  (name menhirSyntax)
  (libraries menhirSdk menhirLib unix))
 
+(copy_files ../common/*.ml)
+
 (ocamllex Lexer Lex Lexpointfree LineCount DecodeString)
 
 (menhir

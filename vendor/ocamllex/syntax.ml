@@ -76,21 +76,26 @@ type regular_expression =
   | Repetition of regular_expression
   | Bind of regular_expression * (string * location)
 
+(* type 'a named = { name : string located; v : 'a } *)
+
+type named_regexp = {
+  name : string located;
+  regexp : regular_expression_syntax located;
+}
+
 type ('arg, 'action) entry = {
   name : string located;
-  shortest : bool;
+  shortest : bool located;
   args : 'arg;
   clauses : (regular_expression_syntax located * 'action) list;
 }
 
 type lexer_definition = {
-  header : location;
+  header : location option;
   entrypoints : (string located list, location) entry list;
-  trailer : location;
+  trailer : location option;
   refill_handler : location option;
-  named_regexps : (string located * regular_expression_syntax located) list;
+  named_regexps : named_regexp list;
 }
 
-let named_regexps :
-    (string, Range.range * regular_expression_syntax located) Hashtbl.t =
-  Hashtbl.create 13
+let named_regexps : (string, named_regexp located) Hashtbl.t = Hashtbl.create 13

@@ -78,8 +78,8 @@ let _as_cset = as_cset
 %%
 
 lexer_definition:
-    header = header named_regexps_l = named_regexp* refill_handler = refill_handler? "rule" definitions = separated_list("and", definition) 
-    trailer = header "EOF"
+    header = header? named_regexps_l = named_regexp* refill_handler = refill_handler? "rule" definitions = separated_list("and", definition) 
+    trailer = header? "EOF"
         { let v = {
             header;
             refill_handler;
@@ -91,16 +91,15 @@ lexer_definition:
         v }
 
 header:
-    a = Taction
-        { a }
-  | /*epsilon*/
-        { Range.(pos_zero, pos_zero) }
+    a = Taction { a }
 
 named_regexp:
-    "let" name = located(Tident) "=" re = regexp 
+    let_ = located("let") name = located(Tident) "=" regexp = regexp 
     {
-        Hashtbl.add named_regexps name.v (name.p, re);
-        (name, re)
+        let range = (startp let_, endp regexp) in
+        let res = { name; regexp } in 
+        Hashtbl.add named_regexps name.v @@ locate range res;
+        res
     }
 
 refill_handler:
@@ -108,10 +107,14 @@ refill_handler:
 
 (* [menhir-lsp] located name and args. *)
 definition:
-    name = located(Tident) args = list(located(Tident)) "=" "parse" clauses = entry
-        { {name ; shortest=false ; args ; clauses} }
-  |  name = located(Tident) args = list(located(Tident)) "=" "shortest" clauses = entry
-        { {name ; shortest=true ; args ; clauses} }
+    name = located(Tident) args = list(located(Tident)) "=" shortest = located(parse_or_shortest) clauses = entry
+        { 
+            let _range = (startp shortest, endp shortest) in
+            {name ; shortest ; args ; clauses} }
+
+parse_or_shortest:
+    "parse"     { true }
+  | "shortest"  { false }
 
 entry:
     option("|") l = separated_nonempty_list("|", case) { l }
