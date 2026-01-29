@@ -13,6 +13,7 @@
 
 open Lexing
 open Syntax
+open Attribute
 
 exception ParserError of string located
 
