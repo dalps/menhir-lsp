@@ -1,6 +1,12 @@
 (library
  (name menhirSyntax)
- (libraries menhirSdk menhirLib unix))
+ (libraries menhirSdk menhirLib unix)
+ (preprocess
+  (pps visitors.ppx)))
+
+(env
+ (dev
+  (flags :standard -warn-error -7-17)))
 
 (copy_files ../common/*.ml)
 

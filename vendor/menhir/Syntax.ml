@@ -32,8 +32,9 @@
 (*                                                                            *)
 (******************************************************************************)
 
-include BaseTypes
 open Attribute
+
+include BaseTypes
 
 type ocamltype = OCamlType.ocamltype =
   | Declared of string located
@@ -51,7 +52,7 @@ and symbol = string
 and symbols = symbol list
 (**A list of symbols. *)
 
-and alias = string option
+and alias = string located option
 (**In a somewhat fragile convention, in a partial grammar, a reference to a
    terminal symbol either is a normal identifier [LID], in which case it is the
    name of the terminal symbol, or is a quoted identifier [QID], in which case
@@ -215,10 +216,10 @@ and parameterized_rule = {
 and declaration =
   | DCode of string located  (**Raw OCaml code. *)
   | DParameter of string located  (**Raw OCaml functor parameter. *)
-  | DToken of ocamltype option * terminal * alias * (attributes[@opaque])
+  | DToken of ocamltype option * terminal located * alias * (attributes[@opaque])
       (**Terminal symbol (token) declaration. *)
-  | DStart of nonterminal  (**Start symbol declaration. *)
-  | DTokenProperties of terminal * associativity * precedence_level
+  | DStart of nonterminal located  (**Start symbol declaration. *)
+  | DTokenProperties of terminal located * associativity * precedence_level
       (**Priority and associativity declaration. *)
   | DType of ocamltype * parameter  (**Type declaration. *)
   | DGrammarAttribute of (attribute[@opaque])

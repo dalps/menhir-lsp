@@ -109,6 +109,7 @@ let locate' locs v =
 %type <ParserAux.early_production> production
 %start <Syntax.partial_grammar> grammar
 
+%type <Syntax.declaration located list> declaration
 
 /* ------------------------------------------------------------------------- */
 /* Priorities. */
@@ -177,11 +178,11 @@ declaration:
     {
       match t with
       | None ->
-          List.map (Located.map (fun nonterminal -> DStart nonterminal)) nts
+          List.map (fun nonterminal -> locate $loc @@ DStart nonterminal) nts
       | Some t ->
-         let dstart nt = DStart nt
-         and dtype ntloc = Located.map (fun _nt -> DType (t, ParamVar ntloc)) ntloc in (* ugly/weird *)
-         List.map (Located.map dstart) nts @
+         let dstart nt = locate $loc @@ DStart nt
+         and dtype ntloc = (fun _nt -> locate $loc @@ DType (t, ParamVar ntloc)) ntloc in (* ugly/weird *)
+         List.map dstart nts @
          List.map dtype nts
     }
 
@@ -191,7 +192,7 @@ declaration:
 
 | k = priority_keyword ss = clist(symbol)
     { let prec = ParserAux.new_precedence_level $loc(k) in
-      List.map (Located.map (fun symbol -> DTokenProperties (symbol, k, prec))) ss }
+      List.map ((fun symbol -> locate $loc @@ DTokenProperties (symbol, k, prec))) ss }
 
 | PARAMETER t = ANGLED
     { [ locate' $loc (DParameter t) ] }
@@ -276,8 +277,7 @@ symbol:
 
 %inline terminal_alias_attrs:
   id = UID alias = QID? attrs = ATTRIBUTE*
-    { let alias = Option.map Located.value alias in
-      Located.map (fun uid -> uid, alias, attrs) id }
+    { locate $loc (id, alias, attrs) }
 
 %inline nonterminal:
   id = LID
