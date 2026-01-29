@@ -13,19 +13,16 @@ open Syntax
 
 exception ParserError of string located
 
-type early_producer =
-  Range.range * identifier located option * parameter * attributes
-
-type early_producers = early_producer list
+type early_producer = identifier located option * parameter * attributes
+type early_producers = early_producer located list
 
 type early_production =
   early_producers
-  * string located option
+  * prec_annotation
   * (* optional precedence *)
     production_level
-  * Range.range
 
-type early_productions = early_production list
+type early_productions = early_production located list
 
 let new_precedence_level =
   let c = ref 0 in
@@ -55,8 +52,8 @@ module IdSet = struct
   let xor s1 s2 = union (diff s1 s2) (diff s2 s1)
 end
 
-let defined_identifiers ((_, ido, _, _) : early_producer) (accu : IdSet.t) :
-    IdSet.t =
+let defined_identifiers ({ v = ido, _, _; _ } : early_producer located)
+    (accu : IdSet.t) : IdSet.t =
   Option.fold ~none:accu ~some:(Fun.flip IdSet.add accu) ido
 
 let defined_identifiers (producers : early_producers) =
@@ -67,10 +64,10 @@ let check_production_group (right_hand_sides : early_productions) =
   | [] ->
       (* A production group cannot be empty. *)
       assert false
-  | (producers, _, _, _) :: right_hand_sides -> (
+  | { v = producers, _, _; _ } :: right_hand_sides -> (
       let ids = defined_identifiers producers in
       right_hand_sides
-      |> List.iter @@ fun (producers, _, _, _) ->
+      |> List.iter @@ fun { v = producers, _, _; _ } ->
          let ids' = defined_identifiers producers in
          try
            let id = IdSet.choose (IdSet.xor ids ids') in
@@ -87,15 +84,16 @@ let check_production_group (right_hand_sides : early_productions) =
 
 (* [normalize_producer i p] assigns a name of the form [_i]
    to the unnamed producer [p]. *)
-let normalize_producer i (pos, opt_identifier, parameter, attrs) =
+let normalize_producer i
+    Located.{ v = opt_identifier, parameter, attrs; p = pos } =
   let id =
     match opt_identifier with
     | Some id -> id
     | None -> locate pos ("_" ^ string_of_int (i + 1))
   in
-  (id, parameter, attrs)
+  locate pos (id, parameter, attrs)
 
-let normalize_producers (producers : early_producers) : producer list =
+let normalize_producers (producers : early_producers) : producer located list =
   List.mapi normalize_producer producers
 
 let override pos o1 o2 =
@@ -113,7 +111,7 @@ let override pos o1 o2 =
    referred to using [x], not [$(idx + 1)]. *)
 let producer_names (producers : early_producers) =
   producers
-  |> List.map (fun (_, oid, _, _) -> Option.map value oid)
+  |> List.map (fun { v = oid, _, _; _ } -> Option.map value oid)
   |> Array.of_list
 
 let validate_pointfree_action (fragment : string located) =

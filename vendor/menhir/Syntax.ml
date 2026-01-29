@@ -59,7 +59,7 @@ include FrontTypes
 type parameter =
   | ParamVar of symbol located
   | ParamApp of symbol located * parameters
-  | ParamAnonymous of parameterized_branch list located
+  | ParamAnonymous of parameterized_branch located list located
 
 and parameters =
   parameter list
@@ -81,14 +81,14 @@ and producer =
 and parameterized_branch =
   {
 
-    pb_position         : range;
-    (**The branch's position in a source file. *)
+    (* pb_position         : range; *)
+    (*[menhir-lsp] lifted [pb_position : range] to outer located *)
 
-    pb_producers        : producer list;
-    (**The producers. *)
+    pb_producers        : producer located list;
+    (**The producers. ([menhir-lsp]: made located) *)
 
     pb_action           : action;
-    (**The semantic action. *)
+    (**The semantic action. ([menhir-lsp]: made located) *)
 
     pb_prec_annotation  : prec_annotation;
     (**An optional [%prec] annotation. *)
@@ -127,7 +127,7 @@ type parameterized_rule =
     pr_parameters : symbol located list;
     (**The parameters of this nonterminal symbol. *)
 
-    pr_branches   : parameterized_branch list;
+    pr_branches   : parameterized_branch located list;
     (**The productions. *)
 
   }
@@ -262,7 +262,7 @@ type partial_grammar =
     pg_filename          : filename;
     pg_postlude          : string located option;
     pg_declarations      : declaration located list;
-    pg_rules             : parameterized_rule list;
+    pg_rules             : parameterized_rule located list;
   }
 
 (* -------------------------------------------------------------------------- *)

@@ -18,17 +18,18 @@ exception ParserError of string located
 
 (* A few types used in the parser. *)
 
-type early_producer = range * identifier located option * parameter * attributes
-type early_producers = early_producer list
+(* [menhir-lsp] Lifted [Range.range] component in favor of collection of [located]. *)
+type early_producer = identifier located option * parameter * attributes
+type early_producers = early_producer located list
 
+(* [menhir-lsp] Lifted [Range.range] component in favor of collection of [located]. *)
 type early_production =
   early_producers
-  * string located option
+  * prec_annotation
   * (* optional precedence *)
     production_level
-  * range
 
-type early_productions = early_production list
+type early_productions = early_production located list
 
 val new_precedence_level : position * position -> precedence_level
 (**[new_precedence_level (pos1, pos2)] creates a new precendence level, which is
@@ -55,13 +56,13 @@ val check_production_group : early_productions -> unit
 (**[check_production_group] accepts a production group and checks that all
    productions in the group define the same set of identifiers. *)
 
-val normalize_producers : early_producers -> producer list
+val normalize_producers : early_producers -> producer located list
 (**[normalize_producers] accepts a list of producers where identifiers are
    optional and returns a list of producers where identifiers are mandatory. A
    missing identifier in the [i]-th position receives the conventional name
    [_i]. *)
 
-val override : range -> 'a option -> 'a option -> 'a option
+val override : range -> prec_annotation -> prec_annotation -> prec_annotation
 (**[override range oprec1 oprec2] decides which of the two optional %prec
    declarations [oprec1] and [oprec2] applies to a production. If both are
    present then a fatal error occurs. *)

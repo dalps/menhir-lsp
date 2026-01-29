@@ -109,6 +109,7 @@ let locate' locs v =
 %type <ParserAux.early_production> production
 %start <Syntax.partial_grammar> grammar
 
+
 /* ------------------------------------------------------------------------- */
 /* Priorities. */
 
@@ -146,7 +147,7 @@ let locate' locs v =
 grammar:
   ds = flatten(declaration*)
   PERCENTPERCENT
-  rs = rule*
+  rs = located(rule)*
   t = postlude
     {
       {
@@ -349,32 +350,35 @@ optional_bar:
    followed by a possibly empty list of attributes. */
 
 production_group:
-  productions = separated_nonempty_list(BAR, production)
+  productions = separated_nonempty_list(BAR, located(production))
   action = ACTION /* action is lexically delimited by braces */
-  oprec2 = ioption(precedence)
+  oprec2 = ioption(located(precedence))
   attrs = ATTRIBUTE*
     {
       (* If multiple productions share a single semantic action, check
          that all of them bind the same names. *)
       ParserAux.check_production_group productions;
       (* Then, *)
-      List.map (fun (producers, oprec1, level, pos) ->
+      List.map (fun Located.{ v = (producers, oprec1, level); p = pos } ->
         (* Replace [$i] with [_i]. *)
-        let pb_producers = ParserAux.normalize_producers producers in
+        let pb_producers : producer located list = ParserAux.normalize_producers producers in
         (* Distribute the semantic action and attributes onto every production.
            Also, check that every [$i] is within bounds. *)
         let names = ParserAux.producer_names producers in
         let pb_action = action !ParserAux.dollars names in
-        {
+        locate' $loc {
           pb_producers;
           pb_action;
           pb_prec_annotation  = ParserAux.override pos oprec1 oprec2;
           pb_production_level = level;
-          pb_position         = pos;
           pb_attributes       = attrs;
         })
       productions
     }
+
+// precedence:
+//   prec = located(PREC) symbol = symbol
+//     { locate (startp prec, endp symbol) symbol }
 
 precedence:
   PREC symbol = symbol
@@ -385,12 +389,10 @@ precedence:
    precedence declaration. */
 
 production:
-  producers = producer* oprec = ioption(precedence)
+  producers = located(producer)* oprec = ioption(located(precedence))
     { producers,
       oprec,
-      ParserAux.new_production_level(),
-      Range.make $loc
-    }
+      ParserAux.new_production_level() }
 
 /* ------------------------------------------------------------------------- */
 /* A producer is an actual parameter, possibly preceded by a
@@ -407,7 +409,7 @@ production:
 
 producer:
 | id = ioption(terminated(LID, EQUAL)) p = actual attrs = ATTRIBUTE* SEMI*
-    { position (locate' $loc ()), id, p, attrs }
+    { id, p, attrs }
 
 /* ------------------------------------------------------------------------- */
 /* The ideal syntax of actual parameters includes:
@@ -628,10 +630,10 @@ action_expression:
 | action = action
   attrs = ATTRIBUTE*
     { EAction (action, None, attrs) }
-| prec = precedence action = action
+| prec = located(precedence) action = action (* [menhir-lsp] located [precedence] *)
   attrs = ATTRIBUTE*
     { EAction (action, Some prec, attrs) }
-| action = action prec = precedence
+| action = action prec = located(precedence) (* [menhir-lsp] located [precedence] *)
   attrs = ATTRIBUTE*
     { EAction (action, Some prec, attrs) }
 
