@@ -11,10 +11,12 @@ type state = {
 let regexp_bindings =
   let v =
     object
-      inherit [_] syntax_reduce
+      inherit [_] syntax_reduce as super
       method zero = []
       method plus = ( @ )
-      method! visit_As = fun _ _re name -> [ name ]
+
+      method! visit_As =
+        fun _ re name -> name :: super#visit_regular_expression_syntax () re.v
     end
   in
   v#visit_regular_expression_syntax ()
@@ -61,7 +63,7 @@ let load_state_from_contents (_filename : string) (contents : string) :
   let symbols = process_symbols grammar in
   let regexps =
     L.(
-      (let+ Syntax.{ regexp; _ } = grammar.named_regexps in
+      (let+ { v = { regexp; _ }; _ } = grammar.named_regexps in
        regexp)
       @ let* { v = entry; _ } = grammar.entrypoints in
         let+ re, _ = entry.clauses in
@@ -88,7 +90,7 @@ let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
                   ~name:binder.v ~range ~selectionRange:range ()))
       ())
   @ L.map
-      (fun ({ name; _ } : Syntax.named_regexp) ->
+      (fun ({ v = { name; _ }; _ } : named_regexp located) ->
         let range = Range.of_lexical_positions name.p in
         DocumentSymbol.create ~kind:Property ~name:name.v ~range
           ~selectionRange:range ())
@@ -119,7 +121,7 @@ let definition ({ grammar; _ } as state : state) ~uri ~(pos : Position.t) :
          if_ (fun _ -> String.equal entry.name.v sym.v) entry.name)
        grammar.entrypoints
      <+> L.find_map
-           (fun ({ name; _ } : named_regexp) ->
+           (fun ({ v = { name; _ }; _ } : named_regexp located) ->
              if_ (fun _ -> String.equal name.v sym.v) name)
            grammar.named_regexps
    in
@@ -297,7 +299,9 @@ let completions
   let lexer_completions =
     regex_operator_completions @ keyword_completions
     @
-    let+ ({ name; _ } : named_regexp) = grammar.named_regexps in
+    let+ ({ v = { name; _ }; _ } : named_regexp located) =
+      grammar.named_regexps
+    in
     (* let _range = Range.of_lexical_positions p in *)
     CompletionItem.create ~kind:Property ~label:name.v ()
   in

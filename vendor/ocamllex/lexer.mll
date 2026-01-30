@@ -182,7 +182,7 @@ rule main = parse
         (Printf.sprintf "illegal escape sequence \\%c" c)
     }
   | '{'
-    { let startp = Lexing.lexeme_end_p lexbuf in
+    { let startp = Lexing.lexeme_start_p lexbuf in
       let endp = handle_lexical_error action [] lexbuf in
       Taction(locate (startp, endp) ()) }
   | '='  { Tequal }

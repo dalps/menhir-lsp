@@ -26,17 +26,17 @@ exception SyntaxError of string located
 type location = unit located
 
 and character_class_syntax =
-  | Wildcard of unit located
+  | Wildcard of location
   | Character of int located
   | Range of int located * int located
   | Union of character_class_syntax located * character_class_syntax located
   | Complement of character_class_syntax located
 
 and regular_expression_syntax =
-  | Epsilon of unit located
+  | Epsilon of location
   | CharSet of character_class_syntax located
   | String of string located
-  | EOF of unit located
+  | EOF of location
   | Seq of regular_expression_syntax located * regular_expression_syntax located
   | Alt of regular_expression_syntax located * regular_expression_syntax located
   | CharSetDifference of
@@ -66,7 +66,7 @@ and lexer_definition = {
   entrypoints : entry located list;
   trailer : location option;
   refill_handler : location option;
-  named_regexps : named_regexp list;
+  named_regexps : named_regexp located list;
 }
 
 and 'a located = 'a Located.located = { p : range; [@opaque] v : 'a }
