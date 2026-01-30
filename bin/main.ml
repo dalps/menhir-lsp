@@ -229,7 +229,7 @@ class lsp_server =
     method! config_code_action_provider =
       `CodeActionOptions
         {
-          codeActionKinds = Some [ Refactor ];
+          codeActionKinds = Some [ Refactor; RefactorExtract ];
           resolveProvider = None;
           workDoneProgress = None;
         }
@@ -240,7 +240,7 @@ class lsp_server =
           ~mly_handler:(Mly.code_actions ~uri ~range) ~mll_handler:(fun state ->
             let open O in
             let* doc = self#get_text_document ~uri in
-            Mll.code_actions ~doc ~range state)
+            Mll.code_actions ~doc ~range ~notify_back state)
         |> O.flatten |> Lwt.return
 
     method private _on_req_selection_range ~notify_back ~r :

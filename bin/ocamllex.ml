@@ -5,7 +5,10 @@ open Syntax
 type state = {
   grammar : lexer_definition;
   symbols : string located list;
-  regexps : regular_expression_syntax located list;
+  regexps :
+    [ `Declared of named_regexp located
+    | `Anonymous of regular_expression_syntax located ]
+    list;
 }
 
 let regexp_bindings =
@@ -21,7 +24,7 @@ let regexp_bindings =
   in
   v#visit_regular_expression_syntax ()
 
-let process_symbols (grammar : lexer_definition) : string located list =
+let process_symbols : lexer_definition -> string located list =
   let v =
     object
       inherit [_] syntax_reduce as super
@@ -38,9 +41,8 @@ let process_symbols (grammar : lexer_definition) : string located list =
           named_regexp.name :: super#visit_named_regexp () named_regexp
     end
   in
-  v#visit_lexer_definition () grammar
+  v#visit_lexer_definition ()
 
-(* repetitive, move to a functor *)
 let symbol_at_position (state : state) (pos : Position.t) :
     (Range.t * string located) option =
   L.find_map
@@ -63,11 +65,11 @@ let load_state_from_contents (_filename : string) (contents : string) :
   let symbols = process_symbols grammar in
   let regexps =
     L.(
-      (let+ { v = { regexp; _ }; _ } = grammar.named_regexps in
-       regexp)
+      (let+ nr = grammar.named_regexps in
+       `Declared nr)
       @ let* { v = entry; _ } = grammar.entrypoints in
         let+ re, _ = entry.clauses in
-        re)
+        `Anonymous re)
   in
   { grammar; symbols; regexps }
 
@@ -372,61 +374,75 @@ let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
 
 (** We implement a code action that extracts a named regexp from a valid
     selection. Inspired by ocaml-lsp's 'Extract local' action. *)
-let code_actions ({ regexps; grammar; _ } : state) ~(doc : Text_document.t)
-    ~range:(rng : Range.t) : CodeActionResult.t =
+let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
+    ~(doc : Text_document.t) ~range:(rng : Range.t) : CodeActionResult.t =
   let module TD = Text_document in
   let uri = TD.documentUri doc in
   let open L in
-  find_map
-    (fun re ->
-      let node : Range.t option ref = ref None in
-      (* This visitor searches the smallest regexp node that contains [range] and stores it into [node]. *)
-      let v =
-        object
-          inherit [_] syntax_iter
+  let@*? _i, re = regexps in
+  let regexp =
+    match re with
+    | `Declared { v = { regexp; _ }; _ } | `Anonymous regexp -> regexp
+  in
+  let node : Range.t option ref = ref None in
+  (* This visitor searches the smallest regexp node that contains [range] and stores it into [node]. *)
+  let v =
+    object
+      inherit [_] syntax_iter
 
-          (* Bail out on character sets, so the replacement always produces valid code. *)
-          method! visit_character_class_syntax = fun _env _cls -> node := None
+      (* Bail out on character sets, so the substitution always produces valid regular expressions. *)
+      method! visit_character_class_syntax = fun _env _cls -> node := None
 
-          method! visit_located =
-            fun visit_a _env located ->
-              let range = Range.of_lexical_positions located.p in
+      method! visit_located =
+        fun visit_a _env located ->
+          let range = Range.of_lexical_positions located.p in
 
-              if Range.contains range rng then (
-                node := Some range;
-                visit_a _env located.v)
-        end
-      in
-      v#visit_regular_expression_syntax () re.v;
-      let open O in
-      let* extract_range = !node in
-      let* local_text = substring doc extract_range in
-      (* The very end of the last declared named regexp, e.g.:
-        ...
-        let blah = ['0'-'9']+
-                            ^
-      *)
-      let* { end_ = edit_pos; _ } =
-        last_opt grammar.named_regexps >|= fun ({ regexp; _ } : named_regexp) ->
-        regexp.p |> Range.of_lexical_positions
-      in
-      let new_name = "regexp_name" in
-      let newText = spr "\nlet %s = %s" new_name local_text in
-      let insert_range = Range.create ~start:edit_pos ~end_:edit_pos in
-      let edits =
-        [
-          TextEdit.create ~newText ~range:insert_range;
-          TextEdit.create ~newText:new_name ~range:extract_range;
-        ]
-      in
-      let extract_action =
-        CodeAction.create ~title:"Extract to named regexp"
-          ~kind:CodeActionKind.RefactorExtract
-          ~edit:(WorkspaceEdit.create ~changes:[ (uri, edits) ] ())
-          ~command:
-            (Command.create ~title:"Give it a good name"
-               ~command:"editor.action.rename" ())
-          ()
-      in
-      Some [ `CodeAction extract_action ])
-    regexps
+          if Range.contains range rng then (
+            node := Some range;
+            visit_a _env located.v)
+    end
+  in
+  v#visit_located v#visit_regular_expression_syntax () regexp;
+  let open O in
+  let* extract_range = !node in
+  let* local_text = substring doc extract_range in
+  log_info ~notify_back "Code action available for selection: %s %s" local_text
+    (Range.show extract_range);
+
+  (* Where does the extracted regexp's new declaration go? *)
+  let edit_pos : Position.t =
+    let get_range : 'a. 'a located -> Range.t =
+     fun a -> a |> Located.position |> Range.of_lexical_positions
+    in
+    match re with
+    (* If we're inside a rule, under the last declaration if there exists one,
+      otherwise under the grammar header or ultimately the first line. *)
+    | `Anonymous _ ->
+        last_opt grammar.named_regexps
+        >|= (get_range >> Range.end_)
+        <|> (fun () -> grammar.header >|= (get_range >> Range.end_))
+        |> get_or ~default:(Position.create ~character:0 ~line:0)
+    (* If we're inside a declaration [d], right before [d]. *)
+    | `Declared d -> get_range d |> Range.start
+  in
+
+  let new_name = "regexp_name" in
+  let newText = spr "\nlet %s = %s\n" new_name local_text in
+  let insert_range = Range.create ~start:edit_pos ~end_:edit_pos in
+  log_info ~notify_back "newText: %s" newText;
+  let edits =
+    [
+      TextEdit.create ~newText ~range:insert_range;
+      TextEdit.create ~newText:new_name ~range:extract_range;
+    ]
+  in
+  let extract_action =
+    CodeAction.create ~title:"Extract to named regexp"
+      ~kind:CodeActionKind.RefactorExtract
+      ~edit:(WorkspaceEdit.create ~changes:[ (uri, edits) ] ())
+      ~command:
+        (Command.create ~title:"Give it a good name"
+           ~command:"editor.action.rename" ())
+      ()
+  in
+  Some [ `CodeAction extract_action ]

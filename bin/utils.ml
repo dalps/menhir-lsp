@@ -127,6 +127,9 @@ end
 module Range = struct
   include Lsp.Types.Range
 
+  let end_ t = t.end_
+  let start t = t.start
+
   let show ({ end_; start } : t) =
     spr "[ %s, %s ]" (Position.show start) (Position.show end_)
 
@@ -148,7 +151,7 @@ module Range = struct
     | (Lt | Eq), (Gt | Eq) -> true
     | _ -> false
 
-  (* Compares ranges by their lengths*)
+  (* Compares ranges by their lengths *)
   let compare_size (x : t) (y : t) =
     let dx = Position.(x.end_ - x.start) in
     let dy = Position.(y.end_ - y.start) in
