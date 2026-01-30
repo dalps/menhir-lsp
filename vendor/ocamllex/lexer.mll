@@ -17,6 +17,7 @@
 
 {
 open Parser
+open Located
 
 (* Auxiliaries for the lexical analyzer *)
 
@@ -183,7 +184,7 @@ rule main = parse
   | '{'
     { let startp = Lexing.lexeme_end_p lexbuf in
       let endp = handle_lexical_error action [] lexbuf in
-      Taction((startp, endp)) }
+      Taction(locate (startp, endp) ()) }
   | '='  { Tequal }
   | '|'  { Tor }
   | '['  { Tlbracket }

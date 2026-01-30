@@ -12,12 +12,13 @@ module L = struct
   let ( let@* ) (x : 'a t) (f : int * 'a -> 'b t) : 'b t =
     flat_map_i (F.curry f) x
 
-  (** Iterate on the list until [Some] is produced. Transition into option monad. *)
+  (** Iterate on the list until [Some] is produced. Transition into option
+      monad. *)
   let ( let*? ) (x : 'a t) (f : 'a -> 'b option) : 'b option = find_map f x
 
   (** Like [let*?] but also supplies the index. *)
   let ( let@*? ) (x : 'a t) (f : int * 'a -> 'b option) : 'b option =
-  find_mapi (F.curry f) x
+    find_mapi (F.curry f) x
 
   (** Analogous to [CCOption.if_]. *)
   let if_ (p : 'a -> bool) (x : 'a) : 'a t = if p x then [ x ] else []
@@ -61,6 +62,7 @@ let server_name = "menhir-lsp"
 let pr = Pr.printf
 let spr = Pr.sprintf
 let epr = Pr.eprintf
+let ( >> ) = CCFun.( %> )
 
 let log ~(notify_back : notify_back) ~type_ =
   Printf.ksprintf (fun s -> notify_back#send_log_msg ~type_ s |> ignore)

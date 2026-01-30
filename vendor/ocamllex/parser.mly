@@ -103,8 +103,7 @@ refill_handler:
 (* [menhir-lsp] located name and args. *)
 definition:
     name = located(Tident) args = list(located(Tident)) "=" shortest = located(parse_or_shortest) clauses = entry
-    { let _range = (startp shortest, endp shortest) in
-      {name ; shortest ; args ; clauses} }
+    { locate $loc {name ; shortest ; args ; clauses} }
 
 parse_or_shortest:
     "parse"     { true }
@@ -117,7 +116,7 @@ case:
     re = regexp a = Taction
         { (fst re, a) }
 
-(* The semantic actions are really ugly because they produce two things: in the first component, we wrap each regexp AST node with its region in the source file, the second component preserves the original semantics of Ocamllex that computes character sets and validates references. *)
+(* The semantic actions are really ugly because they produce two things: in the first component, we wrap each regexp AST node with its region in the source file, in the second component we preserve the original semantics of Ocamllex that resolve and validate both character sets and references. *)
 regexp:
     u = located("_")
         { locate u.p @@ CharSet (locate u.p @@ Wildcard u), Characters Cset.all_chars }

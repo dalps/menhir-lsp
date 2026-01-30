@@ -23,9 +23,9 @@ open Range
 
 exception SyntaxError of string located
 
-type location = range
+type location = unit located
 
-type character_class_syntax =
+and character_class_syntax =
   | Wildcard of unit located
   | Character of int located
   | Range of int located * int located
@@ -48,11 +48,32 @@ and regular_expression_syntax =
   | Option of regular_expression_syntax located
   | As of regular_expression_syntax located * string located
 
+and named_regexp = {
+  name : string located;
+  regexp : regular_expression_syntax located;
+}
+
+(* [menhir-lsp] To simplify the visitor, I fixed the type parameters ['arg] and ['action] to [string located] and [location], respectively. *)
+and entry = {
+  name : string located;
+  shortest : bool located;
+  args : string located list;
+  clauses : (regular_expression_syntax located * location) list;
+}
+
+and lexer_definition = {
+  header : location option;
+  entrypoints : entry located list;
+  trailer : location option;
+  refill_handler : location option;
+  named_regexps : named_regexp list;
+}
+
 and 'a located = 'a Located.located = { p : range; [@opaque] v : 'a }
 [@@deriving
-  visitors { name = "regexp_map"; variety = "map"; polymorphic = true },
-  visitors { name = "regexp_reduce"; variety = "reduce"; polymorphic = true },
-  visitors { name = "regexp_iter"; variety = "iter"; polymorphic = true }]
+  visitors { name = "syntax_map"; variety = "map"; polymorphic = true },
+  visitors { name = "syntax_reduce"; variety = "reduce"; polymorphic = true },
+  visitors { name = "syntax_iter"; variety = "iter"; polymorphic = true }]
 
 (* Also tried:
 
@@ -77,26 +98,6 @@ type regular_expression =
   | Bind of regular_expression * string located
 
 (* type 'a named = { name : string located; v : 'a } *)
-
-type named_regexp = {
-  name : string located;
-  regexp : regular_expression_syntax located;
-}
-
-type ('arg, 'action) entry = {
-  name : string located;
-  shortest : bool located;
-  args : 'arg;
-  clauses : (regular_expression_syntax located * 'action) list;
-}
-
-type lexer_definition = {
-  header : location option;
-  entrypoints : (string located list, location) entry list;
-  trailer : location option;
-  refill_handler : location option;
-  named_regexps : named_regexp list;
-}
 
 let named_regexps :
     (string, named_regexp located * regular_expression) Hashtbl.t =
