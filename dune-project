@@ -36,7 +36,9 @@
   ("re"
    (>= "1.14.0"))
   merlin-lib
-  ("stdune" (>= "3.20.2")))
+  ("stdune"
+   (>= "3.20.2"))
+  visitors)
  (tags
   ("lsp" "menhir" "ocamllex")))
 
