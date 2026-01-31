@@ -377,7 +377,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         L.find_map
           (fun { v = branch; _ } ->
             let* action_range =
-              match branch.pb_action.expr with
+              match branch.pb_action.v.expr with
               | M.IL.ETextual { p; _ } -> Some (Range.of_lexical_positions p)
               | _ -> None
             in
@@ -495,3 +495,31 @@ let code_actions (state : state) ~uri ~(range : Range.t) : CodeActionResult.t =
       | _ -> [])
     state.tokens
   |> some
+
+let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
+    ~(notify_back : notify_back) : SelectionRange.t list =
+  let open L in
+  let@* i, pos = positions in
+  let parent_ref = ref @@ None in
+  (* This visitor descends the grammar's syntax tree nodes which contain pos, connecting them in a ladder of [SelectionRange]s. *)
+  let v =
+    object
+      inherit [_] ast_iter
+
+      method! visit_located =
+        fun visit_a _env located ->
+          let range = Range.of_lexical_positions located.p in
+
+          if Position.is_inside pos range then
+            parent_ref :=
+              O.some @@ SelectionRange.create ?parent:!parent_ref ~range ();
+          visit_a _env located.v
+    end
+  in
+  v#visit_partial_grammar () grammar;
+  O.(
+    let+ res = !parent_ref in
+    log_info ~notify_back "Range for pos #%d %s: %s" i (Position.show pos)
+      (Range.show res.SelectionRange.range);
+    res)
+  |> O.to_list

@@ -182,7 +182,7 @@ and parameterized_branch = {
   (*[menhir-lsp] lifted [pb_position : range] to outer located *)
   pb_producers : producer located list;
       (**The producers. ([menhir-lsp]: made located) *)
-  pb_action : action;  (**The semantic action. ([menhir-lsp]: made located) *)
+  pb_action : action located;  (**The semantic action. ([menhir-lsp]: made located) *)
   pb_prec_annotation : prec_annotation;  (**An optional [%prec] annotation. *)
   pb_production_level : production_level; [@opaque]
       (**The branch's production level. *)

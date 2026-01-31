@@ -148,7 +148,7 @@ let locate' locs v =
 grammar:
   ds = flatten(declaration*)
   PERCENTPERCENT
-  rs = located(rule)*
+  rs = rule*
   t = postlude
     {
       {
@@ -292,7 +292,7 @@ symbol:
     { $1 }
 | new_rule
     /* The new syntax is converted on the fly to the old syntax. */
-    { NewRuleSyntax.rule $1 }
+    { locate $loc @@ NewRuleSyntax.rule $1 }
 
 /* ------------------------------------------------------------------------- */
 /* A rule defines a symbol. It is optionally declared %public, and optionally
@@ -300,7 +300,7 @@ symbol:
    consists of a list of productions. */
 
 old_rule:
-  flags = flags            /* flags */
+  flags = located(flags)   /* flags */
   symbol = symbol          /* the symbol that is being defined */
   attributes = ATTRIBUTE*
   params = plist(symbol)   /* formal parameters */
@@ -309,8 +309,11 @@ old_rule:
   branches = branches
   SEMI*
     {
-      let public, inline = flags in
-      let rule = {
+      let public, inline = flags.v in
+      let startpos = Range.startp (
+        if flags.v = (false, false) then symbol.p else flags.p
+      ) in
+      let rule = locate (startpos, $endpos) {
         pr_public = public;
         pr_inline = inline;
         pr_nt          = symbol;
@@ -351,7 +354,7 @@ optional_bar:
 
 production_group:
   productions = separated_nonempty_list(BAR, located(production))
-  action = ACTION /* action is lexically delimited by braces */
+  action = located(ACTION) /* action is lexically delimited by braces */
   oprec2 = ioption(located(precedence))
   attrs = ATTRIBUTE*
     {
@@ -365,7 +368,7 @@ production_group:
         (* Distribute the semantic action and attributes onto every production.
            Also, check that every [$i] is within bounds. *)
         let names = ParserAux.producer_names producers in
-        let pb_action = action !ParserAux.dollars names in
+        let pb_action = locate action.p @@ action.v !ParserAux.dollars names in
         locate' $loc {
           pb_producers;
           pb_action;

@@ -245,9 +245,10 @@ class lsp_server =
 
     method private _on_req_selection_range ~notify_back ~r :
         SelectionRange.t list Lwt.t =
+      let SelectionRangeParams.{ positions; _ } = r in
       self#_dispatch r.textDocument.uri ~notify_back
-        ~mll_handler:(Mll.selection_range ~notify_back ~positions:r.positions)
-        ~mly_handler:(fun _ -> [])
+        ~mll_handler:(Mll.selection_range ~notify_back ~positions)
+        ~mly_handler:(Mly.selection_range ~notify_back ~positions)
       |> O.to_list |> L.flatten |> Lwt.return
 
     (* We define here a helper method that will:

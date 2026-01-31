@@ -392,7 +392,7 @@ and production_aux
       locate context.pos {
         (* pb_position         = context.pos; *)
         pb_producers        = producers context;
-        pb_action           = context.bindings action;
+        pb_action           = locate context.pos @@ context.bindings action; (* [menhir-lsp] the location context.pos is probably wrong, used temporarily. *)
         pb_prec_annotation  = prec;
         pb_production_level = level;
         pb_attributes       = attrs;
