@@ -27,3 +27,7 @@ let map f { p; v } =
 
 let parenthesize { p; v } =
   locate (Range.decrement p) ("(" ^ v ^ ")")
+
+let startp { p; _ } = Range.startp p
+
+let endp { p; _ } = Range.endp p

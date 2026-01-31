@@ -109,6 +109,8 @@ let locate' locs v =
 %type <ParserAux.early_production> production
 %start <Syntax.partial_grammar> grammar
 
+%type <Syntax.declaration located list> declaration
+
 /* ------------------------------------------------------------------------- */
 /* Priorities. */
 
@@ -176,11 +178,11 @@ declaration:
     {
       match t with
       | None ->
-          List.map (Located.map (fun nonterminal -> DStart nonterminal)) nts
+          List.map (fun nonterminal -> locate $loc @@ DStart nonterminal) nts
       | Some t ->
-         let dstart nt = DStart nt
-         and dtype ntloc = Located.map (fun _nt -> DType (t, ParamVar ntloc)) ntloc in (* ugly/weird *)
-         List.map (Located.map dstart) nts @
+         let dstart nt = locate $loc @@ DStart nt
+         and dtype ntloc = (fun _nt -> locate $loc @@ DType (t, ParamVar ntloc)) ntloc in (* ugly/weird *)
+         List.map dstart nts @
          List.map dtype nts
     }
 
@@ -190,7 +192,7 @@ declaration:
 
 | k = priority_keyword ss = clist(symbol)
     { let prec = ParserAux.new_precedence_level $loc(k) in
-      List.map (Located.map (fun symbol -> DTokenProperties (symbol, k, prec))) ss }
+      List.map ((fun symbol -> locate $loc @@ DTokenProperties (symbol, k, prec))) ss }
 
 | PARAMETER t = ANGLED
     { [ locate' $loc (DParameter t) ] }
@@ -275,8 +277,7 @@ symbol:
 
 %inline terminal_alias_attrs:
   id = UID alias = QID? attrs = ATTRIBUTE*
-    { let alias = Option.map Located.value alias in
-      Located.map (fun uid -> uid, alias, attrs) id }
+    { locate $loc (id, alias, attrs) }
 
 %inline nonterminal:
   id = LID
@@ -291,7 +292,7 @@ symbol:
     { $1 }
 | new_rule
     /* The new syntax is converted on the fly to the old syntax. */
-    { NewRuleSyntax.rule $1 }
+    { locate $loc @@ NewRuleSyntax.rule $1 }
 
 /* ------------------------------------------------------------------------- */
 /* A rule defines a symbol. It is optionally declared %public, and optionally
@@ -299,7 +300,7 @@ symbol:
    consists of a list of productions. */
 
 old_rule:
-  flags = flags            /* flags */
+  flags = located(flags)   /* flags */
   symbol = symbol          /* the symbol that is being defined */
   attributes = ATTRIBUTE*
   params = plist(symbol)   /* formal parameters */
@@ -308,8 +309,11 @@ old_rule:
   branches = branches
   SEMI*
     {
-      let public, inline = flags in
-      let rule = {
+      let public, inline = flags.v in
+      let startpos = Range.startp (
+        if flags.v = (false, false) then symbol.p else flags.p
+      ) in
+      let rule = locate (startpos, $endpos) {
         pr_public = public;
         pr_inline = inline;
         pr_nt          = symbol;
@@ -349,32 +353,35 @@ optional_bar:
    followed by a possibly empty list of attributes. */
 
 production_group:
-  productions = separated_nonempty_list(BAR, production)
-  action = ACTION /* action is lexically delimited by braces */
-  oprec2 = ioption(precedence)
+  productions = separated_nonempty_list(BAR, located(production))
+  action = located(ACTION) /* action is lexically delimited by braces */
+  oprec2 = ioption(located(precedence))
   attrs = ATTRIBUTE*
     {
       (* If multiple productions share a single semantic action, check
          that all of them bind the same names. *)
       ParserAux.check_production_group productions;
       (* Then, *)
-      List.map (fun (producers, oprec1, level, pos) ->
+      List.map (fun Located.{ v = (producers, oprec1, level); p = pos } ->
         (* Replace [$i] with [_i]. *)
-        let pb_producers = ParserAux.normalize_producers producers in
+        let pb_producers : producer located list = ParserAux.normalize_producers producers in
         (* Distribute the semantic action and attributes onto every production.
            Also, check that every [$i] is within bounds. *)
         let names = ParserAux.producer_names producers in
-        let pb_action = action !ParserAux.dollars names in
-        {
+        let pb_action = locate action.p @@ action.v !ParserAux.dollars names in
+        locate' $loc {
           pb_producers;
           pb_action;
           pb_prec_annotation  = ParserAux.override pos oprec1 oprec2;
           pb_production_level = level;
-          pb_position         = pos;
           pb_attributes       = attrs;
         })
       productions
     }
+
+// precedence:
+//   prec = located(PREC) symbol = symbol
+//     { locate (startp prec, endp symbol) symbol }
 
 precedence:
   PREC symbol = symbol
@@ -385,12 +392,10 @@ precedence:
    precedence declaration. */
 
 production:
-  producers = producer* oprec = ioption(precedence)
+  producers = located(producer)* oprec = ioption(located(precedence))
     { producers,
       oprec,
-      ParserAux.new_production_level(),
-      Range.make $loc
-    }
+      ParserAux.new_production_level() }
 
 /* ------------------------------------------------------------------------- */
 /* A producer is an actual parameter, possibly preceded by a
@@ -407,7 +412,7 @@ production:
 
 producer:
 | id = ioption(terminated(LID, EQUAL)) p = actual attrs = ATTRIBUTE* SEMI*
-    { position (locate' $loc ()), id, p, attrs }
+    { id, p, attrs }
 
 /* ------------------------------------------------------------------------- */
 /* The ideal syntax of actual parameters includes:
@@ -628,10 +633,10 @@ action_expression:
 | action = action
   attrs = ATTRIBUTE*
     { EAction (action, None, attrs) }
-| prec = precedence action = action
+| prec = located(precedence) action = action (* [menhir-lsp] located [precedence] *)
   attrs = ATTRIBUTE*
     { EAction (action, Some prec, attrs) }
-| action = action prec = precedence
+| action = action prec = located(precedence) (* [menhir-lsp] located [precedence] *)
   attrs = ATTRIBUTE*
     { EAction (action, Some prec, attrs) }
 

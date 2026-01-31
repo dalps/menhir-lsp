@@ -68,7 +68,7 @@ If a quoted identifier `qid_i` is present, then it is considered an alias for th
       None,
       [
         md_fenced {|%start [ <OCaml type> ] lid_1 ... lid_n|};
-        {|declares the nonterminal symbols `lid_1`, ..., `lid_n` to be start symbols. Each such symbol must be assigned an OCaml type either as part of the %start declaration or via separate `%type` declarations. Each of `lid_1`, ..., `lid_n` becomes the name of a function whose signature is published in the `.mli` file and that can be used to invoke the parser.|};
+        {|declares the nonterminal symbols `lid_1`, ..., `lid_n` to be start symbols. Each such symbol must be assigned an OCaml type either as part of the `%start` declaration or via separate `%type` declarations. Each of `lid_1`, ..., `lid_n` becomes the name of a function whose signature is published in the `.mli` file and that can be used to invoke the parser.|};
         manual_ref "14";
       ] );
     ( "%prec",

@@ -1,5 +1,13 @@
 (library
- (name ocamllexSyntax))
+ (name ocamllexSyntax)
+ (preprocess
+  (pps visitors.ppx)))
+
+(copy_files ../common/*.ml)
+
+(env
+ (dev
+  (flags :standard -warn-error -7-17)))
 
 (ocamllex lexer)
 

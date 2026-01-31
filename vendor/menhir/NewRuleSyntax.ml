@@ -11,6 +11,7 @@
 open Range
 open Located
 open Syntax
+open Attribute
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -212,7 +213,7 @@ type context = {
   (* The prefix of the production's right-hand side that has been built so far.
      This is reversed list of producers. Every producer carries an identifier,
      which is either user-supplied or auto-generated. *)
-  producers: producer list;
+  producers: producer located list; (* [menhir-lsp] located producer *)
 
   (* The user-supplied names under which the semantic values are known. Not
      every semantic value has such a name, as the user can supply no pattern,
@@ -265,7 +266,7 @@ let auto : identifier option =
 
 (* Accessing the producers. *)
 
-let producers context : producer list =
+let producers context : producer located list =
   List.rev context.producers
 
 (* Accessing the user-supplied identifiers. *)
@@ -344,7 +345,7 @@ and extend (p : pattern) (e1 : symbol_expression) (context : context) : context 
       (* The variable [x1] is bound to the semantic value of [e1]. *)
       (* Puns have been resolved already, so they are handled by this code. *)
       { pos        =                       context.pos;
-        producers  = producer x1 e1     :: context.producers;
+        producers  = (locate context.pos @@ producer x1 e1) :: context.producers;
         uxs        = user x1            :: context.uxs;
         bindings   =                       context.bindings;
         tuple      = value x1 :: context.tuple;
@@ -361,7 +362,7 @@ and extend (p : pattern) (e1 : symbol_expression) (context : context) : context 
       let binding = Action.bind bvp p x1 in
       let x1 = locate dummy x1 in
       { pos        =                   context.pos;
-        producers  = producer x1 e1 :: context.producers;
+        producers  = (locate context.pos @@ producer x1 e1) :: context.producers;
         uxs        = auto           :: context.uxs;
         bindings   = binding        >> context.bindings;
         tuple      = bv context.tuple p;
@@ -373,7 +374,7 @@ and production_aux
   (context : context)
   (e : seq_expression)
   (level : production_level)
-: parameterized_branch =
+: parameterized_branch located =
   let e, pos = value e, position e in
   match e with
 
@@ -388,10 +389,10 @@ and production_aux
       (* Check that the semantic action seems well-formed. *)
       let action = raw_action `DollarsDisallowed (uxs context) in
       (* Build and return a complete production. *)
-      {
-        pb_position         = context.pos;
+      locate context.pos {
+        (* pb_position         = context.pos; *)
         pb_producers        = producers context;
-        pb_action           = context.bindings action;
+        pb_action           = locate context.pos @@ context.bindings action; (* [menhir-lsp] the location context.pos is probably wrong, used temporarily. *)
         pb_prec_annotation  = prec;
         pb_production_level = level;
         pb_attributes       = attrs;
@@ -458,7 +459,7 @@ and production (Branch (e, level) : branch) =
   let pos = position e in
   production_aux (empty pos) e level
 
-and productions (e : expression) : parameterized_branch list =
+and productions (e : expression) : parameterized_branch located list =
   match value e with
   | EChoice branches ->
       List.map production branches
@@ -473,7 +474,7 @@ let rule (rule : rule) : parameterized_rule =
     pr_inline = rule.rule_inline;
     pr_nt     = rule.rule_lhs;
     (* pr_positions   = [ position rule.rule_lhs ]; *)
-    (* [menhir-lsp] removed pr_positions field in favor of located values. *)
+    (* [menhir-lsp] lifted [pr_positions : range] to outer located. *)
     pr_attributes  = rule.rule_attributes;
     pr_parameters  = rule.rule_formals;
     pr_branches    = productions rule.rule_rhs

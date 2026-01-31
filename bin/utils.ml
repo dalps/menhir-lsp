@@ -1,6 +1,29 @@
 module M = MenhirSyntax
 module MR = MenhirSyntax.Range
-module L = CCList
+module F = CCFun
+
+module L = struct
+  include CCList
+
+  (** Like [let*] but also supplies the index. *)
+  let ( let@+ ) (x : 'a t) (f : int * 'a -> 'b) : 'b t = mapi (F.curry f) x
+
+  (** Like [let+] but also supplies the index. *)
+  let ( let@* ) (x : 'a t) (f : int * 'a -> 'b t) : 'b t =
+    flat_map_i (F.curry f) x
+
+  (** Iterate on the list until [Some] is produced. Transition into option
+      monad. *)
+  let ( let*? ) (x : 'a t) (f : 'a -> 'b option) : 'b option = find_map f x
+
+  (** Like [let*?] but also supplies the index. *)
+  let ( let@*? ) (x : 'a t) (f : int * 'a -> 'b option) : 'b option =
+    find_mapi (F.curry f) x
+
+  (** Analogous to [CCOption.if_]. *)
+  let if_ (p : 'a -> bool) (x : 'a) : 'a t = if p x then [ x ] else []
+end
+
 module P = CCParse
 module LA = L.Assoc
 
@@ -20,7 +43,6 @@ module R = struct
 end
 
 module A = CCArray
-module F = CCFun
 module C = CCChar
 module Pr = Printf
 module U = CCParse.U
@@ -30,16 +52,17 @@ module Log = (val Logs.src_log Linol.logs_src)
 include Lsp.Types
 module Uri = DocumentUri
 module Text_document = Lsp.Text_document
+module TD = Text_document
 
 type notify_back = Linol_lwt.Jsonrpc2.notify_back
 type uri = Lsp.Types.DocumentUri.t
 type word = { v : string; p : Range.t; td : Text_document.t }
 
 let server_name = "menhir-lsp"
-
 let pr = Pr.printf
 let spr = Pr.sprintf
 let epr = Pr.eprintf
+let ( >> ) = CCFun.( %> )
 
 let log ~(notify_back : notify_back) ~type_ =
   Printf.ksprintf (fun s -> notify_back#send_log_msg ~type_ s |> ignore)
@@ -104,6 +127,9 @@ end
 module Range = struct
   include Lsp.Types.Range
 
+  let end_ t = t.end_
+  let start t = t.start
+
   let show ({ end_; start } : t) =
     spr "[ %s, %s ]" (Position.show start) (Position.show end_)
 
@@ -125,7 +151,7 @@ module Range = struct
     | (Lt | Eq), (Gt | Eq) -> true
     | _ -> false
 
-  (* Compares ranges by their lengths*)
+  (* Compares ranges by their lengths *)
   let compare_size (x : t) (y : t) =
     let dx = Position.(x.end_ - x.start) in
     let dy = Position.(y.end_ - y.start) in
@@ -339,3 +365,10 @@ let get_merlin_compls ~(notify_back : notify_back) ~(uri : uri)
       in
       log_info ~notify_back "# merlin completions: %d" (L.length compls);
       compls)
+
+(** From ocaml-lsp/ocaml-lsp-server/src/document.ml *)
+let substring doc range =
+  let start, end_ = TD.absolute_range doc range in
+  let text = TD.text doc in
+  if start < 0 || start > end_ || end_ > String.length text then None
+  else Some (CCStringLabels.sub text ~pos:start ~len:(end_ - start))

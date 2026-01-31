@@ -88,7 +88,7 @@ type production_level =
 (**A [%prec] annotation is optional. A production can carry at most one.
    If there is one, it is a symbol name. See [ParserAux]. *)
 type prec_annotation =
-  symbol located option
+  symbol located located option (* [menhir-lsp] double-located *)
 
 (**A level is attached to every [%on_error_reduce] declaration. It is used
    to decide what to do when several such declarations are applicable in a

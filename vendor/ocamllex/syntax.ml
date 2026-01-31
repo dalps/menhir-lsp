@@ -23,7 +23,70 @@ open Range
 
 exception SyntaxError of string located
 
-type location = range
+type location = unit located
+
+and character_class_syntax =
+  | Wildcard of location
+  | Character of int located
+  | Range of int located * int located
+  | Union of character_class_syntax located * character_class_syntax located
+  | Complement of character_class_syntax located
+
+and regular_expression_syntax =
+  | Epsilon of location
+  | CharSet of character_class_syntax located
+  | String of string located
+  | EOF of location
+  | Seq of regular_expression_syntax located * regular_expression_syntax located
+  | Alt of regular_expression_syntax located * regular_expression_syntax located
+  | CharSetDifference of
+      regular_expression_syntax located * regular_expression_syntax located
+  | Rep of regular_expression_syntax located
+  | Rep1 of regular_expression_syntax located
+  | Ref of string located
+  | Group of regular_expression_syntax located
+  | Option of regular_expression_syntax located
+  | As of regular_expression_syntax located * string located
+
+and named_regexp = {
+  name : string located;
+  regexp : regular_expression_syntax located;
+}
+
+(* [menhir-lsp] To simplify the visitor, I fixed the type parameters ['arg] and ['action] to [string located] and [location], respectively. *)
+and entry = {
+  name : string located;
+  shortest : bool located;
+  args : string located list;
+  clauses : (regular_expression_syntax located * location) list;
+}
+
+and lexer_definition = {
+  header : location option;
+  entrypoints : entry located list;
+  trailer : location option;
+  refill_handler : location option;
+  named_regexps : named_regexp located list;
+}
+
+and 'a located = 'a Located.located = { p : range; [@opaque] v : 'a }
+[@@deriving
+  visitors { name = "syntax_map"; variety = "map"; polymorphic = true },
+  visitors { name = "syntax_reduce"; variety = "reduce"; polymorphic = true },
+  visitors { name = "syntax_iter"; variety = "iter"; polymorphic = true }]
+
+(* Also tried:
+
+[@@deriving
+  visitors
+    {
+      name = "regexp_visitor";
+      variety = "iter";
+      ancestors = [ "located_visitor" ];
+    }]
+
+  but produces warnings.
+*)
 
 type regular_expression =
   | Epsilon
@@ -32,23 +95,10 @@ type regular_expression =
   | Sequence of regular_expression * regular_expression
   | Alternative of regular_expression * regular_expression
   | Repetition of regular_expression
-  | Ref of string located (* added by [menhir-lsp] *)
   | Bind of regular_expression * string located
 
-type ('arg, 'action) entry = {
-  name : string located;
-  shortest : bool;
-  args : 'arg;
-  clauses : (regular_expression * 'action) list;
-}
+(* type 'a named = { name : string located; v : 'a } *)
 
-type lexer_definition = {
-  header : location;
-  entrypoints : (string located list, location) entry list;
-  trailer : location;
-  refill_handler : location option;
-  named_regexps : (string located * regular_expression) list;
-}
-
-let named_regexps : (string, Range.range * regular_expression) Hashtbl.t =
+let named_regexps :
+    (string, named_regexp located * regular_expression) Hashtbl.t =
   Hashtbl.create 13

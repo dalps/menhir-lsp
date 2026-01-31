@@ -1,40 +1,48 @@
 open OcamllexSyntax
 open Utils
-open Located
+open Syntax
 
 type state = {
-  grammar : Syntax.lexer_definition;
+  grammar : lexer_definition;
   symbols : string located list;
+  regexps :
+    [ `Declared of named_regexp located
+    | `Anonymous of regular_expression_syntax located ]
+    list;
 }
 
-let rec regexp_bindings = function
-  | Syntax.Sequence (re1, re2) | Alternative (re1, re2) ->
-      regexp_bindings re1 @ regexp_bindings re2
-  | Repetition re -> regexp_bindings re
-  | Bind (re, n) -> n :: regexp_bindings re
-  | _ -> []
+let regexp_bindings =
+  let v =
+    object
+      inherit [_] syntax_reduce as super
+      method zero = []
+      method plus = ( @ )
 
-let process_symbols (grammar : Syntax.lexer_definition) : string located list =
-  let module S = Syntax in
-  let open S in
-  let open L in
-  let rec visit_entry (entry : (string located list, location) entry) =
-    (entry.name :: entry.args)
-    @ (entry.clauses >>= fun (re, _action) -> visit_regexp re)
-  and visit_regexp = function
-    | Sequence (re1, re2) | Alternative (re1, re2) ->
-        visit_regexp re1 @ visit_regexp re2
-    | Repetition re -> visit_regexp re
-    | Bind (re, n) -> n :: visit_regexp re
-    | Ref n -> [ n ]
-    | Characters _ | _ -> []
-  and visit_named_regexp (name, regexp) = name :: visit_regexp regexp in
-  let f = L.flat_map in
-  let s_entries = f visit_entry grammar.entrypoints in
-  let s_regexps = f visit_named_regexp grammar.named_regexps in
-  s_entries @ s_regexps
+      method! visit_As =
+        fun _ re name -> name :: super#visit_regular_expression_syntax () re.v
+    end
+  in
+  v#visit_regular_expression_syntax ()
 
-(* repetitive, move to a functor *)
+let process_symbols : lexer_definition -> string located list =
+  let v =
+    object
+      inherit [_] syntax_reduce as super
+      method zero = []
+      method plus = ( @ )
+      method! visit_Ref = fun _ name -> [ name ]
+
+      method! visit_entry =
+        fun _env entry ->
+          (entry.name :: entry.args) @ super#visit_entry _env entry
+
+      method! visit_named_regexp =
+        fun _ named_regexp ->
+          named_regexp.name :: super#visit_named_regexp () named_regexp
+    end
+  in
+  v#visit_lexer_definition ()
+
 let symbol_at_position (state : state) (pos : Position.t) :
     (Range.t * string located) option =
   L.find_map
@@ -55,18 +63,26 @@ let load_state_from_contents (_filename : string) (contents : string) :
         mk_diag msg (Range.of_lexical_positions rng) :: [])
   in
   let symbols = process_symbols grammar in
-  { grammar; symbols }
+  let regexps =
+    L.(
+      (let+ nr = grammar.named_regexps in
+       `Declared nr)
+      @ let* { v = entry; _ } = grammar.entrypoints in
+        let+ re, _ = entry.clauses in
+        `Anonymous re)
+  in
+  { grammar; symbols; regexps }
 
 let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
   L.(
-    let+ entry = grammar.entrypoints in
+    let+ { v = entry; _ } = grammar.entrypoints in
     let range = Range.of_lexical_positions entry.name.p in
     DocumentSymbol.create ~kind:Function ~name:entry.name.v ~range
       ~selectionRange:range
       ~children:
         (entry.clauses
         |> flat_map_i (fun _i (regexp, _) ->
-            match regexp_bindings regexp with
+            match regexp_bindings regexp.v with
             | [] -> []
             | binders ->
                 let+ binder = binders in
@@ -76,7 +92,7 @@ let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
                   ~name:binder.v ~range ~selectionRange:range ()))
       ())
   @ L.map
-      (fun (name, _) ->
+      (fun ({ v = { name; _ }; _ } : named_regexp located) ->
         let range = Range.of_lexical_positions name.p in
         DocumentSymbol.create ~kind:Property ~name:name.v ~range
           ~selectionRange:range ())
@@ -103,10 +119,12 @@ let definition ({ grammar; _ } as state : state) ~uri ~(pos : Position.t) :
    (* Search for the symbol in the named regexps or in the lexer entries. *)
    let+ def =
      L.find_map
-       (fun e -> if_ (fun _ -> String.equal e.Syntax.name.v sym.v) e.name)
+       (fun { v = entry; _ } ->
+         if_ (fun _ -> String.equal entry.name.v sym.v) entry.name)
        grammar.entrypoints
      <+> L.find_map
-           (fun (name, _) -> if_ (fun _ -> String.equal name.v sym.v) name)
+           (fun ({ v = { name; _ }; _ } : named_regexp located) ->
+             if_ (fun _ -> String.equal name.v sym.v) name)
            grammar.named_regexps
    in
    Location.create ~range:(Range.of_lexical_positions def.p) ~uri)
@@ -236,68 +254,62 @@ and …|};
         ] );
     ]
 
-let completions ({ grammar = { header; trailer; _ } as grammar; _ } : state)
+let completions
+    ({ grammar = { header; trailer; refill_handler; _ } as grammar; _ } : state)
     ~(notify_back : Linol_lwt.Jsonrpc2.notify_back) ~(word : word option)
     ~(pos : Position.t) ~(uri : uri) : CompletionItem.t list =
   let open O in
   let pos_inside = Position.is_inside pos in
-  let header = Range.of_lexical_positions header in
-  let trailer = Range.of_lexical_positions trailer in
   let merlin_compls () =
     (let* word = word in
      get_merlin_compls ~notify_back ~uri ~pos word)
-    |> get_or ~default:[]
+    |> get_or_nil
   in
-  let header_completions () =
-    if pos_inside header || pos_inside trailer then Some (merlin_compls ())
-    else None
+  let region_completions (oregion : location option) () =
+    let* range = oregion >|= (Located.position >> Range.of_lexical_positions) in
+    if_ (fun _ -> pos_inside range) (merlin_compls ())
   in
   (* Inside actions we shall suggest `lexbuf`, the variables bound with `as` in the current clause, the lexer entrypoints, and OCaml symbols *)
+  let open L in
   let action_completions () =
-    L.find_map
-      (fun (rule : _ Syntax.entry) ->
-        L.find_map
-          (fun (regexp, r) ->
-            let range = Range.of_lexical_positions r in
-            if pos_inside range then
-              L.(
-                let+ arg = rule.args in
-                CompletionItem.create ~kind:Value ~label:arg.v ())
-              @ L.(
-                  let+ entry = grammar.entrypoints in
-                  CompletionItem.create ~kind:Function ~label:entry.name.v ())
-              @ L.(
-                  let+ binder = regexp_bindings regexp in
-                  CompletionItem.create ~kind:Value ~label:binder.v ())
-              @ compile_completions ~kind:Value
-                  [
-                    ( "lexbuf",
-                      None,
-                      None,
-                      [
-                        md_fenced "Lexing.lexbuf";
-                        "The current lexer buffer.";
-                        "Can be used in conjunction with the operations on \
-                         lexer buffers provided by the `Lexing` standard \
-                         library module.";
-                        manual_ref "ss:ocamllex-actions";
-                      ] );
-                  ]
-              @ merlin_compls ()
-              |> some
-            else None)
-          rule.clauses)
-      grammar.entrypoints
+    let*? { v = rule; _ } = grammar.entrypoints in
+    let*? regexp, action = rule.clauses in
+    let range = Range.of_lexical_positions action.p in
+    O.if_
+      (fun _ -> pos_inside range)
+      ((let+ arg = rule.args in
+        CompletionItem.create ~kind:Value ~label:arg.v ())
+      @ (let+ { v = entry; _ } = grammar.entrypoints in
+         CompletionItem.create ~kind:Function ~label:entry.name.v ())
+      @ (let+ binder = regexp_bindings regexp.v in
+         CompletionItem.create ~kind:Value ~label:binder.v ())
+      @ compile_completions ~kind:Value
+          [
+            ( "lexbuf",
+              None,
+              None,
+              [
+                md_fenced "Lexing.lexbuf";
+                "The current lexer buffer.";
+                "Can be used in conjunction with the operations on lexer \
+                 buffers provided by the `Lexing` standard library module.";
+                manual_ref "ss:ocamllex-actions";
+              ] );
+          ]
+      @ merlin_compls ())
   in
   let lexer_completions =
     regex_operator_completions @ keyword_completions
-    @ L.map
-        (fun (name, _) ->
-          (* let _range = Range.of_lexical_positions p in *)
-          CompletionItem.create ~kind:Property ~label:name.v ())
-        grammar.named_regexps
+    @
+    let+ ({ v = { name; _ }; _ } : named_regexp located) =
+      grammar.named_regexps
+    in
+    (* let _range = Range.of_lexical_positions p in *)
+    CompletionItem.create ~kind:Property ~label:name.v ()
   in
-  header_completions () <|> action_completions
+  region_completions header ()
+  <|> region_completions refill_handler
+  <|> region_completions trailer <|> action_completions
   |> get_or ~default:lexer_completions
 
 let print_symbols ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
@@ -331,3 +343,106 @@ let rename (state : state) ~uri ~(pos : Position.t) ~(newName : string) :
     |> O.to_list |> L.flatten
   in
   WorkspaceEdit.create ~changes:[ (uri, edits) ] ()
+
+let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
+    ~(notify_back : notify_back) : SelectionRange.t list =
+  let open L in
+  let@* i, pos = positions in
+  let parent_ref = ref @@ None in
+  (* This visitor descends the lexer's syntax tree nodes which contain pos, connecting them in a ladder of [SelectionRange]s. *)
+  let v =
+    object
+      inherit [_] syntax_iter
+
+      method! visit_located =
+        fun visit_a _env located ->
+          let range = Range.of_lexical_positions located.p in
+
+          if Position.is_inside pos range then
+            parent_ref :=
+              O.some @@ SelectionRange.create ?parent:!parent_ref ~range ();
+          visit_a _env located.v
+    end
+  in
+  v#visit_lexer_definition () grammar;
+  O.(
+    let+ res = !parent_ref in
+    log_info ~notify_back "Range for pos #%d %s: %s" i (Position.show pos)
+      (Range.show res.SelectionRange.range);
+    res)
+  |> O.to_list
+
+(** We implement a code action that extracts a named regexp from a valid
+    selection. Inspired by ocaml-lsp's 'Extract local' action. *)
+let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
+    ~(doc : Text_document.t) ~range:(rng : Range.t) : CodeActionResult.t =
+  let module TD = Text_document in
+  let uri = TD.documentUri doc in
+  let open L in
+  let@*? _i, re = regexps in
+  let regexp =
+    match re with
+    | `Declared { v = { regexp; _ }; _ } | `Anonymous regexp -> regexp
+  in
+  let node : Range.t option ref = ref None in
+  (* This visitor searches the smallest regexp node that contains [range] and stores it into [node]. *)
+  let v =
+    object
+      inherit [_] syntax_iter
+
+      (* Bail out on character sets, so the substitution always produces valid regular expressions. *)
+      method! visit_character_class_syntax = fun _env _cls -> node := None
+
+      method! visit_located =
+        fun visit_a _env located ->
+          let range = Range.of_lexical_positions located.p in
+
+          if Range.contains range rng then (
+            node := Some range;
+            visit_a _env located.v)
+    end
+  in
+  v#visit_located v#visit_regular_expression_syntax () regexp;
+  let open O in
+  let* extract_range = !node in
+  let* local_text = substring doc extract_range in
+  log_info ~notify_back "Code action available for selection: %s %s" local_text
+    (Range.show extract_range);
+
+  (* Where does the extracted regexp's new declaration go? *)
+  let edit_pos : Position.t =
+    let get_range : 'a. 'a located -> Range.t =
+     fun a -> a |> Located.position |> Range.of_lexical_positions
+    in
+    match re with
+    (* If we're inside a rule, under the last declaration if there exists one,
+      otherwise under the grammar header or ultimately the first line. *)
+    | `Anonymous _ ->
+        last_opt grammar.named_regexps
+        >|= (get_range >> Range.end_)
+        <|> (fun () -> grammar.header >|= (get_range >> Range.end_))
+        |> get_or ~default:(Position.create ~character:0 ~line:0)
+    (* If we're inside a declaration [d], right before [d]. *)
+    | `Declared d -> get_range d |> Range.start
+  in
+
+  let new_name = "regexp_name" in
+  let newText = spr "\nlet %s = %s\n" new_name local_text in
+  let insert_range = Range.create ~start:edit_pos ~end_:edit_pos in
+  log_info ~notify_back "newText: %s" newText;
+  let edits =
+    [
+      TextEdit.create ~newText ~range:insert_range;
+      TextEdit.create ~newText:new_name ~range:extract_range;
+    ]
+  in
+  let extract_action =
+    CodeAction.create ~title:"Extract to named regexp"
+      ~kind:CodeActionKind.RefactorExtract
+      ~edit:(WorkspaceEdit.create ~changes:[ (uri, edits) ] ())
+      ~command:
+        (Command.create ~title:"Give it a good name"
+           ~command:"editor.action.rename" ())
+      ()
+  in
+  Some [ `CodeAction extract_action ]
