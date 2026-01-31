@@ -23,6 +23,7 @@ depends: [
   "re" {>= "1.14.0"}
   "merlin-lib"
   "stdune" {>= "3.20.2"}
+  "visitors"
   "odoc" {with-doc}
 ]
 build: [
@@ -35,8 +36,6 @@ build: [
     "-j"
     jobs
     "@install"
-    "@runtest" {with-test}
-    "@doc" {with-doc}
   ]
 ]
 dev-repo: "git+https://github.com/dalps/menhir-lsp.git"
