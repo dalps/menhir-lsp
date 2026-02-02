@@ -1,2 +1,10 @@
-(test
- (name test_menhir_lsp))
+(executable
+ (name driver)
+ (public_name main)
+ (libraries menhirLib))
+
+(menhir
+ (modules parser grammar6 grammar7 g1)
+ (flags --table))
+
+(ocamllex lexer mini_lexer)
