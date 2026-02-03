@@ -104,7 +104,7 @@ definition:
     name = located(Tident) args = list(located(Tident)) "=" shortest = located(parse_or_shortest) clauses = entry
     { locate $loc {name ; shortest ; args ; clauses} } [@name rule_definition]
 
-parse_or_shortest:
+%inline parse_or_shortest:
     "parse"     { true } [@name parse]
   | "shortest"  { false } [@name shortest]
 
@@ -127,7 +127,7 @@ regexp:
         { locate s.p @@ String s, regexp_for_string s.v } [@name regexp_string]
   | "[" cls = char_class "]"
         { let cls, cset = cls in
-          locate $loc @@ CharSet cls, Characters cset } [@name regexp_char_class]
+          locate $loc @@ CharSet cls, Characters cset } [@name regexp_charset]
   | re = regexp "*"
         { let re, r = re in
           locate $loc @@ Rep re, Repetition r } [@name regexp_repetition]
@@ -190,7 +190,7 @@ char_class:
           locate $loc @@ Complement cls,
             Cset.complement cset } [@name charclass_complement]
   | cls = char_class1
-        { cls } [@name charclass]
+        { cls } [@name charclass1]
 
 char_class1:
     c1 = located(Tchar) "-" c2 = located(Tchar)

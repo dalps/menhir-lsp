@@ -8,7 +8,7 @@
 
 (env
  (dev
-  (flags :standard -warn-error -7-17-27)))
+  (flags :standard -warn-error -7-17 -w -27)))
 
 (ocamllex lexer)
 
