@@ -446,3 +446,16 @@ let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
       ()
   in
   Some [ `CodeAction extract_action ]
+
+let format (state : state) ~notify_back : TextEdit.t list =
+  let dcst = Format.AST2DCST.main state.grammar in
+  O.(
+    let+ cst = Parser.Settle.lexer_definition dcst in
+    let newText = Format.CST2String.main cst in
+    [ TextEdit.create ~newText ~range:Range.first_line ])
+  |> fun o ->
+  match o with
+  | None ->
+      log_info ~notify_back "Couldn't format your lexer :(";
+      []
+  | Some e -> e

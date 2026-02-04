@@ -82,9 +82,6 @@ end = struct
   and regexp_paren : regexp -> regexp = function
     | re -> regexp_choice re (regexp_group re)
 
-  and dcst_of_regexp' (re : AST.regular_expression_syntax) : DCST.regexp =
-    dcst_of_regexp (Located.locate Lexing.(dummy_pos, dummy_pos) re)
-
   and dcst_of_regexp (re : AST.regular_expression_syntax AST.located) =
     regexp_paren
     @@
@@ -126,4 +123,23 @@ end = struct
   let main = dcst_of_lexer_definition
 end
 
-module CST2Document = struct end
+let spr = Printf.sprintf
+
+module CST2String = struct
+  class print =
+    object
+      inherit [string] CST.reduce
+      method zero = ""
+      method cat = spr "%s %s"
+      method text s = s
+      method visit_Tstring s = spr "\"%s\"" s.v
+      method visit_Tident ide = ide
+      method! visit_Tend = ""
+      method visit_Tchar i = i |> Char.chr |> Char.escaped |> spr "'%s'"
+
+      (* TODO: change Taction's semantic value to string located. You will have to collect the lexemes inside the action in the lexer. *)
+      method visit_Taction _ = "{ action }"
+    end
+
+  let main = (new print)#visit_lexer_definition
+end
