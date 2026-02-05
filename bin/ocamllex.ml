@@ -447,12 +447,13 @@ let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
   in
   Some [ `CodeAction extract_action ]
 
-let format (state : state) ~notify_back : TextEdit.t list =
+let format (state : state) ~notify_back ~(doc : Text_document.t) :
+    TextEdit.t list =
   let dcst = Format.AST2DCST.main state.grammar in
   O.(
     let+ cst = Parser.Settle.lexer_definition dcst in
     let newText = Format.CST2String.main cst in
-    [ TextEdit.create ~newText ~range:Range.first_line ])
+    [ TextEdit.create ~newText ~range:Range.(whole_document doc) ])
   |> fun o ->
   match o with
   | None ->

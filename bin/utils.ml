@@ -180,6 +180,10 @@ module Range = struct
         in
         { range with end_ }
 
+  let whole_document (td : Text_document.t) : Range.t =
+    let dummy_edit = TextEdit.create ~range:first_line ~newText:(TD.text td) in
+    resize_for_edit dummy_edit
+
   let overlaps x y =
     let open Ordering in
     match

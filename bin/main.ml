@@ -195,12 +195,17 @@ class lsp_server =
         | _ -> Lwt.fail_with "Unhandled request type"
 
     method private _on_req_document_formatting ~notify_back
-        ~r:({ textDocument = { uri; _ }; _ } : DocumentFormattingParams.t) :
-        TextEdit.t list option Lwt.t =
+        ~r:
+          ({ textDocument = { uri; _ }; options; _ } :
+            DocumentFormattingParams.t) : TextEdit.t list option Lwt.t =
       (* The AST is provided by the handler's state parameter. *)
-      self#_dispatch uri ~notify_back ~mll_handler:(Mll.format ~notify_back)
+      Lwt.return
+      @@
+      let open O in
+      let* doc = self#get_text_document ~uri in
+      self#_dispatch uri ~notify_back
+        ~mll_handler:(Mll.format ~notify_back ~doc ~options)
         ~mly_handler:(fun _ -> [])
-      |> Lwt.return
 
     method private _on_req_references =
       fun ~notify_back ~id:_ ~uri ~pos : Location.t list option Lwt.t ->
