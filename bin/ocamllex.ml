@@ -454,7 +454,7 @@ let format (state : state) ~notify_back ~(doc : Text_document.t)
     let+ cst = Parser.Settle.lexer_definition dcst in
     let buf = Buffer.create 80 in
     let pprint_doc = Format.CST2Document.main cst in
-    Document.ToBuffer.pretty 0.8 80 buf pprint_doc;
+    PPrint.ToBuffer.pretty 0.8 80 buf pprint_doc;
     let newText = Buffer.contents buf in
     [ TextEdit.create ~newText ~range:Range.(whole_document doc) ])
   |> fun o ->

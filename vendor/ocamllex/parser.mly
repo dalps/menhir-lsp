@@ -74,7 +74,7 @@ let rec as_cset = function
 %%
 
 lexer_definition:
-    header = header? named_regexps_l = located(named_regexp)* refill_handler = refill_handler? "rule" definitions = separated_list("and", definition) 
+    header = header? named_regexps_l = located(named_regexp)* refill_handler = refill_handler? "rule" definitions = separated_nonempty_list("and", definition)
     trailer = header? "EOF"
         { let v = {
             header;

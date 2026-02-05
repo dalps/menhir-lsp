@@ -42,9 +42,7 @@ end = struct
       (of_option ~none:none_refill_handler
          ~some:(refill_handler >> some_refill_handler)
          def.refill_handler)
-      (match def.entrypoints with
-      | [] -> none_separated_nonempty_list_tand_definition_ ()
-      | l -> some_separated_nonempty_list_tand_definition_ (of_definitions l))
+      (of_definitions def.entrypoints)
       (of_option ~none:none_header ~some:(header >> some_header) def.trailer)
 
   and dcst_of_entry : AST.entry -> DCST.definition =
@@ -150,9 +148,7 @@ module CST2Document = struct
   let smart_lparen (char : document) = char ^^ ifflat empty space
   let smart_rparen (char : document) = ifflat empty space ^^ char
 
-  open Document
-
-  let comments = Lexer.get_comments ()
+  (* open Document *)
 
   class print =
     object (self)
@@ -160,20 +156,75 @@ module CST2Document = struct
       method zero = empty
       method cat = ( ^^ )
       method text = string
-      method visit_Tstring s = robust (utf8format "\"%s\"" s.v)
+      method visit_Tstring s = utf8format "\"%s\"" s.v
       method visit_Tident = string
 
       method visit_Tchar i =
         let c = i |> Char.chr |> Char.escaped in
-        robust (utf8format "'%s'" c)
+        utf8format "'%s'" c
 
       method visit_Taction _ = string "{ action }"
       method! visit_Tend = empty
-      method! visit_Thash = space ^^ robust sharp ^^ break 1
+      method! visit_Thash = space ^^ sharp ^^ break 1
       method! visit_Tas = space ^^ string "as" ^^ break 1
-      method! visit_Tequal = space ^^ robust equals ^^ break 1
+      method! visit_Tequal = space ^^ equals ^^ break 1
       method! visit_Tlet = super#visit_Tlet ^^ space
       method! visit_Trule = super#visit_Trule ^^ space
+
+      method! case_rule_definition ident args parse_or_shortest entry =
+        group
+        @@ flow (break 1)
+             [
+               flow space [ super#visit_located_Tident_ ident ];
+               super#visit_list_located_Tident__ args;
+               super#visit_Tequal;
+               group
+                 (flow (break 1)
+                    [
+                      super#visit_located_parse_or_shortest_ parse_or_shortest;
+                      nest 2 (super#visit_entry entry);
+                    ]);
+             ]
+
+      method! case_named_regexp name regexp =
+        group
+        @@ flow space
+             [
+               super#visit_Tlet;
+               super#visit_located_Tident_ name;
+               super#visit_Tequal;
+               nest 2 (super#visit_regexp regexp);
+             ]
+
+      method! case_cons_located_named_regexp_ def rest =
+        flow hardline
+          [
+            super#visit_located_named_regexp_ def;
+            super#visit_list_located_named_regexp__ rest;
+          ]
+
+      method! case_nil_located_tident_ () = empty
+
+      method! case_cons_located_tident_ ide rest =
+        separate space
+          [
+            super#visit_located_Tident_ ide;
+            super#visit_list_located_Tident__ rest;
+          ]
+
+      (* This will try to fit a regexp in a single line, breaks it up otherwise. *)
+      method! visit_regexp re = group (super#visit_regexp re)
+
+      (* This will try to fit a regexp in a single line, breaks it up otherwise. *)
+      method! visit_char_class cls = group (super#visit_char_class cls)
+      method! visit_char_class1 cls = group (super#visit_char_class1 cls)
+
+      method! case_regexp_alternative re1 re2 =
+        flow space
+          [ super#visit_regexp re1; super#visit_Tor; super#visit_regexp re2 ]
+
+      method! case_regexp_sequence re1 re2 =
+        flow space [ super#visit_regexp re1; super#visit_regexp re2 ]
 
       method! case_charclass_union =
         fun cls1 cls2 ->
