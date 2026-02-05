@@ -143,3 +143,48 @@ module CST2String = struct
 
   let main = (new print)#visit_lexer_definition
 end
+
+module CST2Document = struct
+  open PPrint
+
+  let smart_lparen (char : document) = char ^^ ifflat empty space
+  let smart_rparen (char : document) = ifflat empty space ^^ char
+
+  open Document
+
+  let comments = Lexer.get_comments ()
+
+  class print =
+    object (self)
+      inherit [document] CST.reduce as super
+      method zero = empty
+      method cat = ( ^^ )
+      method text = string
+      method visit_Tstring s = robust (utf8format "\"%s\"" s.v)
+      method visit_Tident = string
+
+      method visit_Tchar i =
+        let c = i |> Char.chr |> Char.escaped in
+        robust (utf8format "'%s'" c)
+
+      method visit_Taction _ = string "{ action }"
+      method! visit_Tend = empty
+      method! visit_Thash = space ^^ robust sharp ^^ break 1
+      method! visit_Tas = space ^^ string "as" ^^ break 1
+      method! visit_Tequal = space ^^ robust equals ^^ break 1
+      method! visit_Tlet = super#visit_Tlet ^^ space
+      method! visit_Trule = super#visit_Trule ^^ space
+
+      method! case_charclass_union =
+        fun cls1 cls2 ->
+          self#visit_char_class1 cls1 ^^ break 1 ^^ self#visit_char_class1 cls2
+
+      method! case_case =
+        fun regexp location ->
+          break 1 ^^ super#visit_regexp regexp ^^ space
+          ^^ self#visit_Taction location
+          ^^ break 1
+    end
+
+  let main = (new print)#visit_lexer_definition
+end
