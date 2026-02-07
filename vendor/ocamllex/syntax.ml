@@ -58,16 +58,18 @@ and entry = {
   name : string located;
   shortest : bool located;
   args : string located list;
-  clauses : (regular_expression_syntax located * location) list;
+  clauses : (regular_expression_syntax located * action) list;
 }
 
 and lexer_definition = {
-  header : location option;
+  header : action option;
   entrypoints : entry located list;
-  trailer : location option;
-  refill_handler : location option;
+  trailer : action option;
+  refill_handler : action option;
   named_regexps : named_regexp located list;
 }
+
+and action = string located
 
 and 'a located = 'a Located.located = { p : range; [@opaque] v : 'a }
 [@@deriving

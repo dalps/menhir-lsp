@@ -10,8 +10,7 @@ end = struct
   let never_produced () = raise (Failure "never produced")
 
   (* To avoid any confusion: 'clause' and 'case' mean the same thing here. *)
-  type ast_entry_clause =
-    AST.regular_expression_syntax AST.located * AST.location
+  type ast_entry_clause = AST.regular_expression_syntax AST.located * AST.action
 
   let rec dcst_of_lexer_definition (def : AST.lexer_definition) :
       lexer_definition =
@@ -136,7 +135,7 @@ module CST2String = struct
       method visit_Tchar i = i |> Char.chr |> Char.escaped |> spr "'%s'"
 
       (* TODO: change Taction's semantic value to string located. You will have to collect the lexemes inside the action in the lexer. *)
-      method visit_Taction _ = "{ action }"
+      method visit_Taction a = spr "{ %s }" a.v
     end
 
   let main = (new print)#visit_lexer_definition
@@ -163,13 +162,14 @@ module CST2Document = struct
         let c = i |> Char.chr |> Char.escaped in
         utf8format "'%s'" c
 
-      method visit_Taction _ = string "{ action }"
+      method visit_Taction a = surround 2 1 lbrace (string a.v) rbrace
       method! visit_Tend = empty
       method! visit_Thash = space ^^ sharp ^^ break 1
+      method! visit_Tand = space ^^ string "and" ^^ break 1
       method! visit_Tas = space ^^ string "as" ^^ break 1
       method! visit_Tequal = space ^^ equals ^^ break 1
-      method! visit_Tlet = super#visit_Tlet ^^ space
-      method! visit_Trule = super#visit_Trule ^^ space
+      method! visit_Tlet = hardline ^^ super#visit_Tlet ^^ space
+      method! visit_Trule = hardline ^^ super#visit_Trule ^^ space
 
       method! case_rule_definition ident args parse_or_shortest entry =
         group

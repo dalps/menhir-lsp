@@ -105,6 +105,33 @@ let update_loc lexbuf opt_file line =
   }
 
 type string_context = Pattern | Action | Comment
+
+let spr = Printf.sprintf
+
+(* ---------------------------------------------------------- 
+  To buffer string literals
+  Source: ocamlformat.0.28.1/vendor/parser-extended/lexer.mll 
+*)
+
+module ActionStore = struct
+  let string_buffer = Buffer.create 256
+  let reset_string_buffer () = Buffer.reset string_buffer
+  let get_stored_string () = Buffer.contents string_buffer
+
+  let _store_string_char c = Buffer.add_char string_buffer c
+  let _store_string_utf_8_uchar u = Buffer.add_utf_8_uchar string_buffer u
+  let store_string s = Buffer.add_string string_buffer s
+  let _store_substring s ~pos ~len = Buffer.add_substring string_buffer s pos len
+
+  let store_lexeme lexbuf = store_string (Lexing.lexeme lexbuf)
+
+  let _store_normalized_newline newline =
+    (* OCamlformat: We preserve the line endings in string literals. *)
+    store_string newline
+
+  (* To store the position of the beginning of a string and comment *)
+  let _string_start_loc = ref Lexing.dummy_pos
+end
 }
 
 let identstart =
@@ -126,7 +153,6 @@ let utf8 = ['\192'-'\255'] ['\128'-'\191']*
 let identstart_ext = ocaml_identstart | utf8
 let identchar_ext = identchar | utf8
 let ocaml_ident = identstart_ext identchar_ext*
-
 
 rule main = parse
     [' ' '\013' '\009' '\012' ] +
@@ -183,8 +209,11 @@ rule main = parse
     }
   | '{'
     { let startp = Lexing.lexeme_start_p lexbuf in
+      ActionStore.reset_string_buffer ();
       let endp = handle_lexical_error action [] lexbuf in
-      Taction(locate (startp, endp) ()) }
+      let content = ActionStore.get_stored_string () in
+      ActionStore.reset_string_buffer ();
+      Taction (locate (startp, endp) content) }
   | '='  { Tequal }
   | '|'  { Tor }
   | '['  { Tlbracket }
@@ -262,14 +291,17 @@ and string in_pattern = parse
 and quoted_string delim = parse
   | '\013'* '\010'
     { incr_loc lexbuf 0;
+      ActionStore.store_lexeme lexbuf;
       quoted_string delim lexbuf }
   | eof
     { raise_lexical_error lexbuf "unterminated string" }
   | '|' (lowercase* as delim') '}'
-    { if delim <> delim' then
+    { ActionStore.store_lexeme lexbuf;
+      if delim <> delim' then
       quoted_string delim lexbuf }
   | _
-    { quoted_string delim lexbuf }
+    { ActionStore.store_lexeme lexbuf;
+      quoted_string delim lexbuf }
 
 (*
    Lexers comment and action are quite similar.
@@ -302,51 +334,59 @@ and comment depth = parse
     { comment depth lexbuf }
 
 and action stk = parse
-  | '(' { action ('(' :: stk) lexbuf }
-  | '{' { action ('{' :: stk) lexbuf }
+  | '(' { ActionStore.store_lexeme lexbuf; action ('(' :: stk) lexbuf }
+  | '{' { ActionStore.store_lexeme lexbuf; action ('{' :: stk) lexbuf }
   | ')'
     { match stk with
-      | '(' :: stk' -> action stk' lexbuf
+      | '(' :: stk' -> ActionStore.store_lexeme lexbuf; action stk' lexbuf
       | _ -> raise_lexical_error lexbuf "Unmatched ) in action" }
   | '}'
     { match stk with
       | [] -> Lexing.lexeme_end_p lexbuf (* [menhir-lsp] need position. *)
-      | '{' :: stk' -> action stk' lexbuf
+      | '{' :: stk' -> ActionStore.store_lexeme lexbuf; action stk' lexbuf
       | _ -> raise_lexical_error lexbuf "Unmatched } in action" }
   | '"'
     { reset_string_buffer();
       handle_lexical_error string Action lexbuf |> ignore;
+      ActionStore.store_string @@ spr "\"%s\"" (get_stored_string ());
       reset_string_buffer();
       action stk lexbuf }
   | '{' ('%' '%'? extattrident blank*)? (lowercase* as delim) "|"
-    { quoted_string delim lexbuf;
+    { ActionStore.store_lexeme lexbuf; (* "{...|" *)
+      quoted_string delim lexbuf;
+      ActionStore.store_lexeme lexbuf;
       action stk lexbuf }
   | "'"
-    { skip_char lexbuf ;
+    { ActionStore.store_lexeme lexbuf; (* The left quote. *)
+      skip_char lexbuf ;
+      ActionStore.store_lexeme lexbuf; (* The char and right quote. *)
       action stk lexbuf }
   | "(*"
-    { comment 0 lexbuf;
+    { ActionStore.store_lexeme lexbuf;
+      comment 0 lexbuf;
       action stk lexbuf }
   | eof
     { raise_lexical_error lexbuf "unterminated action" }
   | '\010'
-    { incr_loc lexbuf 0;
+    { ActionStore.store_lexeme lexbuf;
+      incr_loc lexbuf 0;
       action stk lexbuf }
   | ocaml_ident
-    { action stk lexbuf }
+    { ActionStore.store_lexeme lexbuf;
+      action stk lexbuf }
   | _
-    { action stk lexbuf }
+    { ActionStore.store_lexeme lexbuf;
+      action stk lexbuf }
 
 and skip_char = parse
   | '\\'? ('\013'* '\010') "'"
-     { incr_loc lexbuf 1;
-     }
+     { incr_loc lexbuf 1 }
   | [^ '\\' '\'' '\010' '\013'] "'" (* regular character *)
 (* one character and numeric escape sequences *)
   | '\\' _ "'"
   | '\\' ['0'-'9'] ['0'-'9'] ['0'-'9'] "'"
   | '\\' 'o' ['0'-'7'] ['0'-'7'] ['0'-'7'] "'"
   | '\\' 'x' ['0'-'9' 'a'-'f' 'A'-'F'] ['0'-'9' 'a'-'f' 'A'-'F'] "'"
-     {()}
+     { () }
 (* Perilous *)
-  | "" {()}
+  | "" { () }

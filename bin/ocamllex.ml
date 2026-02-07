@@ -265,7 +265,7 @@ let completions
      get_merlin_compls ~notify_back ~uri ~pos word)
     |> get_or_nil
   in
-  let region_completions (oregion : location option) () =
+  let region_completions (oregion : string located option) () =
     let* range = oregion >|= (Located.position >> Range.of_lexical_positions) in
     if_ (fun _ -> pos_inside range) (merlin_compls ())
   in

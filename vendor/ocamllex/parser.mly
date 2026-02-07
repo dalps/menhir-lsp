@@ -53,7 +53,7 @@ let rec as_cset = function
 %token <string> Tident
 %token <int> Tchar
 %token <string Located.located> Tstring
-%token <Syntax.location> Taction
+%token <string Located.located> Taction
 %token Trule "rule" Tparse "parse" Tparse_shortest "shortest" Tand "and" Tequal "=" Tend "EOF" Tor "|" Tunderscore "_" Teof "eof"
        Tlbracket "[" Trbracket "]" Trefill "refill"
 %token Tstar "*" Tmaybe "?" Tplus "+" Tlparen "(" Trparen ")" Tcaret "^" Tdash "-" Tlet "let" Tas "as" Thash "#"
