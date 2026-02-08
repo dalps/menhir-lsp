@@ -99,8 +99,8 @@ type string_context = Pattern | Action | Comment
 let spr = Printf.sprintf
 
 (* ---------------------------------------------------------- 
-  To buffer string literals
-  Source: ocamlformat.0.28.1/vendor/parser-extended/lexer.mll 
+  Object to buffer string literals, comments and actions.
+  Adapted from ocamlformat.0.28.1/vendor/parser-extended/lexer.mll 
 *)
 
 class lexeme_buffer = object (self)
@@ -108,6 +108,8 @@ class lexeme_buffer = object (self)
 
   (* To store the position of the beginning of a string and comment *)
   val string_start_loc = ref Lexing.dummy_pos
+
+  method set_start_loc lexbuf = string_start_loc := Lexing.lexeme_start_p lexbuf
 
   method reset_string_buffer () = Buffer.reset string_buffer
   method get_stored_string () = Buffer.contents string_buffer
@@ -127,6 +129,22 @@ end
 let string_buffer = new lexeme_buffer
 let action_buffer = new lexeme_buffer
 let comment_buffer = new lexeme_buffer
+
+(* [menhir-lsp] We want to collect and expose the comments recorded during lexing. 
+
+In the Document printer, we'll use [PPrint.range] combinator to
+locate each comment in the formatted document. We'll search for the
+smallest CST node that contains the comment's range and map it to a
+TextEdit that inserts the comment text above the node's.
+*)
+type comment = string located
+
+let comments : comment list ref = ref []
+
+let store_comment c = comments := c :: !comments
+let get_comments () = List.rev !comments
+
+let init () = comments := []
 }
 
 let identstart =
@@ -162,7 +180,12 @@ rule main = parse
       main lexbuf
     }
   | "(*"
-    { handle_lexical_error comment 0 lexbuf;
+    { comment_buffer#reset_string_buffer ();
+      comment_buffer#store_lexeme lexbuf;
+      let startp = Lexing.lexeme_start_p lexbuf in
+      let endp = handle_lexical_error comment 0 lexbuf in
+      store_comment (locate (startp, endp) (comment_buffer#get_stored_string ()));
+      comment_buffer#reset_string_buffer ();
       main lexbuf }
   | '_' { Tunderscore }
   | ident
@@ -203,8 +226,9 @@ rule main = parse
         (Printf.sprintf "illegal escape sequence \\%c" c)
     }
   | '{'
-    { let startp = Lexing.lexeme_start_p lexbuf in
-      action_buffer#reset_string_buffer ();
+    { action_buffer#reset_string_buffer ();
+      (* action_buffer#store_lexeme lexbuf; Braces included. *)
+      let startp = Lexing.lexeme_start_p lexbuf in
       let endp = handle_lexical_error action [] lexbuf in
       let content = action_buffer#get_stored_string () in
       action_buffer#reset_string_buffer ();
@@ -231,7 +255,7 @@ rule main = parse
 (* String parsing comes from the compiler lexer *)
 and string in_pattern = parse
     '"'
-    { Lexing.lexeme_end_p lexbuf } (* [menhir-lsp] produce pos instead of () *)
+    { Lexing.lexeme_end_p lexbuf } (* [menhir-lsp] return pos instead of () *)
   | '\\' ('\013'* '\010') ([' ' '\009'] * as spaces)
     { incr_loc lexbuf (String.length spaces);
       string in_pattern lexbuf }
@@ -308,7 +332,8 @@ and comment depth = parse
     "(*" { comment_buffer#store_lexeme lexbuf;
            comment (depth + 1) lexbuf }
   | "*)" { comment_buffer#store_lexeme lexbuf;
-           if depth > 0 then comment (depth - 1) lexbuf }
+           if depth > 0 then comment (depth - 1) lexbuf 
+           else Lexing.lexeme_end_p lexbuf }
   | '"'
     { string_buffer#reset_string_buffer();
       string Comment lexbuf |> ignore;
@@ -346,8 +371,12 @@ and action stk = parse
       | _ -> raise_lexical_error lexbuf "Unmatched ) in action" }
   | '}'
     { match stk with
-      | [] -> Lexing.lexeme_end_p lexbuf (* [menhir-lsp] need position. *)
-      | '{' :: stk' -> action_buffer#store_lexeme lexbuf; action stk' lexbuf
+      | [] -> 
+        (* action_buffer#store_lexeme lexbuf;  1. Save the closing brace. *)
+        Lexing.lexeme_end_p lexbuf          (* 2. Return its position. *)
+      | '{' :: stk' ->
+        action_buffer#store_lexeme lexbuf;
+        action stk' lexbuf
       | _ -> raise_lexical_error lexbuf "Unmatched } in action" }
   | '"'
     { string_buffer#reset_string_buffer ();
@@ -367,8 +396,8 @@ and action stk = parse
       action stk lexbuf }
   | "(*"
     { action_buffer#store_lexeme lexbuf;
-      comment_buffer#reset_string_buffer();
-      comment 0 lexbuf;
+      comment_buffer#reset_string_buffer ();
+      comment 0 lexbuf |> ignore;
       action_buffer#store_string (comment_buffer#get_stored_string ());
       comment_buffer#reset_string_buffer();
       action stk lexbuf }

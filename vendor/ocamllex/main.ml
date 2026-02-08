@@ -1,4 +1,5 @@
 let parse lexbuf =
+  Lexer.init ();
   try Ok (Parser.lexer_definition Lexer.main lexbuf) with
   | Syntax.SyntaxError { v; p } | Lexer.Lexical_error { v; p } -> Error (v, p)
   | _ ->

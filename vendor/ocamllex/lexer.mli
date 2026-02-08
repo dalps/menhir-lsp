@@ -13,9 +13,17 @@
 (*                                                                        *)
 (**************************************************************************)
 
+open Located
+
 val main : Lexing.lexbuf -> Parser.token
 
-exception Lexical_error of string Located.located
+exception Lexical_error of string located
+
+type comment = string located
+
+val get_comments : unit -> comment list
+
+val init : unit -> unit
 
 (*
 val line_num: int ref

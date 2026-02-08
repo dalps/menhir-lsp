@@ -162,7 +162,8 @@ module CST2Document = struct
         let c = i |> Char.chr |> Char.escaped in
         utf8format "'%s'" c
 
-      method visit_Taction a = surround 2 1 lbrace (string a.v) rbrace
+        (* TODO: trim whitespace around action's content (what's strictly inside {}) so you can always surround it with one space in flat mode. *)
+      method visit_Taction a = surround 2 0 lbrace (string a.v) rbrace
       method! visit_Tend = empty
       method! visit_Thash = space ^^ sharp ^^ break 1
       method! visit_Tand = space ^^ string "and" ^^ break 1
