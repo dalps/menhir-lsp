@@ -1,3 +1,5 @@
+open OcamllexSyntax
+
 module AST = Syntax
 module DCST = Parser.DCST
 module CST = Parser.CST

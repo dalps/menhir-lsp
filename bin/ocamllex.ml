@@ -449,11 +449,12 @@ let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
 
 let format (state : state) ~notify_back ~(doc : Text_document.t)
     ~options:(_ : FormattingOptions.t) : TextEdit.t list =
-  let dcst = Format.AST2DCST.main state.grammar in
+  let open Ocamllex_formatting in
+  let dcst = AST2DCST.main state.grammar in
   O.(
     let+ cst = Parser.Settle.lexer_definition dcst in
     let buf = Buffer.create 80 in
-    let pprint_doc = Format.CST2Document.main cst in
+    let pprint_doc = CST2Document.main cst in
     PPrint.ToBuffer.pretty 0.8 80 buf pprint_doc;
     let newText = Buffer.contents buf in
     [ TextEdit.create ~newText ~range:Range.(whole_document doc) ])
