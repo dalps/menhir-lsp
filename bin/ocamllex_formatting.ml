@@ -1,5 +1,5 @@
 open OcamllexSyntax
-
+open Utils
 module AST = Syntax
 module DCST = Parser.DCST
 module CST = Parser.CST
@@ -151,7 +151,8 @@ module CST2Document = struct
 
   (* open Document *)
 
-  class print =
+  class print ~(notify_back : notify_back) ~(doc : Text_document.t) =
+    let _ = (notify_back, doc) in
     object (self)
       inherit [document] CST.reduce as super
       method zero = empty
@@ -164,7 +165,7 @@ module CST2Document = struct
         let c = i |> Char.chr |> Char.escaped in
         utf8format "'%s'" c
 
-        (* TODO: trim whitespace around action's content (what's strictly inside {}) so you can always surround it with one space in flat mode. *)
+      (* TODO: trim whitespace around action's content (what's strictly inside {}) so you can always surround it with one space in flat mode. *)
       method visit_Taction a = surround 2 0 lbrace (string a.v) rbrace
       method! visit_Tend = empty
       method! visit_Thash = space ^^ sharp ^^ break 1
@@ -240,5 +241,188 @@ module CST2Document = struct
           ^^ break 1
     end
 
-  let main = (new print)#visit_lexer_definition
+  let main ~notify_back ~doc =
+    (new print ~notify_back ~doc)#visit_lexer_definition
 end
+
+module Cmts = CCSet.Make (struct
+  type t = Lexer.comment * Range.t
+
+  let compare (_, r1) (_, r2) = Range.compare r1 r2 |> Ordering.to_int
+end)
+
+let attach_comments =
+  let v =
+    object
+      inherit [_] Syntax.syntax_map
+    end
+  in
+  v#visit_lexer_definition ()
+
+let render ~(notify_back : notify_back) =
+  let open PPrint in
+  let open Syntax in
+  let bag_of_comments : Cmts.t ref =
+    Lexer.get_comments ()
+    |> L.map (fun (c : Lexer.comment) -> (c, Range.of_lexical_positions c.p))
+    |> Cmts.of_list |> ref
+  in
+
+  let ( // ) d1 d2 = d1 ^^ hardline ^^ d2 in
+  let ( ^-^ ) d1 d2 = d1 ^^ space ^^ d2 in
+  let opt = O.map_or ~default:empty in
+  let text = string in
+
+  let v =
+    object (self)
+      inherit [_] syntax_reduce as super
+      method zero = empty
+      method plus = ( ^^ )
+      method text = string
+
+      (* --------------------------------------- *)
+      (* Shorthands with unit environments. *)
+
+      method private with_located :
+          'env 'a. ('a -> document) -> 'a located -> document =
+        fun f b -> self#visit_located (fun _ v -> f v) () b
+
+      method private visit_regexp :
+          'env 'a. regular_expression_syntax -> document =
+        fun regexp -> self#visit_regular_expression_syntax () regexp
+
+      method private visit_charclass = self#visit_character_class_syntax ()
+
+      (* --------------------------------------- *)
+
+      (* Comments may only appear before located syntax nodes. *)
+      method! visit_located v env located =
+        log_info ~notify_back "There are %d comments left to render in the bag."
+          (Cmts.cardinal !bag_of_comments);
+
+        let comment_texts : string list ref = ref [] in
+        let range_loc = Range.of_lexical_positions located.p in
+        let ok_comments =
+          !bag_of_comments
+          |> Cmts.filter_map (fun ((cmt, range_cmt) as elt) ->
+              let open Range in
+              log_info ~notify_back "comment vs located node: %s <= %s"
+                (show range_cmt) (show range_loc);
+              match compare range_cmt range_loc with
+              | Lt ->
+                  log_info ~notify_back
+                    "comment comes before node. consuming and updating bag.";
+                  comment_texts := cmt.v :: !comment_texts;
+                  Some elt
+              | _ -> None)
+        in
+        bag_of_comments := Cmts.diff !bag_of_comments ok_comments;
+        let comments =
+          L.(!comment_texts |> rev |> map string |> separate (break 1))
+        in
+        comments ^/^ super#visit_located v env located
+
+      method! visit_action _ =
+        self#with_located (fun v ->
+            surround 2 1 lbrace (v |> String.trim |> text) rbrace)
+
+      method! visit_lexer_definition _ lexer_definition =
+        opt (self#visit_action ()) lexer_definition.header
+        // opt (self#visit_action ()) lexer_definition.refill_handler
+        // separate_map
+             (hardline ^^ break 1)
+             (self#visit_located self#visit_named_regexp ())
+             lexer_definition.named_regexps
+        //
+        let h, t = L.take_drop 1 lexer_definition.entrypoints in
+        let render_entries start =
+          separate_map
+            (hardline ^^ break 1)
+            (fun e -> text start ^-^ self#visit_located self#visit_entry () e)
+        in
+        render_entries "rule" h // render_entries "and" t
+        // opt (self#visit_action ()) lexer_definition.trailer
+
+      method! visit_named_regexp _ named_regexp =
+        group @@ text "let" ^-^ text named_regexp.name.v ^-^ text "="
+        ^/^ self#visit_located self#visit_regular_expression_syntax ()
+              named_regexp.regexp
+
+      method! visit_entry _ entry =
+        group @@ text entry.name.v
+        ^-^ separate_map space (Located.value >> text) entry.args
+        ^-^ equals ^/^ group @@ nest 2
+        @@ (if entry.shortest.v then text "shortest" else text "parse")
+        ^/^ nest 2
+        @@ separate_map
+             (break 1 ^-^ text "|" ^^ space)
+             (self#visit_case ()) entry.clauses
+
+      method visit_case _ (regexp, action) =
+        group
+        @@ self#with_located self#visit_regexp regexp
+        ^/^ self#visit_action () action
+
+      method! visit_Wildcard _ = self#with_located (fun _ -> text "_")
+      method! visit_EOF _ = self#with_located (fun _ -> text "_")
+
+      method! visit_Character _ =
+        self#with_located (char_of_int >> Char.escaped >> text >> squotes)
+
+      method! visit_String _ = self#with_located (text >> dquotes)
+      method! visit_Ref _ = self#with_located text
+
+      method! visit_Seq _ re1 re2 =
+        group @@ align
+        @@ self#with_located self#visit_regexp re1
+        ^/^ self#with_located self#visit_regexp re2
+
+      method! visit_Alt _ re1 re2 =
+        group @@ align
+        @@ self#with_located self#visit_regexp re1
+        ^/^ bar
+        ^-^ self#with_located self#visit_regexp re2
+
+      method! visit_CharSetDifference _ re1 re2 =
+        group @@ align
+        @@ self#with_located self#visit_regexp re1
+        ^/^ sharp
+        ^-^ self#with_located self#visit_regexp re2
+
+      method! visit_Rep _ =
+        self#with_located (fun re -> self#visit_regexp re ^^ star)
+
+      method! visit_Rep1 _ =
+        self#with_located (fun re -> self#visit_regexp re ^^ plus)
+
+      method! visit_Option _ =
+        self#with_located (fun re -> self#visit_regexp re ^^ qmark)
+
+      method! visit_Group _ =
+        self#with_located (fun re ->
+            surround 2 1 lparen (self#visit_regexp re) rparen)
+
+      method! visit_As _ re ident =
+        self#with_located
+          (fun re -> surround 2 1 lparen (self#visit_regexp re) rparen)
+          re
+        ^/^ text "as"
+        ^-^ self#with_located text ident
+
+      method! visit_CharSet _ =
+        self#with_located (fun v ->
+            surround 2 1 lbracket (self#visit_charclass v) rbracket)
+
+      method! visit_Union _ cls1 cls2 =
+        group
+        @@ self#with_located self#visit_charclass cls1
+        ^^ self#with_located self#visit_charclass cls2
+
+      method! visit_Complement _ cls =
+        caret ^^ self#with_located self#visit_charclass cls
+
+      method! visit_Range _ c1 c2 =
+        self#visit_Character () c1 ^^ minus ^^ self#visit_Character () c2 (**)
+    end
+  in
+  v#visit_lexer_definition ()

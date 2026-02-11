@@ -451,10 +451,27 @@ let format (state : state) ~notify_back ~(doc : Text_document.t)
     ~options:(_ : FormattingOptions.t) : TextEdit.t list =
   let open Ocamllex_formatting in
   let dcst = AST2DCST.main state.grammar in
+  (object
+     inherit [_] Syntax.syntax_iter
+
+     method! visit_action =
+       fun _ action ->
+         log_info ~notify_back "Action:\n\ttext: %s\n\trange: %s"
+           Range.(show @@ of_lexical_positions action.p)
+           action.v
+  end)
+    #visit_lexer_definition
+    () state.grammar;
+  Lexer.get_comments ()
+  |> List.iteri (fun i (c : Lexer.comment) ->
+      log_info ~notify_back "comment %d:\n  text: %s\n  range: %s" i
+        Range.(show @@ of_lexical_positions c.p)
+        c.v);
   O.(
     let+ cst = Parser.Settle.lexer_definition dcst in
     let buf = Buffer.create 80 in
-    let pprint_doc = CST2Document.main cst in
+    let _pprint_doc = CST2Document.main ~notify_back ~doc cst in
+    let pprint_doc = render state.grammar ~notify_back in
     PPrint.ToBuffer.pretty 0.8 80 buf pprint_doc;
     let newText = Buffer.contents buf in
     [ TextEdit.create ~newText ~range:Range.(whole_document doc) ])
