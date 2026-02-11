@@ -251,6 +251,8 @@ module Cmts = CCSet.Make (struct
   let compare (_, r1) (_, r2) = Range.compare r1 r2 |> Ordering.to_int
 end)
 
+open PPrint
+
 let attach_comments =
   let v =
     object
@@ -259,19 +261,41 @@ let attach_comments =
   in
   v#visit_lexer_definition ()
 
+let text = string
+
+let between sep d1 d2 =
+  match (is_empty d1, is_empty d2) with
+  | false, false -> d1 ^^ sep ^^ d2
+  | false, true -> d1
+  | _ -> d2
+
+let ( // ) = between hardline
+let ( //// ) = between (twice hardline)
+let ( ^-^ ) = between space
+
+let ( <|> ) d e = if is_empty d then e else d
+let ( <!> ) d e = if is_empty d then empty else e
+
+(** Prefix [sep] to [d] if [d] is nonempty. *)
+  let ( ^! ) sep d = d <!> sep ^^ d
+(** Append [sep] to [d] if [d] is nonempty. *)
+let ( !^ ) d sep = d <!> d ^^ sep
+
+(** A smarter [flow_map] that doesn't prepend [sep] to empty documents. *)
+let flow_map sep f docs =
+  L.foldi
+    (fun accu i doc -> if i = 0 then f doc else accu ^^ group (sep ^! f doc))
+    empty docs
+
+let flow sep = flow_map sep (fun x -> x)
+
 let render ~(notify_back : notify_back) =
-  let open PPrint in
   let open Syntax in
   let bag_of_comments : Cmts.t ref =
     Lexer.get_comments ()
     |> L.map (fun (c : Lexer.comment) -> (c, Range.of_lexical_positions c.p))
     |> Cmts.of_list |> ref
   in
-
-  let ( // ) d1 d2 = d1 ^^ hardline ^^ d2 in
-  let ( ^-^ ) d1 d2 = d1 ^^ space ^^ d2 in
-  let opt = O.map_or ~default:empty in
-  let text = string in
 
   let v =
     object (self)
@@ -297,9 +321,8 @@ let render ~(notify_back : notify_back) =
 
       (* Comments may only appear before located syntax nodes. *)
       method! visit_located v env located =
-        log_info ~notify_back "There are %d comments left to render in the bag."
-          (Cmts.cardinal !bag_of_comments);
-
+        (* log_info ~notify_back "There are %d comments left to render in the bag."
+          (Cmts.cardinal !bag_of_comments); *)
         let comment_texts : string list ref = ref [] in
         let range_loc = Range.of_lexical_positions located.p in
         let ok_comments =
@@ -320,50 +343,56 @@ let render ~(notify_back : notify_back) =
         let comments =
           L.(!comment_texts |> rev |> map string |> separate hardline)
         in
-        group
-        @@ (if is_empty comments then empty else comments ^^ break 1)
-        ^^ super#visit_located v env located
+        group @@ (comments // super#visit_located v env located)
+
+      (* --------------------------------------- *)
 
       method! visit_action _ =
         self#with_located (fun v ->
             surround 2 1 lbrace (v |> String.trim |> text) rbrace)
 
       method! visit_lexer_definition _ lexer_definition =
-        opt (self#visit_action ()) lexer_definition.header
-        // opt (self#visit_action ()) lexer_definition.refill_handler
-        // separate_map
-             (hardline ^^ break 1)
-             (self#visit_located self#visit_named_regexp ())
-             lexer_definition.named_regexps
-        //
-        let h, t = L.take_drop 1 lexer_definition.entrypoints in
+        let { header; entrypoints; trailer; refill_handler; named_regexps } =
+          lexer_definition
+        in
+        optional (self#visit_action ()) header
+        //// optional (self#visit_action ()) refill_handler
+        //// separate_map
+               (hardline ^^ break 1)
+               (self#visit_located self#visit_named_regexp ())
+               named_regexps
+        ////
+        let h, t = L.take_drop 1 entrypoints in
         let render_entries start =
           separate_map
             (hardline ^^ break 1)
             (fun e -> text start ^-^ self#visit_located self#visit_entry () e)
         in
         render_entries "rule" h // render_entries "and" t
-        // opt (self#visit_action ()) lexer_definition.trailer
+        //// optional (self#visit_action ()) trailer
 
       method! visit_named_regexp _ named_regexp =
         group @@ text "let" ^-^ text named_regexp.name.v ^-^ text "="
         ^/^ self#visit_located self#visit_regular_expression_syntax ()
               named_regexp.regexp
 
-      method! visit_entry _ entry =
-        group @@ text entry.name.v
-        ^-^ separate_map space (Located.value >> text) entry.args
-        ^-^ equals ^/^ group @@ nest 2
-        @@ (if entry.shortest.v then text "shortest" else text "parse")
-        ^/^ nest 2
-        @@ separate_map
-             (break 1 ^-^ text "|" ^^ space)
-             (self#visit_case ()) entry.clauses
+      method! visit_entry _ { name; shortest; args; clauses } =
+        let barspace = bar ^^ space in
+        prefix 2 1
+          (flow space
+          @@ [
+               text name.v;
+               nest 2 @@ flow_map (break 1) (Located.value >> text) args;
+               equals;
+               text (if shortest.v then "shortest" else "parse");
+             ])
+        @@ align barspace
+        ^^ separate_map (hardline ^^ barspace) (self#visit_case ()) clauses
 
       method visit_case _ (regexp, action) =
-        group
-        @@ self#with_located self#visit_regexp regexp
-        ^/^ self#visit_action () action
+        prefix 2 1
+          (self#with_located self#visit_regexp regexp)
+          (self#visit_action () action)
 
       method! visit_Wildcard _ = self#with_located (fun _ -> text "_")
       method! visit_EOF _ = self#with_located (fun _ -> text "eof")
@@ -402,13 +431,13 @@ let render ~(notify_back : notify_back) =
         self#with_located (fun re -> self#visit_regexp re ^^ qmark)
 
       method! visit_Group _ =
-        self#with_located (fun re ->
-            surround 2 1 lparen (self#visit_regexp re) rparen)
+        self#with_located (function
+          | Group re -> self#visit_Group () re (* already grouped *)
+          | re -> surround 2 1 lparen (self#visit_regexp re) rparen)
 
       method! visit_As _ re ident =
-        self#with_located
-          (fun re -> surround 2 1 lparen (self#visit_regexp re) rparen)
-          re
+        (* To get a better idea of what is being captured, we could surround alternation and sequences with parens. *)
+        self#with_located self#visit_regexp re
         ^/^ text "as"
         ^-^ self#with_located text ident
 
@@ -419,7 +448,7 @@ let render ~(notify_back : notify_back) =
       method! visit_Union _ cls1 cls2 =
         group
         @@ self#with_located self#visit_charclass cls1
-        ^^ self#with_located self#visit_charclass cls2
+        ^/^ self#with_located self#visit_charclass cls2
 
       method! visit_Complement _ cls =
         caret ^^ self#with_located self#visit_charclass cls
