@@ -105,8 +105,8 @@ definition:
     { locate $loc {name ; shortest ; args ; clauses} } [@name rule_definition]
 
 %inline parse_or_shortest:
-    "parse"     { true } [@name parse]
-  | "shortest"  { false } [@name shortest]
+    "parse"     { false } [@name parse]
+  | "shortest"  { true } [@name shortest]
 
 entry:
     option("|") l = separated_nonempty_list("|", case) { l } [@name entry]
@@ -118,11 +118,11 @@ case:
 (* The semantic actions are really ugly because they produce two things: in the first component, we wrap each regexp AST node with its region in the source file, in the second component we preserve the original semantics of Ocamllex that resolve and validate both character sets and references. *)
 regexp:
     u = located("_")
-        { locate $loc @@ CharSet (locate $loc @@ Wildcard u), Characters Cset.all_chars } [@name regexp_wildcard]
+        { locate $loc @@ Wildcard u, Characters Cset.all_chars } [@name regexp_wildcard]
   | u = located(Teof)
         { locate $loc @@ EOF u, Eof } [@name regexp_eof]
   | c = located(Tchar)
-        { locate $loc @@ CharSet (locate $loc @@ Character c), Characters (Cset.singleton c.v) } [@name regexp_character]
+        { locate $loc @@ Char c, Characters (Cset.singleton c.v) } [@name regexp_character]
   | s = Tstring
         { locate s.p @@ String s, regexp_for_string s.v } [@name regexp_string]
   | "[" cls = char_class "]"

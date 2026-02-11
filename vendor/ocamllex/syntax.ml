@@ -25,8 +25,8 @@ exception SyntaxError of string located
 
 type location = unit located
 
+(* Syntax that can only appear within [ .. ] *)
 and character_class_syntax =
-  | Wildcard of location
   | Character of int located
   | Range of int located * int located
   | Union of character_class_syntax located * character_class_syntax located
@@ -34,6 +34,8 @@ and character_class_syntax =
 
 and regular_expression_syntax =
   | Epsilon of location
+  | Wildcard of location
+  | Char of int located
   | CharSet of character_class_syntax located
   | String of string located
   | EOF of location
@@ -71,7 +73,7 @@ and lexer_definition = {
 
 and action = string located
 
-and 'a located = 'a Located.located = { p : range; [@opaque] v : 'a }
+and 'a located = 'a Located.located = { p : range; [@opaque] v : 'a; comment : string located option [@opaque] }
 [@@deriving
   visitors { name = "syntax_map"; variety = "map"; polymorphic = true },
   visitors { name = "syntax_reduce"; variety = "reduce"; polymorphic = true },

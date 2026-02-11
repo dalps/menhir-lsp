@@ -86,8 +86,8 @@ end = struct
     @@
     match re.v with
     | AST.Epsilon _ -> never_produced ()
-    | AST.CharSet { v = AST.Wildcard _; _ } ->
-        regexp_wildcard (located_tunderscore ())
+    | AST.Wildcard _ -> regexp_wildcard (located_tunderscore ())
+    | AST.Char c -> regexp_character (located_tchar c.v)
     | AST.CharSet c -> regexp_charset (dcst_of_charclass c.v)
     | AST.String s -> regexp_string s
     | AST.EOF _ -> regexp_eof (located_teof ())
@@ -318,9 +318,11 @@ let render ~(notify_back : notify_back) =
         in
         bag_of_comments := Cmts.diff !bag_of_comments ok_comments;
         let comments =
-          L.(!comment_texts |> rev |> map string |> separate (break 1))
+          L.(!comment_texts |> rev |> map string |> separate hardline)
         in
-        comments ^/^ super#visit_located v env located
+        group
+        @@ (if is_empty comments then empty else comments ^^ break 1)
+        ^^ super#visit_located v env located
 
       method! visit_action _ =
         self#with_located (fun v ->
@@ -364,11 +366,12 @@ let render ~(notify_back : notify_back) =
         ^/^ self#visit_action () action
 
       method! visit_Wildcard _ = self#with_located (fun _ -> text "_")
-      method! visit_EOF _ = self#with_located (fun _ -> text "_")
+      method! visit_EOF _ = self#with_located (fun _ -> text "eof")
 
       method! visit_Character _ =
         self#with_located (char_of_int >> Char.escaped >> text >> squotes)
 
+      method! visit_Char = self#visit_Character
       method! visit_String _ = self#with_located (text >> dquotes)
       method! visit_Ref _ = self#with_located text
 
@@ -411,7 +414,7 @@ let render ~(notify_back : notify_back) =
 
       method! visit_CharSet _ =
         self#with_located (fun v ->
-            surround 2 1 lbracket (self#visit_charclass v) rbracket)
+            surround 2 0 lbracket (self#visit_charclass v) rbracket)
 
       method! visit_Union _ cls1 cls2 =
         group
