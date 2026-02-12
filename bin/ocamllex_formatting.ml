@@ -253,10 +253,52 @@ end)
 
 open PPrint
 
-let attach_comments =
+let attach_comments ~notify_back ~doc =
+  let bag_of_comments : Cmts.t ref =
+    Lexer.get_comments ()
+    |> L.map (fun (c : Lexer.comment) -> (c, Range.of_lexical_positions c.p))
+    |> Cmts.of_list |> ref
+  in
+  let only_comments rng : bool =
+    try
+      let text = Utils.substring doc rng |> Option.get in
+      log_info ~notify_back "text inbewtixt: %s" text;
+      text |> Lexing.from_string |> Comments.main;
+      true
+    with _ ->
+      log_info ~notify_back "bad range!";
+      false
+  in
   let v =
     object
       inherit [_] Syntax.syntax_map
+
+      method! visit_located visit_v env located =
+        (* log_info ~notify_back "There are %d comments left to render in the bag."
+          (Cmts.cardinal !bag_of_comments); *)
+        let comment_texts : string list ref = ref [] in
+        let range_loc = Range.of_lexical_positions located.p in
+        let ok_comments =
+          !bag_of_comments
+          |> Cmts.filter_map (fun ((cmt, range_cmt) as elt) ->
+              let open Range in
+              log_info ~notify_back "comment vs located node: %s <= %s"
+                (show range_cmt) (show range_loc);
+              match compare range_cmt range_loc with
+              | Lt
+                when only_comments
+                       (Range.create ~start:range_cmt.end_ ~end_:range_loc.start)
+                ->
+                  log_info ~notify_back
+                    "Appending comment `%s` comes to node `%s`." cmt.v
+                    (Utils.substring doc range_loc |> O.get_string);
+                  comment_texts := cmt.v :: !comment_texts;
+                  Some elt
+              | _ -> None)
+        in
+        bag_of_comments := Cmts.diff !bag_of_comments ok_comments;
+        let comment = ok_comments |> Cmts.to_list |> L.map fst |> O.some in
+        { (Located.map (visit_v env) located) with comment }
     end
   in
   v#visit_lexer_definition ()
@@ -272,12 +314,12 @@ let between sep d1 d2 =
 let ( // ) = between hardline
 let ( //// ) = between (twice hardline)
 let ( ^-^ ) = between space
-
 let ( <|> ) d e = if is_empty d then e else d
 let ( <!> ) d e = if is_empty d then empty else e
 
 (** Prefix [sep] to [d] if [d] is nonempty. *)
-  let ( ^! ) sep d = d <!> sep ^^ d
+let ( ^! ) sep d = d <!> sep ^^ d
+
 (** Append [sep] to [d] if [d] is nonempty. *)
 let ( !^ ) d sep = d <!> d ^^ sep
 
@@ -289,14 +331,9 @@ let flow_map sep f docs =
 
 let flow sep = flow_map sep (fun x -> x)
 
-let render ~(notify_back : notify_back) =
+let render ~(notify_back : notify_back) ~(doc : Text_document.t) =
   let open Syntax in
-  let bag_of_comments : Cmts.t ref =
-    Lexer.get_comments ()
-    |> L.map (fun (c : Lexer.comment) -> (c, Range.of_lexical_positions c.p))
-    |> Cmts.of_list |> ref
-  in
-
+  let _ = (doc, notify_back) in
   let v =
     object (self)
       inherit [_] syntax_reduce as super
@@ -320,30 +357,11 @@ let render ~(notify_back : notify_back) =
       (* --------------------------------------- *)
 
       (* Comments may only appear before located syntax nodes. *)
-      method! visit_located v env located =
-        (* log_info ~notify_back "There are %d comments left to render in the bag."
-          (Cmts.cardinal !bag_of_comments); *)
-        let comment_texts : string list ref = ref [] in
-        let range_loc = Range.of_lexical_positions located.p in
-        let ok_comments =
-          !bag_of_comments
-          |> Cmts.filter_map (fun ((cmt, range_cmt) as elt) ->
-              let open Range in
-              log_info ~notify_back "comment vs located node: %s <= %s"
-                (show range_cmt) (show range_loc);
-              match compare range_cmt range_loc with
-              | Lt ->
-                  log_info ~notify_back
-                    "comment comes before node. consuming and updating bag.";
-                  comment_texts := cmt.v :: !comment_texts;
-                  Some elt
-              | _ -> None)
-        in
-        bag_of_comments := Cmts.diff !bag_of_comments ok_comments;
+      method! visit_located visit_v env ({ comment; _ } as located) =
         let comments =
-          L.(!comment_texts |> rev |> map string |> separate hardline)
+          optional (separate_map hardline (Located.value >> text)) comment
         in
-        group @@ (comments // super#visit_located v env located)
+        group @@ (comments // super#visit_located visit_v env located)
 
       (* --------------------------------------- *)
 
@@ -371,10 +389,10 @@ let render ~(notify_back : notify_back) =
         render_entries "rule" h // render_entries "and" t
         //// optional (self#visit_action ()) trailer
 
-      method! visit_named_regexp _ named_regexp =
-        group @@ text "let" ^-^ text named_regexp.name.v ^-^ text "="
-        ^/^ self#visit_located self#visit_regular_expression_syntax ()
-              named_regexp.regexp
+      method! visit_named_regexp _ { name; regexp } =
+        prefix 2 1
+          (text "let" ^-^ text name.v ^-^ text "=")
+          (self#with_located self#visit_regexp regexp)
 
       method! visit_entry _ { name; shortest; args; clauses } =
         let barspace = bar ^^ space in

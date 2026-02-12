@@ -75,7 +75,7 @@ let load_state_from_partial_grammar (grammar : partial_grammar) =
   let tokens : tokens =
     List.filter_map
       (function
-        | ({ p; v = DToken (ocamltype, terminal, alias, _attributes) } :
+        | ({ p; v = DToken (ocamltype, terminal, alias, _attributes); _ } :
             declaration located) ->
             locate p
               {
@@ -154,7 +154,7 @@ let default_completions ?range:(orange : Range.t option)
             CompletionItemLabelDetails.create
               ~detail:
                 (L.to_string ~start:"(" ~stop:")"
-                   (fun { p = _; v } -> v)
+                   (fun { v; _ } -> v)
                    params)
               ())
     in
@@ -308,7 +308,7 @@ let references (state : state) ~uri ~(pos : Position.t) : Location.t list =
    epr "Looking for references of %s\n" sym_name;
    Some
      (L.filter_map
-        (fun { v; p } ->
+        (fun { v; p; _ } ->
           epr "Comparing with %s at %s\n" v
             Range.(show @@ of_lexical_positions p);
           if_

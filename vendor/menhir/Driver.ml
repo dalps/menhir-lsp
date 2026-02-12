@@ -33,7 +33,7 @@ let parse priority lexbuf :
   Lexer.priority := priority;
   let lexer = Lexer.main in
   try Ok (Parser.grammar lexer lexbuf) with
-  | ParserAux.ParserError { v; p } | Lexer.LexerError { v; p } -> Error (v, p)
+  | ParserAux.ParserError { v; p; _ } | Lexer.LexerError { v; p; _ } -> Error (v, p)
   | _ ->
       let range =
         Range.make Lexing.(lexeme_start_p lexbuf, lexeme_end_p lexbuf)

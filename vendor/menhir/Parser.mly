@@ -362,7 +362,7 @@ production_group:
          that all of them bind the same names. *)
       ParserAux.check_production_group productions;
       (* Then, *)
-      List.map (fun Located.{ v = (producers, oprec1, level); p = pos } ->
+      List.map (fun Located.{ v = (producers, oprec1, level); p = pos; _ } ->
         (* Replace [$i] with [_i]. *)
         let pb_producers : producer located list = ParserAux.normalize_producers producers in
         (* Distribute the semantic action and attributes onto every production.

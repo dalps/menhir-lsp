@@ -34,6 +34,7 @@ module O = struct
     match (a, b) with Some a, _ -> Some a | None, f -> f ()
 
   let get_or_nil (t : 'a list t) : 'a list = get_or ~default:[] t
+  let get_string = get_or ~default:""
 end
 
 module R = struct

@@ -238,7 +238,7 @@ and partial_grammar = {
 }
 (**A partial grammar. (Only before joining.) *)
 
-and 'a located = 'a Located.located = { p : range; [@opaque] v : 'a }
+and 'a located = 'a Located.located = { p : range; [@opaque] v : 'a; comment: Located.comments [@opaque] }
 [@@deriving
   visitors { name = "ast_map"; variety = "map"; polymorphic = true },
   visitors { name = "ast_reduce"; variety = "reduce"; polymorphic = true },

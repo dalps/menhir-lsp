@@ -86,7 +86,7 @@ let check_production_group (right_hand_sides : early_productions) =
 (* [normalize_producer i p] assigns a name of the form [_i]
    to the unnamed producer [p]. *)
 let normalize_producer i
-    Located.{ v = opt_identifier, parameter, attrs; p = pos } =
+    Located.{ v = opt_identifier, parameter, attrs; p = pos; _ } =
   let id =
     match opt_identifier with
     | Some id -> id

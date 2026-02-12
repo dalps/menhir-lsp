@@ -11,10 +11,12 @@
 open Range
 
 type 'a located =
-  { p : range; v : 'a }
+{ p : range; v : 'a; comment: comments }
 
-let[@inline] locate p v =
-  { p; v }
+and comments = string located list option
+
+let[@inline] locate ?comment p v =
+  { p; v; comment }
 
 let[@inline] position { p; _ } =
   p
@@ -22,11 +24,11 @@ let[@inline] position { p; _ } =
 let[@inline] value { v; _ } =
   v
 
-let map f { p; v } =
-  let v = f v in { p; v }
+let map f ({ v; _ } as loc) =
+  { loc with v = f v }
 
-let parenthesize { p; v } =
-  locate (Range.decrement p) ("(" ^ v ^ ")")
+let parenthesize { p; v; comment } =
+  locate ?comment (Range.decrement p) ("(" ^ v ^ ")")
 
 let startp { p; _ } = Range.startp p
 

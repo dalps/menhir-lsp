@@ -104,7 +104,7 @@ let references (state : state) ~uri ~(pos : Position.t) : Location.t list =
   (let open O in
    let+ _sym_range, sym = symbol_at_position state pos in
    L.filter_map
-     (fun { v; p } ->
+     (fun { v; p; _ } ->
        if_
          (fun _ -> v = sym.v)
          (Location.create ~uri ~range:(Range.of_lexical_positions p)))
@@ -450,7 +450,6 @@ let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
 let format (state : state) ~notify_back ~(doc : Text_document.t)
     ~options:(_ : FormattingOptions.t) : TextEdit.t list =
   let open Ocamllex_formatting in
-  let dcst = AST2DCST.main state.grammar in
   (object
      inherit [_] Syntax.syntax_iter
 
@@ -467,19 +466,13 @@ let format (state : state) ~notify_back ~(doc : Text_document.t)
       log_info ~notify_back "comment %d:\n  text: %s\n  range: %s" i
         Range.(show @@ of_lexical_positions c.p)
         c.v);
-  O.(
-    let+ cst = Parser.Settle.lexer_definition dcst in
-    let buf = Buffer.create 80 in
-    let _pprint_doc = CST2Document.main ~notify_back ~doc cst in
-    let pprint_doc = render state.grammar ~notify_back in
-    PPrint.ToBuffer.pretty 0.8 80 buf pprint_doc;
-    let newText = Buffer.contents buf in
-    [ TextEdit.create ~newText ~range:Range.(whole_document doc) ])
-  |> fun o ->
-  match o with
-  | None ->
-      log_info ~notify_back
-        "Lexer formatting failed. Please report this error to menhir-lsp's \
-         developer.";
-      []
-  | Some e -> e
+
+  let buf = Buffer.create 80 in
+  let pprint_doc =
+    state.grammar
+    |> attach_comments ~notify_back ~doc
+    |> render ~notify_back ~doc
+  in
+  PPrint.ToBuffer.pretty 0.8 80 buf pprint_doc;
+  let newText = Buffer.contents buf in
+  [ TextEdit.create ~newText ~range:Range.(whole_document doc) ]

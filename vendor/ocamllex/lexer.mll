@@ -139,12 +139,23 @@ TextEdit that inserts the comment text above the node's.
 *)
 type comment = string located
 
+let last_comment = ref None
+
+let _get_last_comment = let c = !last_comment in last_comment := None; c
+
 let comments : comment list ref = ref []
 
-let store_comment c = comments := c :: !comments
+let store_comment c = 
+  last_comment := Some c;
+  comments := c :: !comments
+  
 let get_comments () = List.rev !comments
 
-let init () = comments := []
+let init () =
+  comments := [];
+  string_buffer#reset_string_buffer ();
+  action_buffer#reset_string_buffer ();
+  comment_buffer#reset_string_buffer ()
 }
 
 let identstart =
@@ -184,7 +195,8 @@ rule main = parse
       comment_buffer#store_lexeme lexbuf;
       let startp = Lexing.lexeme_start_p lexbuf in
       let endp = handle_lexical_error comment 0 lexbuf in
-      store_comment (locate (startp, endp) (comment_buffer#get_stored_string ()));
+      let c = comment_buffer#get_stored_string () in
+      store_comment (locate (startp, endp) c);
       comment_buffer#reset_string_buffer ();
       main lexbuf }
   | '_' { Tunderscore }
