@@ -205,7 +205,7 @@ class lsp_server =
       let* doc = self#get_text_document ~uri in
       self#_dispatch uri ~notify_back
         ~mll_handler:(Mll.format ~notify_back ~doc ~options)
-        ~mly_handler:(fun _ -> [])
+        ~mly_handler:(Mly.format ~notify_back ~doc ~options)
 
     method private _on_req_references =
       fun ~notify_back ~id:_ ~uri ~pos : Location.t list option Lwt.t ->

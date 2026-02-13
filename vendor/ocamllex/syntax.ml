@@ -79,6 +79,8 @@ and 'a located = 'a Located.located = {
   v : 'a;
   mutable comment : Located.comments; [@opaque]
 }
+
+and main = lexer_definition
 [@@deriving
   visitors { name = "syntax_map"; variety = "map"; polymorphic = true },
   visitors { name = "syntax_reduce"; variety = "reduce"; polymorphic = true },

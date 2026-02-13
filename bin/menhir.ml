@@ -153,9 +153,7 @@ let default_completions ?range:(orange : Range.t option)
             let+ params = params_o in
             CompletionItemLabelDetails.create
               ~detail:
-                (L.to_string ~start:"(" ~stop:")"
-                   (fun { v; _ } -> v)
-                   params)
+                (L.to_string ~start:"(" ~stop:")" (fun { v; _ } -> v) params)
               ())
     in
     comp ()
@@ -523,3 +521,22 @@ let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
       (Range.show res.SelectionRange.range);
     res)
   |> O.to_list
+
+let format (state : state) ~notify_back ~(doc : Text_document.t)
+    ~options:(_ : FormattingOptions.t) : TextEdit.t list =
+  let open Menhir_formatting in
+  let buf = Buffer.create 80 in
+  let bag_of_comments = init_bag [] in
+  let attach_vtor =
+    object
+      inherit [_] Syntax.ast_endo
+      method! visit_located = visit_located ~bag_of_comments ~notify_back ~doc
+    end
+  in
+  attach_comments state.grammar
+    (attach_vtor#visit_main ())
+    ~bag_of_comments ~notify_back ~doc
+  |> (new formatter ~notify_back ~doc)#visit_main ()
+  |> PPrint.ToBuffer.pretty 0.8 80 buf;
+  let newText = Buffer.contents buf in
+  [ TextEdit.create ~newText ~range:Range.(whole_document doc) ]

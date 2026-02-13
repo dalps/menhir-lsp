@@ -33,7 +33,6 @@
 (******************************************************************************)
 
 open Attribute
-
 include BaseTypes
 
 type ocamltype = OCamlType.ocamltype =
@@ -182,7 +181,8 @@ and parameterized_branch = {
   (*[menhir-lsp] lifted [pb_position : range] to outer located *)
   pb_producers : producer located list;
       (**The producers. ([menhir-lsp]: made located) *)
-  pb_action : action located;  (**The semantic action. ([menhir-lsp]: made located) *)
+  pb_action : action located;
+      (**The semantic action. ([menhir-lsp]: made located) *)
   pb_prec_annotation : prec_annotation;  (**An optional [%prec] annotation. *)
   pb_production_level : production_level; [@opaque]
       (**The branch's production level. *)
@@ -216,7 +216,8 @@ and parameterized_rule = {
 and declaration =
   | DCode of string located  (**Raw OCaml code. *)
   | DParameter of string located  (**Raw OCaml functor parameter. *)
-  | DToken of ocamltype option * terminal located * alias * (attributes[@opaque])
+  | DToken of
+      ocamltype option * terminal located * alias * (attributes[@opaque])
       (**Terminal symbol (token) declaration. *)
   | DStart of nonterminal located  (**Start symbol declaration. *)
   | DTokenProperties of terminal located * associativity * precedence_level
@@ -238,11 +239,18 @@ and partial_grammar = {
 }
 (**A partial grammar. (Only before joining.) *)
 
-and 'a located = 'a Located.located = { p : range; [@opaque] v : 'a; mutable comment: Located.comments [@opaque] }
+and 'a located = 'a Located.located = {
+  p : range; [@opaque]
+  v : 'a;
+  mutable comment : Located.comments; [@opaque]
+}
+
+and main = partial_grammar
 [@@deriving
   visitors { name = "ast_map"; variety = "map"; polymorphic = true },
   visitors { name = "ast_reduce"; variety = "reduce"; polymorphic = true },
-  visitors { name = "ast_iter"; variety = "iter"; polymorphic = true }]
+  visitors { name = "ast_iter"; variety = "iter"; polymorphic = true },
+  visitors { name = "ast_endo"; variety = "endo"; polymorphic = true }]
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)

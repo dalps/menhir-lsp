@@ -451,11 +451,17 @@ let format (state : state) ~notify_back ~(doc : Text_document.t)
     ~options:(_ : FormattingOptions.t) : TextEdit.t list =
   let open Ocamllex_formatting in
   let buf = Buffer.create 80 in
-  let pprint_doc =
-    state.grammar
-    |> attach_comments ~notify_back ~doc
-    |> render ~notify_back ~doc
+  let bag_of_comments = Lexer.get_comments () |> init_bag in
+  let attach_vtor =
+    object
+      inherit [_] Syntax.syntax_endo
+      method! visit_located = visit_located ~bag_of_comments ~notify_back ~doc
+    end
   in
-  PPrint.ToBuffer.pretty 0.8 80 buf pprint_doc;
+  attach_comments state.grammar
+    (attach_vtor#visit_main ())
+    ~bag_of_comments ~notify_back ~doc
+  |> (new formatter ~notify_back ~doc)#visit_main ()
+  |> PPrint.ToBuffer.pretty 0.8 80 buf;
   let newText = Buffer.contents buf in
   [ TextEdit.create ~newText ~range:Range.(whole_document doc) ]
