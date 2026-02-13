@@ -11,7 +11,7 @@
 open Range
 
 type 'a located =
-{ p : range; v : 'a; comment: comments }
+{ p : range; v : 'a; mutable comment: comments }
 
 and comments = string located list option
 

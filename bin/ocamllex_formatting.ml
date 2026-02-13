@@ -245,20 +245,34 @@ module CST2Document = struct
     (new print ~notify_back ~doc)#visit_lexer_definition
 end
 
-module Cmts = CCSet.Make (struct
-  type t = Lexer.comment * Range.t
+module Cmt = struct
+  type t =
+    | Cmt : {
+        range : Range.t;
+        c : Lexer.comment;
+        last_parent : 'a Located.located option;
+      }
+        -> t
 
-  let compare (_, r1) (_, r2) = Range.compare r1 r2 |> Ordering.to_int
-end)
+  let of_lexer_comment (c : Lexer.comment) : t =
+    Cmt { c; range = Range.of_lexical_positions c.p; last_parent = None }
 
+  let with_parent (Cmt c : t) parent : t =
+    Cmt { c with last_parent = Some parent }
+
+  let compare (Cmt c1) (Cmt c2) =
+    Range.compare c1.range c2.range |> Ordering.to_int
+end
+
+module LastParent = CCMap.Make (Cmt)
+module Cmts = CCSet.Make (Cmt)
 open PPrint
 
-let attach_comments ~notify_back ~doc =
+let attach_comments grammar ~notify_back ~doc =
   let bag_of_comments : Cmts.t ref =
-    Lexer.get_comments ()
-    |> L.map (fun (c : Lexer.comment) -> (c, Range.of_lexical_positions c.p))
-    |> Cmts.of_list |> ref
+    Lexer.get_comments () |> L.map Cmt.of_lexer_comment |> Cmts.of_list |> ref
   in
+  let _last_parent = ref LastParent.empty in
   let only_comments rng : bool =
     try
       let text = Utils.substring doc rng |> Option.get in
@@ -274,34 +288,60 @@ let attach_comments ~notify_back ~doc =
       inherit [_] Syntax.syntax_map
 
       method! visit_located visit_v env located =
-        (* log_info ~notify_back "There are %d comments left to render in the bag."
-          (Cmts.cardinal !bag_of_comments); *)
-        let comment_texts : string list ref = ref [] in
         let range_loc = Range.of_lexical_positions located.p in
         let ok_comments =
           !bag_of_comments
-          |> Cmts.filter_map (fun ((cmt, range_cmt) as elt) ->
+          |> Cmts.filter_map (fun (Cmt cmt as c) ->
               let open Range in
               log_info ~notify_back "comment vs located node: %s <= %s"
-                (show range_cmt) (show range_loc);
-              match compare range_cmt range_loc with
-              | Lt
+                (show cmt.range) (show range_loc);
+              match
+                Position.
+                  ( compare cmt.range.start range_loc.start,
+                    compare cmt.range.end_ range_loc.end_ )
+              with
+              | Lt, Lt
                 when only_comments
-                       (Range.create ~start:range_cmt.end_ ~end_:range_loc.start)
+                       (Range.create ~start:cmt.range.end_ ~end_:range_loc.start)
                 ->
                   log_info ~notify_back
-                    "Appending comment `%s` comes to node `%s`." cmt.v
+                    "Appending comment `%s` comes to node `%s`." cmt.c.v
                     (Utils.substring doc range_loc |> O.get_string);
-                  comment_texts := cmt.v :: !comment_texts;
-                  Some elt
+                  Some (Cmt cmt)
+              (* | (Eq | Gt), (Eq | Lt) -> *)
+              | Lt, Lt ->
+                  (* The comment is contained: remember this node in case the comment never gets picked. *)
+                  (* cmt.last_parent <- Some located; nope *)
+                  bag_of_comments :=
+                    Cmts.add (Cmt.with_parent c located)
+                    @@ Cmts.remove c !bag_of_comments;
+                  None
               | _ -> None)
         in
         bag_of_comments := Cmts.diff !bag_of_comments ok_comments;
-        let comment = ok_comments |> Cmts.to_list |> L.map fst |> O.some in
+        let comment =
+          ok_comments |> Cmts.to_list
+          |> L.map (fun (Cmt.Cmt cmt) -> cmt.c)
+          |> O.some
+        in
         { (Located.map (visit_v env) located) with comment }
     end
   in
-  v#visit_lexer_definition ()
+
+  let res = v#visit_lexer_definition () grammar in
+
+  log_info ~notify_back "There are %d comments left in the bag."
+    (Cmts.cardinal !bag_of_comments);
+  Cmts.iter
+    (fun (Cmt { last_parent; c; _ }) ->
+      O.iter
+        (fun (loc : _ Located.located) ->
+          log_info ~notify_back "This comment has a parent!";
+          loc.comment <-
+            O.fold (fun init cs -> cs @ init) [ c ] loc.comment |> O.some)
+        last_parent)
+    !bag_of_comments;
+  res
 
 let text = string
 

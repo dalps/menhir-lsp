@@ -76,7 +76,7 @@ and action = string located
 and 'a located = 'a Located.located = {
   p : range; [@opaque]
   v : 'a;
-  comment : Located.comments; [@opaque]
+  mutable comment : Located.comments; [@opaque]
 }
 [@@deriving
   visitors { name = "syntax_map"; variety = "map"; polymorphic = true },
