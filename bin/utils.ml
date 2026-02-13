@@ -405,3 +405,35 @@ let substring doc range =
   let text = TD.text doc in
   if start < 0 || start > end_ || end_ > String.length text then None
   else Some (CCStringLabels.sub text ~pos:start ~len:(end_ - start))
+
+module PPrint = struct
+  include PPrint
+
+  let text = string
+
+  let between sep d1 d2 =
+    match (is_empty d1, is_empty d2) with
+    | false, false -> d1 ^^ sep ^^ d2
+    | false, true -> d1
+    | _ -> d2
+
+  let ( // ) = between hardline
+  let ( //// ) = between (twice hardline)
+  let ( ^-^ ) = between space
+  let ( <|> ) d e = if is_empty d then e else d
+  let ( <!> ) d e = if is_empty d then empty else e
+
+  (** Prefix [sep] to [d] if [d] is nonempty. *)
+  let ( ^! ) sep d = d <!> sep ^^ d
+
+  (** Append [sep] to [d] if [d] is nonempty. *)
+  let ( !^ ) d sep = d <!> d ^^ sep
+
+  (** A smarter [flow_map] that doesn't prepend [sep] to empty documents. *)
+  let flow_map sep f docs =
+    L.foldi
+      (fun accu i doc -> if i = 0 then f doc else accu ^^ group (sep ^! f doc))
+      empty docs
+
+  let flow sep = flow_map sep (fun x -> x)
+end
