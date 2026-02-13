@@ -450,23 +450,6 @@ let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
 let format (state : state) ~notify_back ~(doc : Text_document.t)
     ~options:(_ : FormattingOptions.t) : TextEdit.t list =
   let open Ocamllex_formatting in
-  (object
-     inherit [_] Syntax.syntax_iter
-
-     method! visit_action =
-       fun _ action ->
-         log_info ~notify_back "Action:\n\ttext: %s\n\trange: %s"
-           Range.(show @@ of_lexical_positions action.p)
-           action.v
-  end)
-    #visit_lexer_definition
-    () state.grammar;
-  Lexer.get_comments ()
-  |> List.iteri (fun i (c : Lexer.comment) ->
-      log_info ~notify_back "comment %d:\n  text: %s\n  range: %s" i
-        Range.(show @@ of_lexical_positions c.p)
-        c.v);
-
   let buf = Buffer.create 80 in
   let pprint_doc =
     state.grammar

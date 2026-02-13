@@ -128,6 +128,10 @@ end
 module Range = struct
   include Lsp.Types.Range
 
+  let create ~(end_ : Position.t) ~(start : Position.t) : t =
+    assert (Position.(compare start end_) <> Gt);
+    Range.create ~end_ ~start
+
   let end_ t = t.end_
   let start t = t.start
 
@@ -143,6 +147,30 @@ module Range = struct
     match Position.compare x.start y.start with
     | (Lt | Gt) as r -> r
     | Ordering.Eq -> Position.compare x.end_ y.end_
+
+  let compare_inclusion (x : t) (y : t) =
+    match
+      Position.
+        ( compare x.start y.start,
+          compare x.start y.end_,
+          compare x.end_ y.start,
+          compare x.end_ y.end_ )
+    with
+    | Eq, Eq, Eq, Eq -> `Empty
+    | Eq, _, _, Eq -> `Equal
+    (* | _, _, _, Eq -> `RaggedLeft
+    | Eq, _, _, _ -> `RaggedRight *)
+    | (Lt | Eq), _, _, (Gt | Eq) -> `Contain
+    | (Gt | Eq), _, _, (Lt | Eq) -> `Contained
+    (* Or you could provide an integer distance
+
+    | Lt, _, Gt, Lt -> `OverlapBefore
+    | Gt, Lt, _, Gt -> `OverlapAfter
+    | Lt, _, Eq, Lt -> `AdjacentBefore
+    | Gt, Eq, _, Gt -> `AdjacentAfter
+    *)
+    | Lt, _, _, Lt -> `Before
+    | Gt, _, _, Gt -> `After
 
   let contains (x : t) (y : t) =
     let open Ordering in

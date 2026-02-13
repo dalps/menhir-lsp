@@ -250,23 +250,33 @@ module Cmt = struct
     | Cmt : {
         range : Range.t;
         c : Lexer.comment;
-        last_parent : 'a Located.located option;
+        last_parent : 'a Located.located option ref;
       }
         -> t
 
   let of_lexer_comment (c : Lexer.comment) : t =
-    Cmt { c; range = Range.of_lexical_positions c.p; last_parent = None }
+    Cmt { c; range = Range.of_lexical_positions c.p; last_parent = ref None }
 
-  let with_parent (Cmt c : t) parent : t =
-    Cmt { c with last_parent = Some parent }
+  let with_parent (Cmt c : t) parent : t = Cmt { c with last_parent = parent }
 
   let compare (Cmt c1) (Cmt c2) =
     Range.compare c1.range c2.range |> Ordering.to_int
+
+  let show (Cmt cmt) = spr "%s%s" cmt.c.v (Range.show cmt.range)
 end
 
 module LastParent = CCMap.Make (Cmt)
 module Cmts = CCSet.Make (Cmt)
 open PPrint
+open Located
+
+(* let iter_located grammar range : 'a located option =
+  let v =
+    object
+      inherit [_] Syntax.syntax_map
+    end
+  in
+  v#visit_lexer_definition () grammar *)
 
 let attach_comments grammar ~notify_back ~doc =
   let bag_of_comments : Cmts.t ref =
@@ -276,47 +286,54 @@ let attach_comments grammar ~notify_back ~doc =
   let only_comments rng : bool =
     try
       let text = Utils.substring doc rng |> Option.get in
-      log_info ~notify_back "text inbewtixt: %s" text;
       text |> Lexing.from_string |> Comments.main;
       true
     with _ ->
-      log_info ~notify_back "bad range!";
+      log_info ~notify_back "Bad range!";
       false
+  in
+  let show_loc ~doc loc =
+    let range_loc = Range.of_lexical_positions loc.p in
+    spr "%s%s"
+      (Utils.substring doc range_loc |> O.get_string)
+      (Range.show range_loc)
   in
   let v =
     object
-      inherit [_] Syntax.syntax_map
+      inherit [_] Syntax.syntax_endo
 
       method! visit_located visit_v env located =
         let range_loc = Range.of_lexical_positions located.p in
+        let parent_ref = ref (Some located) in
         let ok_comments =
           !bag_of_comments
           |> Cmts.filter_map (fun (Cmt cmt as c) ->
               let open Range in
-              log_info ~notify_back "comment vs located node: %s <= %s"
-                (show cmt.range) (show range_loc);
-              match
-                Position.
-                  ( compare cmt.range.start range_loc.start,
-                    compare cmt.range.end_ range_loc.end_ )
-              with
-              | Lt, Lt
+              log_info ~notify_back
+                "Seeing if comment `%s` can be directly attached to node: ```\n\
+                 %s\n\
+                 ```"
+                (Cmt.show c) (show_loc ~doc located);
+              match Range.compare_inclusion cmt.range range_loc with
+              | `Before
                 when only_comments
                        (Range.create ~start:cmt.range.end_ ~end_:range_loc.start)
                 ->
-                  log_info ~notify_back
-                    "Appending comment `%s` comes to node `%s`." cmt.c.v
-                    (Utils.substring doc range_loc |> O.get_string);
+                  log_info ~notify_back "* Yes, prepending.";
                   Some (Cmt cmt)
-              (* | (Eq | Gt), (Eq | Lt) -> *)
-              | Lt, Lt ->
-                  (* The comment is contained: remember this node in case the comment never gets picked. *)
+              | `Contained ->
+                  (* The comment comes way before or is contained: remember this node in case the comment is never picked up by the previous case. *)
                   (* cmt.last_parent <- Some located; nope *)
+                  log_info ~notify_back
+                    "* No, but it is contained in the node, so I'll remember \
+                     this node as its parent.";
                   bag_of_comments :=
-                    Cmts.add (Cmt.with_parent c located)
+                    Cmts.add (Cmt.with_parent c parent_ref)
                     @@ Cmts.remove c !bag_of_comments;
                   None
-              | _ -> None)
+              | _ ->
+                  log_info ~notify_back "* No.";
+                  None)
         in
         bag_of_comments := Cmts.diff !bag_of_comments ok_comments;
         let comment =
@@ -324,7 +341,9 @@ let attach_comments grammar ~notify_back ~doc =
           |> L.map (fun (Cmt.Cmt cmt) -> cmt.c)
           |> O.some
         in
-        { (Located.map (visit_v env) located) with comment }
+        let located' = { (Located.map (visit_v env) located) with comment } in
+        parent_ref := Some located';
+        located'
     end
   in
 
@@ -333,13 +352,14 @@ let attach_comments grammar ~notify_back ~doc =
   log_info ~notify_back "There are %d comments left in the bag."
     (Cmts.cardinal !bag_of_comments);
   Cmts.iter
-    (fun (Cmt { last_parent; c; _ }) ->
+    (fun (Cmt { last_parent; c; _ } as cmt) ->
+      log_info ~notify_back "Considering comment %s." (Cmt.show cmt);
       O.iter
         (fun (loc : _ Located.located) ->
           log_info ~notify_back "This comment has a parent!";
           loc.comment <-
             O.fold (fun init cs -> cs @ init) [ c ] loc.comment |> O.some)
-        last_parent)
+        !last_parent)
     !bag_of_comments;
   res
 
@@ -388,11 +408,11 @@ let render ~(notify_back : notify_back) ~(doc : Text_document.t) =
           'env 'a. ('a -> document) -> 'a located -> document =
         fun f b -> self#visit_located (fun _ v -> f v) () b
 
-      method private visit_regexp :
-          'env 'a. regular_expression_syntax -> document =
-        fun regexp -> self#visit_regular_expression_syntax () regexp
+      method private visit_regexp : regular_expression_syntax -> document =
+        self#visit_regular_expression_syntax ()
 
-      method private visit_charclass = self#visit_character_class_syntax ()
+      method private visit_charclass : character_class_syntax -> document =
+        self#visit_character_class_syntax ()
 
       (* --------------------------------------- *)
 
@@ -431,7 +451,7 @@ let render ~(notify_back : notify_back) ~(doc : Text_document.t) =
 
       method! visit_named_regexp _ { name; regexp } =
         prefix 2 1
-          (text "let" ^-^ text name.v ^-^ text "=")
+          (text "let" ^-^ self#with_located text name ^-^ text "=")
           (self#with_located self#visit_regexp regexp)
 
       method! visit_entry _ { name; shortest; args; clauses } =
@@ -439,10 +459,12 @@ let render ~(notify_back : notify_back) ~(doc : Text_document.t) =
         prefix 2 1
           (flow space
           @@ [
-               text name.v;
-               nest 2 @@ flow_map (break 1) (Located.value >> text) args;
+               self#with_located text name;
+               nest 2 @@ flow_map (break 1) (self#with_located text) args;
                equals;
-               text (if shortest.v then "shortest" else "parse");
+               self#with_located
+                 ((fun v -> if v then "shortest" else "parse") >> text)
+                 shortest;
              ])
         @@ align barspace
         ^^ separate_map (hardline ^^ barspace) (self#visit_case ()) clauses

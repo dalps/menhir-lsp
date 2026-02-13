@@ -63,12 +63,13 @@ and entry = {
   clauses : (regular_expression_syntax located * action) list;
 }
 
+(* The order of these fields should reflect the position in the concrete syntax. *)
 and lexer_definition = {
   header : action option;
-  entrypoints : entry located list;
-  trailer : action option;
   refill_handler : action option;
   named_regexps : named_regexp located list;
+  entrypoints : entry located list;
+  trailer : action option;
 }
 
 and action = string located
@@ -81,7 +82,9 @@ and 'a located = 'a Located.located = {
 [@@deriving
   visitors { name = "syntax_map"; variety = "map"; polymorphic = true },
   visitors { name = "syntax_reduce"; variety = "reduce"; polymorphic = true },
-  visitors { name = "syntax_iter"; variety = "iter"; polymorphic = true }]
+  visitors { name = "syntax_iter"; variety = "iter"; polymorphic = true },
+  visitors { name = "syntax_endo"; variety = "endo"; polymorphic = true }
+  ]
 
 (* Also tried:
 
