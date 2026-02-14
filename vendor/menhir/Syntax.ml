@@ -39,6 +39,14 @@ type ocamltype = OCamlType.ocamltype =
   | Declared of string located
   | Inferred of string
 
+and attribute = Attribute.attribute = {
+  key : key; [@opaque]
+  payload : payload; [@opaque]
+  origin : Range.range; [@opaque]
+}
+
+and attributes = attribute list
+
 and terminal = string
 (**A terminal symbol. *)
 
@@ -115,7 +123,7 @@ and properties = {
   tk_alias : alias;
       (**A "token alias" can be declared for this terminal symbol. It is
          optional. *)
-  tk_attributes : attributes; [@opaque] [@opaque]
+  tk_attributes : attributes;
       (**The attributes attached with this terminal symbol. *)
   tk_associativity : associativity;
       (**The associativity status of this terminal symbol. *)
@@ -168,7 +176,7 @@ and parameter =
 and parameters = parameter list
 (* -------------------------------------------------------------------------- *)
 
-and producer = (identifier[@opaque]) located * parameter * (attributes[@opaque])
+and producer = identifier located * parameter * attributes
 (**A producer is a pair of identifier and a parameter. In concrete syntax, it
    could be [e = expr], for instance. The identifier [e] is always present. (A
    use of the keyword [$i] in a semantic action is turned by the lexer and
@@ -186,8 +194,7 @@ and parameterized_branch = {
   pb_prec_annotation : prec_annotation;  (**An optional [%prec] annotation. *)
   pb_production_level : production_level; [@opaque]
       (**The branch's production level. *)
-  pb_attributes : attributes; [@opaque]
-      (**The attributes attached with this branch. *)
+  pb_attributes : attributes;  (**The attributes attached with this branch. *)
 }
 (**A branch (the right-hand side of a production) is a sequence of producers
    followed with a semantic action. *)
@@ -200,7 +207,7 @@ and parameterized_rule = {
       (**The name of the nonterminal symbol that is being defined. *)
   (* pr_positions  : ranges; *)
   (* [menhir-lsp] removed pr_positions field in favor of located values. *)
-  pr_attributes : attributes; [@opaque]
+  pr_attributes : attributes;
       (**Attributes attached with this nonterminal symbol. *)
   pr_parameters : symbol located list;
       (**The parameters of this nonterminal symbol. *)
@@ -216,16 +223,14 @@ and parameterized_rule = {
 and declaration =
   | DCode of string located  (**Raw OCaml code. *)
   | DParameter of string located  (**Raw OCaml functor parameter. *)
-  | DToken of
-      ocamltype option * terminal located * alias * (attributes[@opaque])
+  | DToken of ocamltype option * terminal located * alias * attributes
       (**Terminal symbol (token) declaration. *)
   | DStart of nonterminal located  (**Start symbol declaration. *)
   | DTokenProperties of terminal located * associativity * precedence_level
       (**Priority and associativity declaration. *)
   | DType of ocamltype * parameter  (**Type declaration. *)
-  | DGrammarAttribute of (attribute[@opaque])
-      (**Grammar-level attribute declaration. *)
-  | DSymbolAttributes of parameter list * (attributes[@opaque])
+  | DGrammarAttribute of attribute  (**Grammar-level attribute declaration. *)
+  | DSymbolAttributes of parameter list * attributes
       (**Attributes shared among multiple symbols, i.e., [%attribute]. *)
   | DOnErrorReduce of parameter * on_error_reduce_level
       (**On-error-reduce declaration. *)
@@ -235,7 +240,8 @@ and partial_grammar = {
   pg_filename : filename;
   pg_declarations : declaration located list;
   pg_rules : parameterized_rule located list;
-  pg_postlude : string located option; (* [menhir-lsp] moved down. The comment-attaching logic is sensible to the order of these fields. *)
+  pg_postlude : string located option;
+      (* [menhir-lsp] moved down. The comment-attaching logic is sensible to the order of these fields. *)
 }
 (**A partial grammar. (Only before joining.) *)
 

@@ -315,7 +315,7 @@ let make_action pos1 pos2 monsters dollars producers =
   (* Construct a fragment. *)
   let fragment = locate (Range.make (pos1, pos2)) content in
   (* Add parentheses to delimit the semantic action. *)
-  let fragment = Located.parenthesize fragment in
+  (* let fragment = Located.parenthesize fragment in *) (* [menhir-lsp] Don't. *)
   (* Build a semantic action. *)
   Action.make !priority ids keywords (IL.ETextual fragment)
 
@@ -623,6 +623,7 @@ rule main = parse
 
 (* Skip C style comments. *)
 
+(* [menhir-lsp] modified to store comment's words. *)
 and comment openingrange = parse
 | newline
     { comment_buffer#store_lexeme lexbuf;
@@ -814,7 +815,7 @@ and ocamlcomment openingrange = parse
 | '"'
     { comment_buffer#store_lexeme lexbuf; (* The opening dquote *)
       record_string (Range.current lexbuf) (Buffer.create 16) lexbuf |>
-      comment_buffer#store_string;
+      comment_buffer#store_string; (* [menhir-lsp] Used [record_string] instead of the original [string]. *)
       comment_buffer#store_lexeme lexbuf; (* The closing dquote *)
       ocamlcomment openingrange lexbuf }
 | "'"
