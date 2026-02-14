@@ -233,9 +233,9 @@ and declaration =
 
 and partial_grammar = {
   pg_filename : filename;
-  pg_postlude : string located option;
   pg_declarations : declaration located list;
   pg_rules : parameterized_rule located list;
+  pg_postlude : string located option; (* [menhir-lsp] moved down. The comment-attaching logic is sensible to the order of these fields. *)
 }
 (**A partial grammar. (Only before joining.) *)
 

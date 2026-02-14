@@ -414,6 +414,46 @@ let directives =
     "on_error_reduce", ON_ERROR_REDUCE;
   ]
 
+(* ------------------------------------------------------------------------ *)
+
+(* [menhir-lsp] Comments. *)
+
+class lexeme_buffer = object (self)
+  val string_buffer = Buffer.create 256
+
+  (* To store the position of the beginning of a string and comment *)
+  val string_start_loc = ref Lexing.dummy_pos
+
+  method set_start_loc lexbuf = string_start_loc := Lexing.lexeme_start_p lexbuf
+
+  method reset_string_buffer () = Buffer.reset string_buffer
+  method get_stored_string () = Buffer.contents string_buffer
+
+  method store_string_char c = Buffer.add_char string_buffer c
+  method store_string_utf_8_uchar u = Buffer.add_utf_8_uchar string_buffer u
+  method store_string s = Buffer.add_string string_buffer s
+  method store_substring s ~pos ~len = Buffer.add_substring string_buffer s pos len
+
+  method store_lexeme lexbuf = self#store_string (Lexing.lexeme lexbuf)
+
+  method store_normalized_newline newline =
+    (* OCamlformat: We preserve the line endings in string literals. *)
+    self#store_string newline
+end
+
+type comment = string located
+
+let comment_buffer = new lexeme_buffer
+
+let comments : comment list ref = ref []
+
+let store_comment c = 
+  comments := c :: !comments
+  
+let get_comments () = List.rev !comments
+
+let init () =
+  comments := []
 }
 
 (* ------------------------------------------------------------------------ *)
@@ -518,15 +558,29 @@ rule main = parse
       let id = Printf.sprintf "\"%s\"" content in
       let range = Range.make (Range.startp openingrange, lexbuf.lex_curr_p) in
       QID (locate range id) }
-| "//" [^ '\010' '\013']* newline (* skip C++ style comment *)
+| ("//" [^ '\010' '\013']* as cmt) newline (* skip C++ style comment *)
+    { store_comment (locate (Range.current lexbuf) cmt);
+      new_line lexbuf; main lexbuf }
 | newline
     { new_line lexbuf; main lexbuf }
 | whitespace+
     { main lexbuf }
 | "/*"
-    { comment (Range.current lexbuf) lexbuf; main lexbuf }
+    { comment_buffer#reset_string_buffer ();
+      comment_buffer#store_lexeme lexbuf;
+      let startp = Lexing.lexeme_start_p lexbuf in
+      let endp = comment (Range.current lexbuf) lexbuf  in
+      let c = comment_buffer#get_stored_string () in
+      store_comment (locate (startp, endp) c);
+      main lexbuf }
 | "(*"
-    { ocamlcomment (Range.current lexbuf) lexbuf; main lexbuf }
+    { comment_buffer#reset_string_buffer ();
+      comment_buffer#store_lexeme lexbuf;
+      let startp = Lexing.lexeme_start_p lexbuf in
+      let endp = ocamlcomment (Range.current lexbuf) lexbuf in
+      let c = comment_buffer#get_stored_string () in
+      store_comment (locate (startp, endp) c);
+      main lexbuf }
 | "<"
     { savestart lexbuf (angled (Range.current lexbuf)) }
 | "%{"
@@ -571,13 +625,17 @@ rule main = parse
 
 and comment openingrange = parse
 | newline
-    { new_line lexbuf; comment openingrange lexbuf }
+    { comment_buffer#store_lexeme lexbuf;
+      new_line lexbuf;
+      comment openingrange lexbuf }
 | "*/"
-    { () }
+    { comment_buffer#store_lexeme lexbuf;
+      Lexing.lexeme_end_p lexbuf }
 | eof
     { blame openingrange "unterminated comment." }
 | _
-    { comment openingrange lexbuf }
+    { comment_buffer#store_lexeme lexbuf;
+      comment openingrange lexbuf }
 
 (* ------------------------------------------------------------------------ *)
 
@@ -596,7 +654,7 @@ and angled openingrange = parse
       let fragment = fragment openingpos closingpos in
       ANGLED fragment }
 | "(*"
-    { ocamlcomment (Range.current lexbuf) lexbuf;
+    { ocamlcomment (Range.current lexbuf) lexbuf |> ignore;
       angled openingrange lexbuf }
 | newline
     { new_line lexbuf; angled openingrange lexbuf }
@@ -647,7 +705,7 @@ and action percent openingrange monsters = parse
     { char lexbuf;
       action percent openingrange monsters lexbuf }
 | "(*"
-    { ocamlcomment (Range.current lexbuf) lexbuf;
+    { ocamlcomment (Range.current lexbuf) lexbuf |> ignore;
       action percent openingrange monsters lexbuf }
 | newline
     { new_line lexbuf;
@@ -689,7 +747,7 @@ and parentheses openingrange monsters = parse
 | "'"
     { char lexbuf; parentheses openingrange monsters lexbuf }
 | "(*"
-    { ocamlcomment (Range.current lexbuf) lexbuf;
+    { ocamlcomment (Range.current lexbuf) lexbuf |> ignore;
       parentheses openingrange monsters lexbuf }
 | newline
     { new_line lexbuf;
@@ -725,7 +783,7 @@ and attribute openingrange = parse
 | "'"
     { char lexbuf; attribute openingrange lexbuf }
 | "(*"
-    { ocamlcomment (Range.current lexbuf) lexbuf;
+    { ocamlcomment (Range.current lexbuf) lexbuf |> ignore;
       attribute openingrange lexbuf }
 | newline
     { new_line lexbuf;
@@ -747,22 +805,32 @@ and attribute openingrange = parse
 
 and ocamlcomment openingrange = parse
 | "*)"
-    { () }
+    { comment_buffer#store_lexeme lexbuf;
+      Lexing.lexeme_end_p lexbuf }
 | "(*"
-    { ocamlcomment (Range.current lexbuf) lexbuf;
+    { comment_buffer#store_lexeme lexbuf;
+      ocamlcomment (Range.current lexbuf) lexbuf |> ignore;
       ocamlcomment openingrange lexbuf }
 | '"'
-    { string (Range.current lexbuf) lexbuf;
+    { comment_buffer#store_lexeme lexbuf; (* The opening dquote *)
+      record_string (Range.current lexbuf) (Buffer.create 16) lexbuf |>
+      comment_buffer#store_string;
+      comment_buffer#store_lexeme lexbuf; (* The closing dquote *)
       ocamlcomment openingrange lexbuf }
 | "'"
-    { char lexbuf; ocamlcomment openingrange lexbuf }
+    { comment_buffer#store_lexeme lexbuf; (* ' *)
+      char lexbuf;
+      comment_buffer#store_lexeme lexbuf; (* _' *)
+      ocamlcomment openingrange lexbuf }
 | newline
     { new_line lexbuf;
+      comment_buffer#store_lexeme lexbuf;
       ocamlcomment openingrange lexbuf }
 | eof
     { blame openingrange "unterminated OCaml comment." }
 | _
-    { ocamlcomment openingrange lexbuf }
+    { comment_buffer#store_lexeme lexbuf;
+      ocamlcomment openingrange lexbuf }
 
 (* ------------------------------------------------------------------------ *)
 
