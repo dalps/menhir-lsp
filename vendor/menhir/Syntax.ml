@@ -96,7 +96,7 @@ and precedence_level =
 and production_level = ProductionLevel of (InputFile.file[@opaque]) * int
 
 and prec_annotation =
-  symbol located located option (* [menhir-lsp] double-located *)
+  symbol located located option (* [menhir-lsp] doubly-located *)
 (**A [%prec] annotation is optional. A production can carry at most one. If
    there is one, it is a symbol name. See [ParserAux]. *)
 
