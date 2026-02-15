@@ -177,17 +177,18 @@ let document_symbols ({ grammar = { pg_rules; _ }; tokens; _ } : state) :
        ~selectionRange:range
        ~detail:(O.get_or ~default:"" t.v.alias)
        ())
-    @ let+ { v = rule; _ } = pg_rules in
-      let range = Range.of_lexical_positions rule.pr_nt.p in
+    @ let+ { v = rule; p; _ } = pg_rules in
+      let range = Range.of_lexical_positions p in
+      let selectionRange = Range.of_lexical_positions p in
       DocumentSymbol.create ~kind:SymbolKind.Function ~name:rule.pr_nt.v ~range
-        ~selectionRange:range
+        ~selectionRange
         ~children:
           (let* { v = branch; _ } = rule.pr_branches in
            let* { v = binder, par, _; _ } = branch.pb_producers in
            let range = Range.of_lexical_positions binder.p in
            match
              let open CCParse in
-             parse_string (char '_' *> U.int) binder.v
+             parse_string ((char '_' <|> char '$') *> U.int) binder.v
            with
            (* don't show positional binders *)
            | Ok _ -> []

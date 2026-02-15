@@ -74,12 +74,12 @@ let rec as_cset = function
 %%
 
 lexer_definition:
-    header = header? named_regexps_l = located(named_regexp)* refill_handler = refill_handler? "rule" definitions = separated_list("and", definition) 
+    header = header? named_regexps_l = located(named_regexp)* refill_handler = refill_handler? d0 = definition("rule") ds = definition("and")*
     trailer = header? "EOF"
         { let v = {
             header;
             refill_handler;
-            entrypoints = definitions;
+            entrypoints = d0 :: ds;
             trailer;
             named_regexps = named_regexps_l
         } in
@@ -100,13 +100,14 @@ refill_handler:
       "refill" a = Taction { a }
 
 (* [menhir-lsp] located name and args. *)
-definition:
-    name = located(Tident) args = list(located(Tident)) "=" shortest = located(parse_or_shortest) clauses = entry
+(* [opening] is one of "rule" or "and". *)
+definition(opening):
+    opening name = located(Tident) args = list(located(Tident)) "=" shortest = located(parse_or_shortest) clauses = entry
     { locate $loc {name ; shortest ; args ; clauses} }
 
-parse_or_shortest:
-    "parse"     { true }
-  | "shortest"  { false }
+%inline parse_or_shortest:
+    "parse"     { false }
+  | "shortest"  { true }
 
 entry:
     option("|") l = separated_nonempty_list("|", case) { l }

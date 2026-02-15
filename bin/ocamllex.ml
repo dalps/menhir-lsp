@@ -75,10 +75,11 @@ let load_state_from_contents (_filename : string) (contents : string) :
 
 let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
   L.(
-    let+ { v = entry; _ } = grammar.entrypoints in
-    let range = Range.of_lexical_positions entry.name.p in
+    let+ { v = entry; p; _ } = grammar.entrypoints in
+    let range = Range.of_lexical_positions p in
+    let selectionRange = Range.of_lexical_positions p in
     DocumentSymbol.create ~kind:Function ~name:entry.name.v ~range
-      ~selectionRange:range
+      ~selectionRange
       ~children:
         (entry.clauses
         |> flat_map_i (fun _i (regexp, _) ->
@@ -92,10 +93,11 @@ let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
                   ~name:binder.v ~range ~selectionRange:range ()))
       ())
   @ L.map
-      (fun ({ v = { name; _ }; _ } : named_regexp located) ->
-        let range = Range.of_lexical_positions name.p in
-        DocumentSymbol.create ~kind:Property ~name:name.v ~range
-          ~selectionRange:range ())
+      (fun ({ v = { name; _ }; p; _ } : named_regexp located) ->
+        let range = Range.of_lexical_positions p in
+        let selectionRange = Range.of_lexical_positions p in
+        DocumentSymbol.create ~kind:Property ~name:name.v ~range ~selectionRange
+          ())
       grammar.named_regexps
 
 let diagnostics _ = []
