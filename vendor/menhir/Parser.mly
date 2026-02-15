@@ -43,6 +43,7 @@ let inject (e : symbol_expression located) : expression =
 let locate' locs v =
   locate (Range.make locs) v
 
+let singleton x = [ x ]
 %}
 
 /* ------------------------------------------------------------------------- */
@@ -109,7 +110,7 @@ let locate' locs v =
 %type <ParserAux.early_production> production
 %start <Syntax.partial_grammar> grammar
 
-%type <Syntax.declaration located list> declaration
+%type <Syntax.declaration located list> declaration (* [menhir-lsp] removed [list] *)
 
 /* ------------------------------------------------------------------------- */
 /* Priorities. */
@@ -166,47 +167,35 @@ grammar:
 declaration:
 
 | h = HEADER /* lexically delimited by %{ ... %} */
-    { [ locate' $loc (DCode h) ] }
+    { locate' $loc @@ DCode h |> singleton }
 
 | TOKEN ty = ocamltype? ts = clist(terminal_alias_attrs)
-    { List.map (Located.map (fun (terminal, alias, attrs) ->
-        DToken (ty, terminal, alias, attrs)
-      )) ts }
+    { locate' $loc @@ DToken (ty, ts) |> singleton } (* [menhir-lsp] Turned into a singleton. *)
 
 | START t = ocamltype? nts = clist(nonterminal)
     /* %start <ocamltype> foo is syntactic sugar for %start foo %type <ocamltype> foo */
-    {
-      match t with
-      | None ->
-          List.map (fun nonterminal -> locate $loc @@ DStart nonterminal) nts
-      | Some t ->
-         let dstart nt = locate $loc @@ DStart nt
-         and dtype ntloc = (fun _nt -> locate $loc @@ DType (t, ParamVar ntloc)) ntloc in (* ugly/weird *)
-         List.map dstart nts @
-         List.map dtype nts
-    }
+    (* [menhir-lsp] desugared. *)
+    { locate' $loc @@ DStart (t, nts) |> singleton }
 
 | TYPE t = ocamltype ss = clist(strict_actual)
-    { List.map (Located.map (fun nt -> DType (t, nt)))
-        (List.map Parameter.locate ss) }
+    { locate' $loc @@ DType (t, (List.map Parameter.locate ss)) |> singleton }
 
 | k = priority_keyword ss = clist(symbol)
     { let prec = ParserAux.new_precedence_level $loc(k) in
-      List.map ((fun symbol -> locate $loc @@ DTokenProperties (symbol, k, prec))) ss }
+      locate' $loc @@ DTokenProperties (ss, k, prec) |> singleton }
 
 | PARAMETER t = ANGLED
-    { [ locate' $loc (DParameter t) ] }
+    { locate' $loc @@ DParameter t |> singleton }
 
 | attr = GRAMMARATTRIBUTE
-    { [ locate' $loc (DGrammarAttribute attr) ] }
+    { locate' $loc @@ DGrammarAttribute attr |> singleton }
 
 | PERCENTATTRIBUTE actuals = clist(strict_actual) attrs = ATTRIBUTE+
-    { [ locate' $loc (DSymbolAttributes (actuals, attrs)) ] }
+    { locate' $loc @@ DSymbolAttributes (actuals, attrs) |> singleton }
 
 | ON_ERROR_REDUCE ss = clist(strict_actual)
     { let prec = ParserAux.new_on_error_reduce_level() in
-      List.map (Located.map (fun nt -> DOnErrorReduce (nt, prec)))
-        (List.map Parameter.locate ss) }
+      locate' $loc @@ DOnErrorReduce ((List.map Parameter.locate ss), prec) |> singleton }
 
 | SEMI
     { [] }

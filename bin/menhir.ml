@@ -33,18 +33,20 @@ let process_symbols : partial_grammar -> symbol located list =
   let v =
     object
       inherit [_] ast_reduce as super
-      method zero = []
+      method zero : symbol located list = []
       method plus = ( @ )
 
       method! visit_DToken =
-        fun _ _option terminal alias _attributes ->
-          O.iter (fun a -> Hashtbl.add aliases a.v terminal.v) alias;
-          [ terminal ]
+        fun _ _option ts ->
+          ts
+          |> L.map (fun { v = terminal, alias, _attributes; _ } ->
+              O.iter (fun a -> Hashtbl.add aliases a.v terminal.v) alias;
+              terminal)
 
       method! visit_DTokenProperties =
-        fun _ terminal _associativity _precedence_level -> [ terminal ]
+        fun _ ts _associativity _precedence_level -> ts
 
-      method! visit_DStart = fun _ nonterminal -> [ nonterminal ]
+      method! visit_DStart = fun _ _ nts -> nts
 
       method! visit_ParamVar =
         fun _ sym ->
@@ -77,19 +79,19 @@ let process_symbols : partial_grammar -> symbol located list =
 let load_state_from_partial_grammar (grammar : partial_grammar) =
   let symbols = process_symbols grammar in
   let tokens : tokens =
-    List.filter_map
+    L.flat_map
       (function
-        | ({ p; v = DToken (ocamltype, terminal, alias, _attributes); _ } :
-            declaration located) ->
-            locate p
-              {
-                ocamltype;
-                terminal = terminal.v;
-                alias = O.map Located.value alias;
-                _attributes;
-              }
-            |> O.some
-        | _ -> None)
+        | { v = DToken (ocamltype, ts); _ } ->
+            ts
+            |> L.map @@ Located.map
+               @@ fun (terminal, alias, _attributes) ->
+               {
+                 ocamltype;
+                 terminal = terminal.v;
+                 alias = O.map Located.value alias;
+                 _attributes;
+               }
+        | _ -> [])
       grammar.pg_declarations
   in
   { grammar; tokens; symbols }
@@ -319,8 +321,7 @@ let references (state : state) ~uri ~(pos : Position.t) : Location.t list =
         state.symbols))
   |> O.to_list |> L.flatten
 
-let definition (state : state) ~uri ~(pos : Position.t) :
-    Locations.t =
+let definition (state : state) ~uri ~(pos : Position.t) : Locations.t =
   let mk_location locs = `Location locs in
   let open O in
   mk_location @@ to_list
@@ -359,7 +360,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         match v with
         | DCode { p; _ }
         | DType (Declared { p; _ }, _)
-        | DToken (Some (Declared { p; _ }), _, _, _)
+        | DToken (Some (Declared { p; _ }), _)
         | DParameter { p; _ } ->
             let range = Range.of_lexical_positions p in
             if pos_inside range then Some (merlin_compls ()) else None

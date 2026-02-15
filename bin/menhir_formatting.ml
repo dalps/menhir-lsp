@@ -14,8 +14,8 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
   let _ = (notify_back, doc) in
   object (self)
     inherit [_] ast_reduce as super
-    method zero = empty
-    method plus = ( ^^ )
+    method zero : document = empty
+    method plus : document -> document -> document = ( ^^ )
 
     method private with_located :
         'env 'a. ('a -> document) -> 'a located -> document =
@@ -42,14 +42,17 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
     method! visit_DTokenProperties =
       fun _ located associativity _precedence_level ->
         super#visit_associativity () associativity
-        ^-^ self#visit_loctext located
+        ^-^ separate_map (break 1) (self#visit_loctext) located
 
     method! visit_NonAssoc _ = text "%nonassoc"
     method! visit_LeftAssoc _ = text "%left"
     method! visit_RightAssoc _ = text "%right"
 
     method! visit_DStart =
-      fun _ located -> prefix 2 1 (text "%start") (self#visit_loctext located)
+      fun _ ocamltype located ->
+        prefix 2 1 (text "%start")
+          (optional (self#visit_ocamltype ()) ocamltype
+          ^-^ flow_map (break 1) self#visit_loctext located)
 
     method! visit_DCode =
       fun _ located ->
@@ -59,7 +62,9 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
       fun _ ocamltype parameter ->
         prefix 2 1 (text "%type")
           (self#visit_ocamltype () ocamltype
-          ^-^ super#visit_parameter () parameter)
+          ^-^ flow_map (break 1)
+                (self#with_located @@ super#visit_parameter ())
+                parameter)
 
     method! visit_ParamAnonymous =
       fun _ ->
@@ -77,14 +82,20 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
              rparen
 
     method! visit_DToken =
-      fun _ ocamltype name alias attributes ->
+      fun _ ocamltype data ->
         prefix 2 1 (text "%token")
         @@ flow (break 1)
              [
                optional (self#visit_ocamltype ()) ocamltype;
-               self#with_located (self#visit_terminal ()) name;
-               self#visit_alias () alias;
-               self#visit_attributes () attributes;
+               data
+               |> flow_map (break 1)
+                    (self#with_located (fun (name, alias, attributes) ->
+                         flow (break 1)
+                           [
+                             self#with_located (self#visit_terminal ()) name;
+                             self#visit_alias () alias;
+                             self#visit_attributes () attributes;
+                           ]));
              ]
 
     method! visit_ocamltype =
@@ -94,7 +105,10 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
     method! visit_Declared = self#visit_terminal >> self#with_located
     method! visit_Inferred = self#visit_terminal
     method! visit_alias _ = optional @@ self#visit_loctext
-    method private visit_loctext = self#with_located text
+
+    method private visit_loctext : string located -> document =
+      self#with_located text
+
     method! visit_terminal _ = text
     method! visit_nonterminal _ = text
     method! visit_identifier _ = text

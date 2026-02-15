@@ -223,16 +223,18 @@ and parameterized_rule = {
 and declaration =
   | DCode of string located  (**Raw OCaml code. *)
   | DParameter of string located  (**Raw OCaml functor parameter. *)
-  | DToken of ocamltype option * terminal located * alias * attributes
+  | DToken of
+      ocamltype option * (terminal located * alias * attributes) located list
       (**Terminal symbol (token) declaration. *)
-  | DStart of nonterminal located  (**Start symbol declaration. *)
-  | DTokenProperties of terminal located * associativity * precedence_level
+  | DStart of ocamltype option * nonterminal located list
+      (**Start symbol declaration. *)
+  | DTokenProperties of terminal located list * associativity * precedence_level
       (**Priority and associativity declaration. *)
-  | DType of ocamltype * parameter  (**Type declaration. *)
+  | DType of ocamltype * parameter located list  (**Type declaration. *)
   | DGrammarAttribute of attribute  (**Grammar-level attribute declaration. *)
   | DSymbolAttributes of parameter list * attributes
       (**Attributes shared among multiple symbols, i.e., [%attribute]. *)
-  | DOnErrorReduce of parameter * on_error_reduce_level
+  | DOnErrorReduce of parameter located list * on_error_reduce_level
       (**On-error-reduce declaration. *)
 (* -------------------------------------------------------------------------- *)
 
