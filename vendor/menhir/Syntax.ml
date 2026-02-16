@@ -351,3 +351,42 @@ type rule = {
 }
 (**The type [rule] in the new rule syntax corresponds roughly to the type
    [parameterized_rule] in the old rule syntax. *)
+
+(* [menhir-lsp] Tried to organize declarations. This could be done in the parser directly. *)
+module DBuckets = struct
+  type bucket = declaration located list
+
+  (* The order of these fields determines their order in which they are printed out. *)
+  and t = {
+    dCode : bucket;
+    dParameter : bucket;
+    dToken : bucket;
+    dStart : bucket;
+    dType : bucket;
+    dTokenProperties : bucket;
+    dGrammarAttribute : bucket;
+    dSymbolAttributes : bucket;
+    dOnErrorReduce : bucket;
+  }
+  [@@deriving
+    visitors
+      {
+        name = "buckets_reduce";
+        variety = "reduce";
+        polymorphic = true;
+        ancestors = [ "ast_reduce" ];
+      }]
+
+  let init : t =
+    {
+      dCode = [];
+      dParameter = [];
+      dToken = [];
+      dStart = [];
+      dTokenProperties = [];
+      dType = [];
+      dGrammarAttribute = [];
+      dSymbolAttributes = [];
+      dOnErrorReduce = [];
+    }
+end

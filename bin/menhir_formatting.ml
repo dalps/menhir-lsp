@@ -15,7 +15,7 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
   object (self)
     inherit [_] ast_reduce as super
     method zero : document = empty
-    method plus : document -> document -> document = ( ^^ )
+    method plus = ( ^^ )
 
     method private with_located :
         'env 'a. ('a -> document) -> 'a located -> document =
@@ -29,20 +29,54 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
 
     method! visit_partial_grammar =
       fun _ { pg_postlude = _; pg_declarations; pg_rules; _ } ->
-        separate_map
-          (hardline ^^ break 1)
-          (self#with_located (super#visit_declaration ()))
-          pg_declarations
+        self#visit_declarations pg_declarations
         //// text "%%"
         //// separate_map
                (hardline ^^ break 1)
                (self#with_located (self#visit_parameterized_rule ()))
                pg_rules
 
+    method private visit_declarations (decls : declaration located list) :
+        document =
+      let open DBuckets in
+      (* ugly *)
+      let buckets =
+        L.fold_left
+          (fun (acc : DBuckets.t) (d : declaration located) ->
+            match d.v with
+            | DCode _ -> { acc with dCode = d :: acc.dCode }
+            | DParameter _ -> { acc with dParameter = d :: acc.dParameter }
+            | DToken _ -> { acc with dToken = d :: acc.dToken }
+            | DStart _ -> { acc with dStart = d :: acc.dStart }
+            | DTokenProperties _ ->
+                { acc with dTokenProperties = d :: acc.dTokenProperties }
+            | DType _ -> { acc with dType = d :: acc.dType }
+            | DGrammarAttribute _ ->
+                { acc with dGrammarAttribute = d :: acc.dGrammarAttribute }
+            | DSymbolAttributes _ ->
+                { acc with dSymbolAttributes = d :: acc.dSymbolAttributes }
+            | DOnErrorReduce _ ->
+                { acc with dOnErrorReduce = d :: acc.dOnErrorReduce })
+          DBuckets.init decls
+      in
+      let v =
+        object
+          inherit [_] buckets_reduce
+          method zero : document = empty
+          method plus = ( //// )
+
+          method! visit_bucket _ =
+            List.rev
+            >> separate_map hardline
+                 (self#with_located (super#visit_declaration ()))
+        end
+      in
+      v#visit_t () buckets
+
     method! visit_DTokenProperties =
       fun _ located associativity _precedence_level ->
         super#visit_associativity () associativity
-        ^-^ separate_map (break 1) (self#visit_loctext) located
+        ^-^ separate_map (break 1) self#visit_loctext located
 
     method! visit_NonAssoc _ = text "%nonassoc"
     method! visit_LeftAssoc _ = text "%left"

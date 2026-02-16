@@ -432,7 +432,11 @@ module PPrint = struct
   (** A smarter [flow_map] that doesn't prepend [sep] to empty documents. *)
   let flow_map sep f docs =
     L.foldi
-      (fun accu i doc -> if i = 0 then f doc else accu ^^ group (sep ^! f doc))
+      (fun accu i doc ->
+        let doc' = f doc in
+        if i = 0 then doc'
+        else if is_empty accu then doc'
+        else accu ^^ group (sep ^! doc'))
       empty docs
 
   let flow sep = flow_map sep (fun x -> x)
