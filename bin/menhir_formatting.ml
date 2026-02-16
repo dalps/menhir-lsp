@@ -23,7 +23,7 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
 
     method! visit_located visit_v env ({ comment; _ } as located) =
       let comments =
-        optional (separate_map hardline (Located.value >> text)) comment
+        optional (separate_map (twice hardline) (Located.value >> text)) comment
       in
       group @@ (comments // super#visit_located visit_v env located)
 
@@ -41,8 +41,9 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
       let open DBuckets in
       (* ugly *)
       let buckets =
-        L.fold_left
-          (fun (acc : DBuckets.t) (d : declaration located) ->
+        L.fold_right
+          (fun (d : declaration located) (acc : DBuckets.t) ->
+            (* used destruct + multiline editing here *)
             match d.v with
             | DCode _ -> { acc with dCode = d :: acc.dCode }
             | DParameter _ -> { acc with dParameter = d :: acc.dParameter }
@@ -57,7 +58,7 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
                 { acc with dSymbolAttributes = d :: acc.dSymbolAttributes }
             | DOnErrorReduce _ ->
                 { acc with dOnErrorReduce = d :: acc.dOnErrorReduce })
-          DBuckets.init decls
+          decls DBuckets.init
       in
       let v =
         object
@@ -66,9 +67,8 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
           method plus = ( //// )
 
           method! visit_bucket _ =
-            List.rev
-            >> separate_map hardline
-                 (self#with_located (super#visit_declaration ()))
+            separate_map hardline
+              (self#with_located (super#visit_declaration ()))
         end
       in
       v#visit_t () buckets
@@ -101,16 +101,16 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
                 parameter)
 
     method! visit_ParamAnonymous =
-      fun _ ->
-        self#with_located
-          (flow_map (text " | ")
-             (self#with_located (self#visit_parameterized_branch ())))
+      fun _ brances ->
+        ifflat empty barspace
+        ^^ self#with_located self#visit_rule_branches brances
 
     method! visit_ParamVar = fun _ located -> self#visit_loctext located
 
     method! visit_ParamApp =
       fun _ located parameters ->
-        self#visit_loctext located
+        self#visit_loctext
+          located (* ^^ align --- only if subtree is ParamAnon *)
         ^^ surround 2 0 lparen
              (separate_map (text ",") (self#visit_parameter ()) parameters)
              rparen
@@ -170,19 +170,24 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
             pr_parameters;
             pr_branches;
           } ->
-        prefix 2 1
-          (if_ pr_public ~then_:(text "%public")
-          ^-^ if_ pr_inline ~then_:(text "%inline")
-          ^-^ self#visit_loctext pr_nt
-          ^^ self#visit_rule_args pr_parameters
-          ^^ colon)
-          (separate_map (break 1)
-             (self#with_located @@ self#visit_parameterized_branch ())
-             pr_branches)
-        ^-^ self#visit_attributes () pr_attributes
+        (if_ pr_public ~then_:(text "%public")
+        ^-^ if_ pr_inline ~then_:(text "%inline")
+        ^-^ self#visit_loctext pr_nt
+        ^^ self#visit_rule_args pr_parameters
+        ^^ colon)
+        ^^ nest 2
+             (hardline ^^ twice space
+             ^^ self#visit_rule_branches pr_branches
+             ^/^ self#visit_attributes () pr_attributes)
 
     method private visit_rule_args =
       surround_separate_map 2 0 empty lparen (break 1) rparen self#visit_loctext
+
+    method private visit_rule_branches branches =
+      separate_map
+        (break 1 ^^ barspace)
+        (self#with_located (self#visit_parameterized_branch ()))
+        branches
 
     method! visit_parameterized_branch =
       fun _
@@ -193,13 +198,17 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
             pb_production_level = _;
             pb_attributes;
           } ->
-        prefix 2 1 bar
-        @@ separate_map (blank 1)
-             (self#with_located (self#visit_producer ()))
-             pb_producers
-        ^-^ self#with_located (self#visit_action ()) pb_action
-        ^-^ self#visit_prec_annotation () pb_prec_annotation
-        ^-^ self#visit_attributes () pb_attributes
+        nest 2
+        @@ prefix 2 1
+             (flow_map (break 1)
+                (self#with_located (self#visit_producer ()))
+                pb_producers)
+        @@ separate (break 1)
+             [
+               self#with_located (self#visit_action ()) pb_action;
+               self#visit_prec_annotation () pb_prec_annotation;
+               self#visit_attributes () pb_attributes;
+             ]
 
     method! visit_action _ Action.{ expr; _ } =
       let content =
