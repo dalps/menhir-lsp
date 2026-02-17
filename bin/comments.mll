@@ -1,16 +1,17 @@
-rule main = parse
-    [' ' '\013' '\009' '\012' ] +
-    { main lexbuf }
-  | '\010'
-    { Lexing.new_line lexbuf;
-      main lexbuf }
+rule main allow_newlines = parse
+    [' ' '\r' '\t' '\012' ] +
+    { main allow_newlines lexbuf }
+  | '\n'
+    { if not allow_newlines then failwith "newline";
+      Lexing.new_line lexbuf;
+      main allow_newlines lexbuf }
   | "#" [' ' '\t']* (['0'-'9']+) [' ' '\t']*
-    ('\"' ([^ '\010' '\013' '\"']*) '\"')?
-    [^ '\010' '\013']* '\013'* '\010'
-    { main lexbuf }
+    ('\"' ([^ '\n' '\r' '\"']*) '\"')?
+    [^ '\n' '\r']* '\r'* '\n'
+    { main allow_newlines lexbuf }
   | "(*"
     { comment 0 lexbuf;
-      main lexbuf }
+      main allow_newlines lexbuf }
   | eof { () }
   | _ { failwith "not a comment" }
 
@@ -19,7 +20,7 @@ and comment depth = parse
   | "*)" { if depth > 0 then comment (depth - 1) lexbuf }
   | eof
     { failwith "unterminated comment" }
-  | '\010'
+  | '\n'
     { Lexing.new_line lexbuf;
       comment depth lexbuf }
   | _

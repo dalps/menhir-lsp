@@ -16,7 +16,6 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
     inherit [_] syntax_reduce as super
     method zero = empty
     method plus = ( ^^ )
-    method text = string
 
     (* --------------------------------------- *)
     (* Shorthands with unit environments. *)
@@ -33,12 +32,8 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
 
     (* --------------------------------------- *)
 
-    (* Comments may only appear before located syntax nodes. *)
-    method! visit_located visit_v env ({ comment; _ } as located) =
-      let comments =
-        optional (separate_map hardline (Located.value >> text)) comment
-      in
-      group @@ (comments // super#visit_located visit_v env located)
+    method! visit_located visit_v env =
+      render_located (super#visit_located visit_v env)
 
     (* --------------------------------------- *)
 
@@ -87,9 +82,10 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
       ^^ separate_map (hardline ^^ barspace) (self#visit_case ()) clauses
 
     method visit_case _ (regexp, action) =
-      prefix 2 1
-        (self#with_located self#visit_regexp regexp)
-        (self#visit_action () action)
+      nest 2
+      @@ self#with_located self#visit_regexp regexp
+      ^/^ nest 2
+      @@ self#visit_action () action
 
     method! visit_Wildcard _ = self#with_located (fun _ -> text "_")
     method! visit_EOF _ = self#with_located (fun _ -> text "eof")
@@ -130,7 +126,7 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
     method! visit_Group _ =
       self#with_located (function
         | Group re -> self#visit_Group () re (* already grouped *)
-        | re -> surround 2 1 lparen (self#visit_regexp re) rparen)
+        | re -> surround 2 0 lparen (self#visit_regexp re) rparen)
 
     method! visit_As _ re ident =
       (* To get a better idea of what is being captured, we could surround alternation and sequences with parens. *)

@@ -13,7 +13,10 @@ open Range
 type 'a located =
 { p : range; v : 'a; mutable comment: comments }
 
-and comments = string located list option
+and comments = comment list option
+
+and comment = {text: string; relpos: [ `Before | `After ]}
+
 
 let[@inline] locate ?comment p v =
   { p; v; comment }

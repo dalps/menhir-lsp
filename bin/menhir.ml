@@ -538,7 +538,7 @@ let format (state : state) ~notify_back ~(doc : Text_document.t)
   let attach_vtor =
     object
       inherit [_] Syntax.ast_endo
-      method! visit_located = visit_located ~bag_of_comments ~notify_back ~doc
+      method! visit_located = visit_attach ~bag_of_comments ~notify_back ~doc
     end
   in
   attach_comments state.grammar

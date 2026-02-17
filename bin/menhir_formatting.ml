@@ -21,11 +21,8 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
         'env 'a. ('a -> document) -> 'a located -> document =
       fun f b -> self#visit_located (fun _ v -> f v) () b
 
-    method! visit_located visit_v env ({ comment; _ } as located) =
-      let comments =
-        optional (separate_map (twice hardline) (Located.value >> text)) comment
-      in
-      group @@ (comments // super#visit_located visit_v env located)
+    method! visit_located visit_v env =
+      render_located (super#visit_located visit_v env)
 
     method! visit_partial_grammar =
       fun _ { pg_postlude = _; pg_declarations; pg_rules; _ } ->
@@ -181,7 +178,9 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
              ^/^ self#visit_attributes () pr_attributes)
 
     method private visit_rule_args =
-      surround_separate_map 2 0 empty lparen (break 1) rparen self#visit_loctext
+      surround_separate_map 2 0 empty lparen
+        (comma ^^ break 1)
+        rparen self#visit_loctext
 
     method private visit_rule_branches branches =
       separate_map

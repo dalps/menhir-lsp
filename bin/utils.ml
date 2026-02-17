@@ -429,9 +429,8 @@ module PPrint = struct
   (** Append [sep] to [d] if [d] is nonempty. *)
   let ( !^ ) d sep = d <!> d ^^ sep
 
-  (** A smarter [flow_map] that doesn't insert [sep] if either side is empty. *)
-  let separae_map sep f docs =
-    L.fold_left (fun accu doc -> between sep accu (f doc)) empty docs
+  (** A smarter [separate_map] that doesn't insert [sep] if either side is empty. *)
+  let separate_map sep f docs = L.fold_left (fun accu -> f >> between sep accu) empty docs
 
   let separate sep = separate_map sep (fun x -> x)
 
