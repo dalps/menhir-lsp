@@ -26,7 +26,7 @@ export function activate(context: vscode.ExtensionContext) {
   };
 
   let outputChannel = vscode.window.createOutputChannel(
-    "Menhir Language Server"
+    "Menhir Language Server",
   );
 
   const clientOptions: LanguageClientOptions = {
@@ -36,9 +36,7 @@ export function activate(context: vscode.ExtensionContext) {
       { scheme: "file", language: "ocaml.ocamllex" },
     ],
     synchronize: {
-      fileEvents: vscode.workspace.createFileSystemWatcher(
-        "**/*.conflicts"
-      ),
+      fileEvents: vscode.workspace.createFileSystemWatcher("**/*.conflicts"),
     },
   };
 
@@ -46,7 +44,7 @@ export function activate(context: vscode.ExtensionContext) {
     "menhir-lsp-client",
     "Menhir VS Code Client",
     serverOptions,
-    clientOptions
+    clientOptions,
   );
 
   let command = `which ${serverName}`;
@@ -61,13 +59,13 @@ export function activate(context: vscode.ExtensionContext) {
     let install = await vscode.window.showErrorMessage(
       `[Menhir] The package ${serverName} is required but not installed. Would you like to install automatically it with opam?`,
       `Install ${serverName}`,
-      "Cancel"
+      "Cancel",
     );
 
     if (install === undefined || install === "Cancel") return;
 
     vscode.window.showInformationMessage(
-      `[Menhir] Installing ${serverName}. Please reload the window once the installation completes to activate client.`
+      `[Menhir] Installing ${serverName}. Please reload the window once the installation completes to activate client.`,
     );
 
     let opamInstallCmd = `opam install ${serverName}`;
@@ -79,7 +77,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   vscode.commands.registerCommand(
     "menhir-lsp-client.showOutput",
-    outputChannel.show
+    outputChannel.show,
   );
 
   // vscode.commands.registerCommand("menhir-lsp-client.restartClient", () => {
@@ -94,7 +92,7 @@ export function activate(context: vscode.ExtensionContext) {
       term: string,
       range: Range,
       rawUri: DocumentUri,
-      occurrences: Range[]
+      occurrences: Range[],
     ) => {
       let input = await vscode.window.showInputBox({
         prompt: "Enter the unquoted alias",
@@ -111,7 +109,7 @@ export function activate(context: vscode.ExtensionContext) {
       occurrences.forEach((r) => w.replace(uri, liftRange(r), `"${input}"`));
 
       vscode.workspace.applyEdit(w);
-    }
+    },
   );
 
   // vscode.window.showInformationMessage("Starting Menhir Client...");
@@ -122,7 +120,7 @@ const liftRange = (r: Range): vscode.Range => {
 
   return new vscode.Range(
     new vscode.Position(start.line, start.character),
-    new vscode.Position(end.line, end.character)
+    new vscode.Position(end.line, end.character),
   );
 };
 

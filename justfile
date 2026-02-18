@@ -9,6 +9,14 @@ watch:
 install: build
     dune install
 
+publish:
+    opam publish .
+
+bump version: build
+    git tag -a {{ version }}
+    git push origin {{ version }}
+    gh release create
+
 # 1. check if tag arg is valid
 # 2. upload the executable
 upload-binary tag:
