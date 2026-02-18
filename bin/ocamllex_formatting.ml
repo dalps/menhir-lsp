@@ -39,7 +39,12 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
 
     method! visit_action _ =
       self#with_located (fun v ->
-          surround 2 1 lbrace (v |> String.trim |> text) rbrace)
+          let v =
+            match Ocamlformat_client.format (String.trim v) with
+            | Ok formatted -> formatted
+            | Error _ -> v
+          in
+          surround 2 1 lbrace (v |> String.trim |> arbitrary_string) rbrace)
 
     method! visit_lexer_definition _ lexer_definition =
       let { header; entrypoints; trailer; refill_handler; named_regexps } =

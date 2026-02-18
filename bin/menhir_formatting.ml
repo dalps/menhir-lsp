@@ -213,8 +213,11 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
       let content =
         match expr with
         | IL.ETextual located ->
-            log_info ~notify_back "action text: %s" located.v;
-            self#with_located (fun v -> v |> String.trim |> text) located
+            self#with_located
+              (fun v ->
+                Ocamlformat_client.format v
+                |> R.get_or ~default:v |> String.trim |> arbitrary_string)
+              located
         | _ -> text ""
       in
       surround 2 1 lbrace content rbrace
