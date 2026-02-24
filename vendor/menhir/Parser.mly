@@ -276,12 +276,12 @@ symbol:
 /* A rule is expressed either in the traditional (yacc-style) syntax or in
    the new syntax. */
 
-%inline rule:
-  old_rule
-    { $1 }
-| new_rule
-    /* The new syntax is converted on the fly to the old syntax. */
-    { locate $loc @@ NewRuleSyntax.rule $1 }
+let rule ==
+  ~ = old_rule;
+    <Old>
+| ~ = new_rule;
+    /* The new syntax is converted on the fly to the old syntax. */ (* [menhir-lsp] Not anymore! *)
+    <New>
 
 /* ------------------------------------------------------------------------- */
 /* A rule defines a symbol. It is optionally declared %public, and optionally
@@ -499,7 +499,7 @@ new_rule:
   rule_formals    = plist(symbol)
   rule_inline     = equality_symbol
   rule_rhs        = expression
-    {{
+    { locate $loc {
        rule_public;
        rule_inline;
        rule_lhs;

@@ -219,6 +219,71 @@ and parameterized_rule = {
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
 
+(**The new rule syntax. *)
+(**In the user's eyes, the new rule syntax replaces (or complements) the old
+   rule syntax, which corresponds to the types [parameter], [producer],
+   [parameterized_branch], and [parameterized_rule] above. *)
+(**Internally, the new rule syntax is translated down to the old rule syntax;
+   see the module [NewRuleSyntax]. This is done on the fly during parsing. *)
+
+(**A pattern. See the manual. *)
+and pattern =
+  | SemPatVar of identifier located
+  | SemPatWildcard
+  | SemPatTilde of (range[@opaque])
+  | SemPatTuple of pattern list
+
+and raw_action =
+  ([ `DollarsDisallowed | `DollarsAllowed ] -> identifier option array -> action
+  [@opaque])
+(**The ugly type [raw_action] is produced by the lexer for an [ACTION] token. *)
+
+and expression = choice_expression located
+(**A toplevel expression is a choice expression. *)
+
+(**A choice expression is a list of branches. *)
+and choice_expression = EChoice of branch list
+
+(**A branch is a sequence expression and an ugly [production_level]. *)
+and branch = Branch of seq_expression * production_level
+
+and seq_expression = raw_seq_expression located
+
+(**A sequence is either a cons [p = e1; e2] or a lone symbol expression [e] or a
+   semantic action. *)
+and raw_seq_expression =
+  | ECons of pattern * symbol_expression * seq_expression
+  | ESingleton of symbol_expression
+  | EAction of extended_action * prec_annotation * attributes
+
+(**A symbol expression is a symbol, possibly accompanied with actual parameters
+   and attributes. *)
+and symbol_expression =
+  | ESymbol of symbol located * expression list * attributes
+
+(**A semantic action is either traditional { ... } or point-free.
+   There are two forms of point-free actions, <> and <id>.
+   In the latter case, [id] is an OCaml identifier. *)
+and extended_action =
+  | XATraditional of (raw_action[@opaque])
+  | XAPointFree of string located option
+
+and new_rule = {
+  rule_public : bool;  (**Is the [%public] keyword present? *)
+  rule_inline : bool;  (**Is the [%inline] keyword present? *)
+  rule_lhs : symbol located;
+      (**The name of the nonterminal symbol that is being defined. *)
+  rule_attributes : attributes;
+      (**Attributes attached with this nonterminal symbol. *)
+  rule_formals : symbol located list;
+      (**The parameters of this nonterminal symbol. *)
+  rule_rhs : expression;  (**The productions. *)
+}
+(**The type [rule] in the new rule syntax corresponds roughly to the type
+   [parameterized_rule] in the old rule syntax. *)
+
+and rule = Old of parameterized_rule located | New of new_rule located
+
 (**A declaration. (Only before joining.) *)
 and declaration =
   | DCode of string located  (**Raw OCaml code. *)
@@ -241,7 +306,7 @@ and declaration =
 and partial_grammar = {
   pg_filename : filename;
   pg_declarations : declaration located list;
-  pg_rules : parameterized_rule located list;
+  pg_rules : rule list;
   pg_postlude : string located option;
       (* [menhir-lsp] moved down. The comment-attaching logic is sensible to the order of these fields. *)
 }
@@ -284,73 +349,6 @@ type grammar = {
    %on_error_reduce, grammar attributes, %attributes. 4. rules are stored in a
    map, indexed by symbol names, instead of a list. 5. token aliases have been
    replaced with ordinary named terminal symbols. *)
-
-(* -------------------------------------------------------------------------- *)
-(* -------------------------------------------------------------------------- *)
-
-(**The new rule syntax. *)
-
-(**In the user's eyes, the new rule syntax replaces (or complements) the old
-   rule syntax, which corresponds to the types [parameter], [producer],
-   [parameterized_branch], and [parameterized_rule] above. *)
-
-(**Internally, the new rule syntax is translated down to the old rule syntax;
-   see the module [NewRuleSyntax]. This is done on the fly during parsing. *)
-
-(**A pattern. See the manual. *)
-type pattern =
-  | SemPatVar of identifier located
-  | SemPatWildcard
-  | SemPatTilde of range
-  | SemPatTuple of pattern list
-
-type raw_action =
-  [ `DollarsDisallowed | `DollarsAllowed ] -> identifier option array -> action
-(**The ugly type [raw_action] is produced by the lexer for an [ACTION] token. *)
-
-type expression = choice_expression located
-(**A toplevel expression is a choice expression. *)
-
-(**A choice expression is a list of branches. *)
-and choice_expression = EChoice of branch list
-
-(**A branch is a sequence expression and an ugly [production_level]. *)
-and branch = Branch of seq_expression * production_level
-
-and seq_expression = raw_seq_expression located
-
-(**A sequence is either a cons [p = e1; e2] or a lone symbol expression [e] or a
-   semantic action. *)
-and raw_seq_expression =
-  | ECons of pattern * symbol_expression * seq_expression
-  | ESingleton of symbol_expression
-  | EAction of extended_action * prec_annotation * attributes
-
-(**A symbol expression is a symbol, possibly accompanied with actual parameters
-   and attributes. *)
-and symbol_expression =
-  | ESymbol of symbol located * expression list * attributes
-
-(**A semantic action is either traditional { ... } or point-free.
-   There are two forms of point-free actions, <> and <id>.
-   In the latter case, [id] is an OCaml identifier. *)
-and extended_action =
-  | XATraditional of raw_action
-  | XAPointFree of string located option
-
-type rule = {
-  rule_public : bool;  (**Is the [%public] keyword present? *)
-  rule_inline : bool;  (**Is the [%inline] keyword present? *)
-  rule_lhs : symbol located;
-      (**The name of the nonterminal symbol that is being defined. *)
-  rule_attributes : attributes;
-      (**Attributes attached with this nonterminal symbol. *)
-  rule_formals : symbol located list;
-      (**The parameters of this nonterminal symbol. *)
-  rule_rhs : expression;  (**The productions. *)
-}
-(**The type [rule] in the new rule syntax corresponds roughly to the type
-   [parameterized_rule] in the old rule syntax. *)
 
 (* [menhir-lsp] Tried to organize declarations. This could be done in the parser directly. *)
 module DBuckets = struct

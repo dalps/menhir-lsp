@@ -468,7 +468,7 @@ and productions (e : expression) : parameterized_branch located list =
 
 (* Converting a new rule to an old rule. *)
 
-let rule (rule : rule) : parameterized_rule =
+let rule (rule : new_rule) : parameterized_rule =
   {
     pr_public = rule.rule_public;
     pr_inline = rule.rule_inline;

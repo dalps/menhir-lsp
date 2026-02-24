@@ -28,10 +28,7 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
       fun _ { pg_postlude = _; pg_declarations; pg_rules; _ } ->
         self#visit_declarations pg_declarations
         //// text "%%"
-        //// separate_map
-               (hardline ^^ break 1)
-               (self#with_located (self#visit_parameterized_rule ()))
-               pg_rules
+        //// separate_map (hardline ^^ break 1) (self#visit_rule ()) pg_rules
 
     method private visit_declarations (decls : declaration located list) :
         document =
