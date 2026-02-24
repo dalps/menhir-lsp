@@ -9,6 +9,13 @@ include Comment_location.Make (struct
   include Range
 end)
 
+(* let v =
+  object
+    inherit [_] Syntax.ast_reduce
+    method zero : document = empty
+    method plus = ( ^^ )
+  end *)
+
 class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
   let open Syntax in
   let _ = (notify_back, doc) in
@@ -97,7 +104,7 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
     method! visit_ParamAnonymous =
       fun _ brances ->
         ifflat empty barspace
-        ^^ self#with_located self#visit_rule_branches brances
+        ^^ self#with_located self#visit_old_rule_branches brances
 
     method! visit_ParamVar = fun _ located -> self#visit_loctext located
 
@@ -154,8 +161,8 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
     method! visit_attribute _ ({ key; payload; _ } : Attribute.attribute) =
       enclose lbracket rbracket (at ^^ text key ^-^ text payload)
 
-    method! visit_parameterized_rule =
-      fun visit_branches env
+    method! visit_old_rule =
+      fun _
           {
             pr_public;
             pr_inline;
@@ -171,7 +178,7 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
         ^^ colon)
         ^^ nest 2
              (hardline ^^ twice space
-             ^^ visit_branches env pr_branches
+             ^^ self#visit_old_rule_branches pr_branches
              ^/^ self#visit_attributes () pr_attributes)
 
     method private visit_rule_args =
@@ -179,7 +186,7 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
         (comma ^^ break 1)
         rparen self#visit_loctext
 
-    method private visit_rule_branches branches =
+    method private visit_old_rule_branches branches =
       separate_map
         (break 1 ^^ barspace)
         (self#with_located (self#visit_parameterized_branch ()))
@@ -222,4 +229,67 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
     method! visit_prec_annotation _ =
       optional @@ fun p ->
       text "%prec" ^-^ self#with_located self#visit_loctext p
+
+    method! visit_new_rule =
+      fun _
+          {
+            pr_public;
+            pr_inline;
+            pr_nt;
+            pr_attributes;
+            pr_parameters;
+            pr_branches;
+          } ->
+        (if_ pr_public ~then_:(text "%public")
+        ^-^ text "let"
+        ^-^ (self#visit_loctext pr_nt ^^ self#visit_rule_args pr_parameters)
+        ^-^ if_ pr_inline ~then_:(text "==") ~else_:(text ":="))
+        ^^ nest 2
+             (hardline ^^ twice space
+             ^^ self#visit_expression () pr_branches
+             ^/^ self#visit_attributes () pr_attributes)
+
+    method! visit_SemPatTilde _ _ = tilde
+    method! visit_SemPatWildcard _ = underscore
+    method! visit_SemPatTuple _ = separate_map comma (self#visit_pattern ())
+    method! visit_SemPatVar _ = self#visit_loctext
+
+    method! visit_XAPointFree _ a =
+      surround 2 0 langle (optional self#visit_loctext a) rangle
+
+    method! visit_XATraditional _ _a =
+      (* self#visit_action () (a `DollarsDisallowed [||]) *)
+      (* raises Invalid_argument *)
+      text "{ action }"
+
+    method! visit_EChoice _ branches =
+      separate_map
+        (break 1 ^^ barspace)
+        ((* self#with_located *) self#visit_branch ())
+        branches
+
+    method! visit_ECons _ pattern symbol_expression seq_expression =
+      flow (break 1)
+        [
+          self#visit_pattern () pattern;
+          equals;
+          self#visit_symbol_expression () symbol_expression;
+          semi;
+          self#visit_seq_expression () seq_expression;
+        ]
+
+    method! visit_EAction _ extended_action prec_annotation attributes =
+      flow (break 1)
+        [
+          self#visit_extended_action () extended_action;
+          self#visit_prec_annotation () prec_annotation;
+          self#visit_attributes () attributes;
+        ]
+
+    method! visit_ESymbol _ located list attributes =
+      self#visit_loctext located (* ^^ align --- only if subtree is ParamAnon *)
+      ^^ surround 2 0 lparen
+           (separate_map (text ",") (self#visit_expression ()) list)
+           rparen
+      ^/^ self#visit_attributes () attributes
   end
