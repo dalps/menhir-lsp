@@ -155,7 +155,7 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
       enclose lbracket rbracket (at ^^ text key ^-^ text payload)
 
     method! visit_parameterized_rule =
-      fun _
+      fun visit_branches env
           {
             pr_public;
             pr_inline;
@@ -171,7 +171,7 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
         ^^ colon)
         ^^ nest 2
              (hardline ^^ twice space
-             ^^ self#visit_rule_branches pr_branches
+             ^^ visit_branches env pr_branches
              ^/^ self#visit_attributes () pr_attributes)
 
     method private visit_rule_args =

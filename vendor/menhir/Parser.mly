@@ -492,20 +492,20 @@ postlude:
    give rise to a shift/reduce conflict that we would not be able to solve. */
 
 new_rule:
-| rule_public     = boption(PUBLIC)
+| pr_public     = boption(PUBLIC)
   LET
-  rule_lhs        = LID
-  rule_attributes = ATTRIBUTE*
-  rule_formals    = plist(symbol)
-  rule_inline     = equality_symbol
-  rule_rhs        = expression
+  pr_nt           = LID
+  pr_attributes   = ATTRIBUTE*
+  pr_parameters   = plist(symbol)
+  pr_inline       = equality_symbol
+  pr_branches     = expression
     { locate $loc {
-       rule_public;
-       rule_inline;
-       rule_lhs;
-       rule_attributes;
-       rule_formals;
-       rule_rhs;
+       pr_public;
+       pr_inline;
+       pr_nt;
+       pr_attributes;
+       pr_parameters;
+       pr_branches;
     }}
 
 /* A new rule is written [let foo := ...] or [let foo == ...].

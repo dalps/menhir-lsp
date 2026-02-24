@@ -200,7 +200,7 @@ and parameterized_branch = {
    followed with a semantic action. *)
 (* -------------------------------------------------------------------------- *)
 
-and parameterized_rule = {
+and 'branches parameterized_rule = {
   pr_public : bool;  (**Is the [%public] keyword present? *)
   pr_inline : bool;  (**Is the [%inline] keyword present? *)
   pr_nt : nonterminal located;
@@ -211,7 +211,7 @@ and parameterized_rule = {
       (**Attributes attached with this nonterminal symbol. *)
   pr_parameters : symbol located list;
       (**The parameters of this nonterminal symbol. *)
-  pr_branches : parameterized_branch located list;  (**The productions. *)
+  pr_branches : 'branches;  (**The productions. *)
 }
 (**A rule is the definition of a nonterminal symbol.
 
@@ -268,21 +268,11 @@ and extended_action =
   | XATraditional of (raw_action[@opaque])
   | XAPointFree of string located option
 
-and new_rule = {
-  rule_public : bool;  (**Is the [%public] keyword present? *)
-  rule_inline : bool;  (**Is the [%inline] keyword present? *)
-  rule_lhs : symbol located;
-      (**The name of the nonterminal symbol that is being defined. *)
-  rule_attributes : attributes;
-      (**Attributes attached with this nonterminal symbol. *)
-  rule_formals : symbol located list;
-      (**The parameters of this nonterminal symbol. *)
-  rule_rhs : expression;  (**The productions. *)
-}
-(**The type [rule] in the new rule syntax corresponds roughly to the type
-   [parameterized_rule] in the old rule syntax. *)
+and new_rule = expression parameterized_rule
 
-and rule = Old of parameterized_rule located | New of new_rule located
+and old_rule = parameterized_branch located list parameterized_rule
+
+and rule = Old of old_rule located | New of new_rule located
 
 (**A declaration. (Only before joining.) *)
 and declaration =
@@ -338,7 +328,7 @@ type grammar = {
   p_on_error_reduce : (parameter * on_error_reduce_level) list;
   p_grammar_attributes : attributes;
   p_symbol_attributes : (parameter list * attributes) list;
-  p_rules : parameterized_rule StringMap.t;
+  p_rules : rule StringMap.t;
 }
 (**A grammar. (Only after joining.)
 

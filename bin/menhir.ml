@@ -69,9 +69,9 @@ let process_symbols : partial_grammar -> symbol located list =
           O.(prec_annotation >|= M.Located.value |> to_list)
 
       method! visit_parameterized_rule =
-        fun _ parameterized_rule ->
+        fun v env parameterized_rule ->
           parameterized_rule.pr_nt
-          :: super#visit_parameterized_rule () parameterized_rule
+          :: super#visit_parameterized_rule v env parameterized_rule
     end
   in
   v#visit_partial_grammar ()
@@ -135,10 +135,16 @@ let default_completions ?range:(orange : Range.t option)
                    ~value:(spr "alias for `%s`" t.v.terminal)))
            ())
         |> to_list))
-  @ let+ { v = rule; _ } = grammar.pg_rules in
-    let label = rule.pr_nt.v in
+  @ let+ rule = grammar.pg_rules in
+    let label = match rule with Old r -> r.v.pr_nt.v | New r -> r.v.pr_nt.v in
     let params_o =
-      match rule.pr_parameters with [] -> None | _ -> Some rule.pr_parameters
+      match
+        match rule with
+        | Old r -> r.v.pr_parameters
+        | New r -> r.v.pr_parameters
+      with
+      | [] -> None
+      | ps -> Some ps
     in
     let comp =
       CompletionItem.create ~kind:CompletionItemKind.Function ~label
@@ -177,27 +183,38 @@ let document_symbols ({ grammar = { pg_rules; _ }; tokens; _ } : state) :
        ~selectionRange:range
        ~detail:(O.get_or ~default:"" t.v.alias)
        ())
-    @ let+ { v = rule; p; _ } = pg_rules in
+    @ let+ rule = pg_rules in
+      let p = match rule with Old r -> r.p | New r -> r.p in
       let range = Range.of_lexical_positions p in
       let selectionRange = Range.of_lexical_positions p in
-      DocumentSymbol.create ~kind:SymbolKind.Function ~name:rule.pr_nt.v ~range
-        ~selectionRange
+      DocumentSymbol.create ~kind:SymbolKind.Function
+        ~name:(match rule with Old r -> r.v.pr_nt.v | New r -> r.v.pr_nt.v)
+        ~range ~selectionRange
         ~children:
-          (let* { v = branch; _ } = rule.pr_branches in
-           let* { v = binder, par, _; _ } = branch.pb_producers in
-           let range = Range.of_lexical_positions binder.p in
-           match
-             let open CCParse in
-             parse_string ((char '_' <|> char '$') *> U.int) binder.v
-           with
-           (* don't show positional binders *)
-           | Ok _ -> []
-           | Error _ ->
-               [
-                 DocumentSymbol.create ~kind:SymbolKind.Variable ~name:binder.v
-                   ~range ~selectionRange:range ~detail:(string_of_params par)
-                   ();
-               ])
+          (let v =
+             object
+               inherit [_] Syntax.ast_reduce
+               method zero = []
+               method plus = ( @ )
+
+               method! visit_producer =
+                 fun _ (binder, par, _) ->
+                   let range = Range.of_lexical_positions binder.p in
+                   match
+                     let open CCParse in
+                     parse_string ((char '_' <|> char '$') *> U.int) binder.v
+                   with
+                   (* don't show positional binders *)
+                   | Ok _ -> []
+                   | Error _ ->
+                       [
+                         DocumentSymbol.create ~kind:SymbolKind.Variable
+                           ~name:binder.v ~range ~selectionRange:range
+                           ~detail:(string_of_params par) ();
+                       ]
+             end
+           in
+           v#visit_rule () rule)
         ())
 
 let symbol_at_position (state : state) (pos : Position.t) :
@@ -337,8 +354,9 @@ let definition (state : state) ~uri ~(pos : Position.t) : Locations.t =
        (fun _ -> String.equal t.v.terminal sym.v || t.v.alias = Some sym.v)
        (locate t.p t.v.terminal))
     <|> fun () ->
-    let*? { v = r; _ } = state.grammar.pg_rules in
-    O.if_ (fun _ -> String.equal r.pr_nt.v sym.v) r.pr_nt
+    let*? rule = state.grammar.pg_rules in
+    let pr_nt = match rule with Old r -> r.v.pr_nt | New r -> r.v.pr_nt in
+    O.if_ (fun _ -> String.equal pr_nt.v sym.v) pr_nt
   in
   (* log_info ~notify_back "[Definition] found definition at: %s"
   @@ M.Range.show def.p; *)
@@ -378,36 +396,35 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
   in
   (* If we are inside a semantic action we shall suggest bound variables, position keywords and OCaml symbols *)
   let action_completions () =
-    L.find_map
-      (fun { v = rule; _ } ->
-        L.find_map
-          (fun { v = branch; _ } ->
-            let* action_range =
-              match branch.pb_action.v.expr with
-              | M.IL.ETextual { p; _ } -> Some (Range.of_lexical_positions p)
-              | _ -> None
-            in
-            if pos_inside action_range then
-              Keywords.position_keywords ?range:word_range ()
-              @ (let open L in
-                 let+ { v = binder, par, _; _ } = branch.pb_producers in
-                 let binder =
-                   O.(
-                     CCString.chop_prefix ~pre:"_" binder.v
-                     >|= ( ^ ) "$" |> get_or ~default:binder.v)
-                 in
-                 CompletionItem.create ~kind:Variable
-                   ~detail:(string_of_params par) ~label:binder
-                   ?textEdit:
-                     O.(
-                       let+ range = word_range in
-                       `TextEdit TextEdit.{ newText = binder; range })
-                   ())
-              @ merlin_compls ()
-              |> some
-            else None)
-          rule.pr_branches)
-      grammar.pg_rules
+    let open L in
+    let*? rule = grammar.pg_rules in
+    match rule with
+    | Old r ->
+        let*? { v = branch; _ } = r.v.pr_branches in
+        let open O in
+        let* action_range =
+          match branch.pb_action.v.expr with
+          | M.IL.ETextual { p; _ } -> Some (Range.of_lexical_positions p)
+          | _ -> None
+        in
+        if_ (fun _ -> pos_inside action_range)
+        @@ Keywords.position_keywords ?range:word_range ()
+        @ (let open L in
+           let+ { v = binder, par, _; _ } = branch.pb_producers in
+           let binder =
+             O.(
+               CCString.chop_prefix ~pre:"_" binder.v
+               >|= ( ^ ) "$" |> get_or ~default:binder.v)
+           in
+           CompletionItem.create ~kind:Variable ~detail:(string_of_params par)
+             ~label:binder
+             ?textEdit:
+               O.(
+                 let+ range = word_range in
+                 `TextEdit TextEdit.{ newText = binder; range })
+             ())
+        @ merlin_compls ()
+    | New _ -> None
   in
   let grammar_completions () =
     some
