@@ -13,6 +13,7 @@
   containers
   ordering
   re
-  stdune))
+  stdune
+  ocamlformat-rpc-lib))
 
 (ocamllex comments)

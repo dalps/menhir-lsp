@@ -403,7 +403,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         let*? { v = branch; _ } = r.v.pr_branches in
         let open O in
         let* action_range =
-          match branch.pb_action.v.expr with
+          match branch.pb_action.v with
           | M.IL.ETextual { p; _ } -> Some (Range.of_lexical_positions p)
           | _ -> None
         in

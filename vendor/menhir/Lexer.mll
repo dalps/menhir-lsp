@@ -297,7 +297,7 @@ let transform ofs1 content monsters : string =
 let priority =
   ref 0
 
-let make_action pos1 pos2 monsters dollars producers =
+let _make_action pos1 pos2 monsters dollars producers =
   (* Check that the monsters are well-formed. *)
   List.iter (fun monster -> monster.check dollars producers) monsters;
   (* Gather all of the identifiers that the semantic action may use to refer
@@ -318,6 +318,18 @@ let make_action pos1 pos2 monsters dollars producers =
   (* let fragment = Located.parenthesize fragment in *) (* [menhir-lsp] Don't. *)
   (* Build a semantic action. *)
   Action.make !priority ids keywords (IL.ETextual fragment)
+
+let menhir_lsp_make_action pos1 pos2 monsters =
+  let content = InputFile.chunk (pos1, pos2) in
+  (* Transform the monsters, if there are any. *)
+  let ofs1 = pos1.pos_cnum in
+  let content = transform ofs1 content monsters in
+  (* Construct a fragment. *)
+  let fragment = locate (Range.make (pos1, pos2)) content in
+  (* Add parentheses to delimit the semantic action. *)
+  (* let fragment = Located.parenthesize fragment in *) (* [menhir-lsp] Don't. *)
+  (* Build a semantic action. *)
+  IL.ETextual fragment
 
 (* ------------------------------------------------------------------------ *)
 
@@ -596,7 +608,7 @@ rule main = parse
       let openingrange = Range.current lexbuf in
       let startpos = lexeme_end_p lexbuf in
       let closingpos, monsters = action false openingrange [] lexbuf in
-      ACTION (make_action startpos closingpos monsters)
+      ACTION (menhir_lsp_make_action startpos closingpos monsters)
         (* Partial application: [dollars] and [producers] are supplied by the
            parser once they are available. *)
     }

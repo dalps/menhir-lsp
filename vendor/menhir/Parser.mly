@@ -88,7 +88,7 @@ let singleton x = [ x ]
 %token <string Located.located Lazy.t>
   PERCENTPERCENT   "%%"
 
-%token <Syntax.raw_action>
+%token <Syntax.action> (* [menhir-lsp] This was [raw_action] *)
   ACTION           "{}"
 
 %token <Attribute.attribute>
@@ -356,8 +356,9 @@ production_group:
         let pb_producers : producer located list = ParserAux.normalize_producers producers in
         (* Distribute the semantic action and attributes onto every production.
            Also, check that every [$i] is within bounds. *)
-        let names = ParserAux.producer_names producers in
-        let pb_action = locate action.p @@ action.v !ParserAux.dollars names in
+        (* let names = ParserAux.producer_names producers in
+        let pb_action = locate action.p @@ action.v !ParserAux.dollars names in *)
+        let pb_action = action in
         locate' $loc {
           pb_producers;
           pb_action;

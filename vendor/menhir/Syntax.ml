@@ -80,8 +80,9 @@ and identifier = string
 and filename = string
 (**A file name. *)
 
-and action = (Action.t[@opaque])
+and action = (IL.expr[@opaque])
 (**A semantic action. *)
+(* [menhir-lsp] was (Action.t[@opaque]) *)
 
 (**The associativity status of a terminal symbol. *)
 and associativity = LeftAssoc | RightAssoc | NonAssoc | UndefinedAssoc
@@ -217,7 +218,6 @@ and 'branches parameterized_rule = {
 
    A rule has a header and several branches (productions). *)
 (* -------------------------------------------------------------------------- *)
-(* -------------------------------------------------------------------------- *)
 
 (**The new rule syntax. *)
 (**In the user's eyes, the new rule syntax replaces (or complements) the old
@@ -225,6 +225,7 @@ and 'branches parameterized_rule = {
    [parameterized_branch], and [parameterized_rule] above. *)
 (**Internally, the new rule syntax is translated down to the old rule syntax;
    see the module [NewRuleSyntax]. This is done on the fly during parsing. *)
+(** [menhir-lsp] We keep the sugar. *)
 
 (**A pattern. See the manual. *)
 and pattern =
@@ -262,16 +263,15 @@ and symbol_expression =
   | ESymbol of symbol located * expression list * attributes
 
 (**A semantic action is either traditional { ... } or point-free.
-   There are two forms of point-free actions, <> and <id>.
-   In the latter case, [id] is an OCaml identifier. *)
+    There are two forms of point-free actions, <> and <id>.
+    In the latter case, [id] is an OCaml identifier. *)
 and extended_action =
-  | XATraditional of (raw_action[@opaque])
+  | XATraditional of (action[@opaque])
   | XAPointFree of string located option
 
+(* -------------------------------------------------------------------------- *)
 and new_rule = expression parameterized_rule
-
 and old_rule = parameterized_branch located list parameterized_rule
-
 and rule = Old of old_rule located | New of new_rule located
 
 (**A declaration. (Only before joining.) *)

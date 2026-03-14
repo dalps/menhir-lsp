@@ -213,7 +213,7 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
                self#visit_attributes () pb_attributes;
              ]
 
-    method! visit_action _ Action.{ expr; _ } =
+    method! visit_action _ expr =
       let content =
         match expr with
         | IL.ETextual located ->
@@ -257,10 +257,7 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
     method! visit_XAPointFree _ a =
       surround 2 0 langle (optional self#visit_loctext a) rangle
 
-    method! visit_XATraditional _ _a =
-      (* self#visit_action () (a `DollarsDisallowed [||]) *)
-      (* raises Invalid_argument *)
-      text "{ action }"
+    method! visit_XATraditional = self#visit_action
 
     method! visit_EChoice _ branches =
       separate_map
@@ -288,8 +285,11 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
 
     method! visit_ESymbol _ located list attributes =
       self#visit_loctext located (* ^^ align --- only if subtree is ParamAnon *)
-      ^^ surround 2 0 lparen
-           (separate_map (text ",") (self#visit_expression ()) list)
-           rparen
+      ^^ (match list with
+        | [] -> empty
+        | _ :: _ ->
+            surround 2 0 lparen
+              (separate_map comma (self#visit_expression ()) list)
+              rparen)
       ^/^ self#visit_attributes () attributes
   end
