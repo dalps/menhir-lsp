@@ -251,7 +251,10 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
 
     method! visit_SemPatTilde _ _ = tilde
     method! visit_SemPatWildcard _ = underscore
-    method! visit_SemPatTuple _ = separate_map comma (self#visit_pattern ())
+
+    method! visit_SemPatTuple _ =
+      separate_map (text ", ") (self#visit_pattern ()) >> parens
+
     method! visit_SemPatVar _ = self#visit_loctext
 
     method! visit_XAPointFree _ a =
@@ -268,10 +271,10 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
     method! visit_ECons _ pattern symbol_expression seq_expression =
       flow (break 1)
         [
-          self#visit_pattern () pattern;
-          equals;
-          self#visit_symbol_expression () symbol_expression;
-          semi;
+          (match pattern with
+          | SemPatWildcard -> empty
+          | _ -> self#visit_pattern () pattern ^-^ equals);
+          self#visit_symbol_expression () symbol_expression ^^ semi;
           self#visit_seq_expression () seq_expression;
         ]
 
@@ -289,7 +292,7 @@ class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
         | [] -> empty
         | _ :: _ ->
             surround 2 0 lparen
-              (separate_map comma (self#visit_expression ()) list)
+              (separate_map (text ", ") (self#visit_expression ()) list)
               rparen)
       ^/^ self#visit_attributes () attributes
   end

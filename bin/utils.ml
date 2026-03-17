@@ -419,7 +419,8 @@ module PPrint = struct
 
   let ( // ) = between hardline
   let ( //// ) = between (twice hardline)
-  let ( ^-^ ) = between space
+  let ( ^-^ ) = between (blank 1)
+  let ( ^/^ ) = between (break 1)
   let ( <|> ) d e = if is_empty d then e else d
   let ( <!> ) d e = if is_empty d then empty else e
 
@@ -429,8 +430,10 @@ module PPrint = struct
   (** Append [sep] to [d] if [d] is nonempty. *)
   let ( !^ ) d sep = d <!> d ^^ sep
 
-  (** A smarter [separate_map] that doesn't insert [sep] if either side is empty. *)
-  let separate_map sep f docs = L.fold_left (fun accu -> f >> between sep accu) empty docs
+  (** A smarter [separate_map] that doesn't insert [sep] if either side is
+      empty. *)
+  let separate_map sep f docs =
+    L.fold_left (fun accu -> f >> between sep accu) empty docs
 
   let separate sep = separate_map sep (fun x -> x)
 
