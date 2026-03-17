@@ -24,7 +24,7 @@ end
 open Ocamlformat_rpc_lib
 module Ocf = Make (IO)
 
-let log = Format.printf
+let log = Format.eprintf
 
 type close = unit -> unit
 type state = Uninitialized | Running of Ocf.client * close | Errored

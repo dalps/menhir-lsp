@@ -1,5 +1,24 @@
+(executable
+ (name main)
+ (public_name menhirformat)
+ (package menhirformat)
+ (libraries
+  ANSITerminal
+  menhirSyntax
+  ocamllexSyntax
+  ocamlformat-rpc-lib
+  menhir_lsp_lib
+  menhirformat_lib)
+ (modules main))
+
 (library
- (name menhirformat)
- (libraries ANSITerminal menhirSyntax ocamllexSyntax ocamlformat-rpc-lib menhir_lsp_lib))
+ (name menhirformat_lib)
+ (libraries
+  ANSITerminal
+  menhirSyntax
+  ocamllexSyntax
+  ocamlformat-rpc-lib
+  menhir_lsp_lib)
+ (modules utils comment_location comments ocamlformat_client ocamllex menhir))
 
 (ocamllex comments)

@@ -9,9 +9,8 @@ include Comment_location.Make (struct
   include Range
 end)
 
-class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
+class formatter =
   let open Syntax in
-  let _ = (doc, notify_back) in
   object (self)
     inherit [_] syntax_reduce as super
     method zero = empty

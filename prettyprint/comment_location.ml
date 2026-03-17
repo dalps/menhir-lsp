@@ -1,5 +1,7 @@
 open Utils
 
+let log_info = Printf.eprintf
+
 (** This module is responsible for attaching comments to located syntax nodes
     over a generic syntax interface. Every lexed comment must be attached to a
     syntax node, so the latter can be freely moved around by the formatter. *)
@@ -62,29 +64,28 @@ struct
   let init_bag = L.map Cmt.of_lexer_comment >> Bag.of_list >> ref
 
   (** Override the visit_located method with this. *)
-  let visit_attach ~bag_of_comments ~doc ~notify_back visit_v env located =
+  let visit_attach ~bag_of_comments ~doc visit_v env located =
     let range_loc = Range.of_lexical_positions located.p in
     let parent_ref = ref (Some located) in
     let ok_comments =
       !bag_of_comments
       |> Bag.filter_map (fun (Cmt cmt as c) ->
-          log_info ~notify_back
-            "Seeing if comment %s can be directly attached to node: %s"
+          log_info "Seeing if comment %s can be directly attached to node: %s"
             (Cmt.show c) (show_loc ~doc located);
           match Range.compare_inclusion cmt.range range_loc with
           | `Before
             when only_comments ~doc ~allow_newlines:true
                    Range.(create ~start:cmt.range.end_ ~end_:range_loc.start) ->
-              log_info ~notify_back "* Yes, prepending.";
+              log_info "* Yes, prepending.";
               Some (Cmt { cmt with c = { cmt.c with relpos = `Before } })
           | `After
             when only_comments ~doc ~allow_newlines:false
                    Range.(create ~start:range_loc.end_ ~end_:cmt.range.start) ->
-              log_info ~notify_back "* Yes, appending.";
+              log_info "* Yes, appending.";
               Some (Cmt { cmt with c = { cmt.c with relpos = `After } })
           | `Contained ->
               (* The comment comes way before or is contained: remember this node in case the comment is never picked up by the previous case. *)
-              log_info ~notify_back
+              log_info
                 "* No, but it is contained in the node, so I'll remember this \
                  node as its parent.";
               bag_of_comments :=
@@ -92,7 +93,7 @@ struct
                 @@ Bag.remove c !bag_of_comments;
               None
           | _ ->
-              log_info ~notify_back "* No.";
+              log_info "* No.";
               None)
     in
     bag_of_comments := Bag.diff !bag_of_comments ok_comments;
@@ -104,18 +105,17 @@ struct
     located'
 
   (** Starts the attaching process. *)
-  let attach_comments ~bag_of_comments grammar (v : syntax -> syntax)
-      ~notify_back ~doc:_ =
+  let attach_comments ~bag_of_comments grammar (v : syntax -> syntax) ~doc:_ =
     let res = v grammar in
-
-    log_info ~notify_back "There are %d comments left in the bag."
+    log_info
+      "There are %d comments left in the bag. Trying to find a home for them..."
       (Bag.cardinal !bag_of_comments);
     Bag.iter
       (fun (Cmt { last_parent; c; _ } as cmt) ->
-        log_info ~notify_back "Considering comment %s." (Cmt.show cmt);
+        log_info "Considering comment %s." (Cmt.show cmt);
         O.iter
           (fun (loc : _ located) ->
-            log_info ~notify_back "This comment has a parent!";
+            log_info "This comment has a parent!";
             loc.comment <-
               O.fold (fun init cs -> cs @ init) [ c ] loc.comment |> O.some)
           !last_parent)
@@ -124,7 +124,7 @@ struct
 
   (** Comments may appear before or after located syntax nodes. Before comments
       are broken up into individual lines, after comments (line comments) are
-      separated by single spaces. *)
+      laid out on the same line separated by single spaces. *)
   let render_located k ({ comment; _ } as located) : PPrint.document =
     let open PPrint in
     let before_comments, after_comments =
@@ -136,7 +136,6 @@ struct
              | `After -> CCEither.Right text))
         comment
     in
-    group
-    @@ (separate (twice hardline) before_comments // k located)
-    ^-^ separate space after_comments
+    separate (twice hardline) before_comments
+    // (k located ^^ space ^! separate space after_comments)
 end

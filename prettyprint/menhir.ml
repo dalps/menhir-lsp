@@ -9,6 +9,7 @@ include Comment_location.Make (struct
   include Range
 end)
 
+(* Keep this to query the reducer's type. *)
 (* let v =
   object
     inherit [_] Syntax.ast_reduce
@@ -16,9 +17,8 @@ end)
     method plus = ( ^^ )
   end *)
 
-class formatter ~(notify_back : notify_back) ~(doc : Text_document.t) =
+class formatter =
   let open Syntax in
-  let _ = (notify_back, doc) in
   object (self)
     inherit [_] ast_reduce as super
     method zero : document = empty
