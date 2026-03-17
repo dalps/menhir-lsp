@@ -1,0 +1,5 @@
+(library
+ (name menhirformat)
+ (libraries ANSITerminal menhirSyntax ocamllexSyntax ocamlformat-rpc-lib menhir_lsp_lib))
+
+(ocamllex comments)

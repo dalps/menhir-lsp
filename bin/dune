@@ -8,12 +8,11 @@
   merlin-lib.query_commands
   menhirSyntax
   ocamllexSyntax
+  menhirformat
   linol
   linol-lwt
   containers
   ordering
   re
   stdune
-  ocamlformat-rpc-lib))
-
-(ocamllex comments)
+  menhir_lsp_lib))

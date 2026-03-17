@@ -1,5 +1,5 @@
 open Utils
-open Loc
+open M.Located
 open MenhirSyntax
 open Syntax
 module Range = Utils.Range
@@ -549,7 +549,7 @@ let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
 
 let format (state : state) ~notify_back ~(doc : Text_document.t)
     ~options:(_ : FormattingOptions.t) : TextEdit.t list =
-  let open Menhir_formatting in
+  let open Menhirformat.Menhir in
   let buf = Buffer.create 80 in
   let bag_of_comments = init_bag (Lexer.get_comments ()) in
   let attach_vtor =

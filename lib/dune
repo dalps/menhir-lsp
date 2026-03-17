@@ -1,0 +1,3 @@
+(library
+ (name menhir_lsp_lib)
+ (libraries containers linol linol-lwt ordering re))

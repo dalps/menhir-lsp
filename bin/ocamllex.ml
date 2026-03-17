@@ -451,7 +451,7 @@ let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
 
 let format (state : state) ~notify_back ~(doc : Text_document.t)
     ~options:(_ : FormattingOptions.t) : TextEdit.t list =
-  let open Ocamllex_formatting in
+  let open Menhirformat.Ocamllex in
   let buf = Buffer.create 80 in
   let bag_of_comments = Lexer.get_comments () |> init_bag in
   let attach_vtor =
