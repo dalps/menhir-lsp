@@ -31,39 +31,11 @@ let () =
   let open R in
   match Filename.extension !input_file with
   | ".mly" -> (
-      let open Menhirformat_lib.Menhir in
-      let open MenhirSyntax in
       match MenhirSyntax.Main.load_grammar_from_file !input_file with
-      | Ok ast ->
-          let buf = Buffer.create 80 in
-          let bag_of_comments = init_bag (Lexer.get_comments ()) in
-          let attach_vtor =
-            object
-              inherit [_] Syntax.ast_endo
-              method! visit_located = visit_attach ~bag_of_comments ~doc
-            end
-          in
-          attach_comments ast (attach_vtor#visit_main ()) ~bag_of_comments ~doc
-          |> (new formatter)#visit_main ()
-          |> PPrint.ToBuffer.pretty 0.8 80 buf;
-          print_endline @@ Buffer.contents buf
+      | Ok ast -> Menhirformat_lib.Menhir.main ~doc ~ast |> print_endline
       | Error _ -> ())
   | ".mll" -> (
-      let open Menhirformat_lib.Ocamllex in
-      let open OcamllexSyntax in
       match OcamllexSyntax.Main.parse_string text with
-      | Ok ast ->
-          let buf = Buffer.create 80 in
-          let bag_of_comments = Lexer.get_comments () |> init_bag in
-          let attach_vtor =
-            object
-              inherit [_] Syntax.syntax_endo
-              method! visit_located = visit_attach ~bag_of_comments ~doc
-            end
-          in
-          attach_comments ast (attach_vtor#visit_main ()) ~bag_of_comments ~doc
-          |> (new formatter)#visit_main ()
-          |> PPrint.ToBuffer.pretty 0.8 80 buf;
-          print_endline @@ Buffer.contents buf
+      | Ok ast -> Menhirformat_lib.Ocamllex.main ~doc ~ast |> print_endline
       | Error _ -> ())
-  | _ -> prerr_endline "Gimme something to work with now :("
+  | _ -> prerr_endline "Gimme something to work with, c'mon :("

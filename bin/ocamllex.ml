@@ -449,21 +449,7 @@ let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
   in
   Some [ `CodeAction extract_action ]
 
-let format (state : state) ~notify_back:_ ~(doc : Text_document.t)
+let format (state : state) ~(doc : Text_document.t)
     ~options:(_ : FormattingOptions.t) : TextEdit.t list =
-  let open Menhirformat_lib.Ocamllex in
-  let buf = Buffer.create 80 in
-  let bag_of_comments = Lexer.get_comments () |> init_bag in
-  let attach_vtor =
-    object
-      inherit [_] Syntax.syntax_endo
-      method! visit_located = visit_attach ~bag_of_comments ~doc
-    end
-  in
-  attach_comments state.grammar
-    (attach_vtor#visit_main ())
-    ~bag_of_comments ~doc
-  |> (new formatter)#visit_main ()
-  |> PPrint.ToBuffer.pretty 0.8 80 buf;
-  let newText = Buffer.contents buf in
+  let newText = Menhirformat_lib.Ocamllex.main ~doc ~ast:state.grammar in
   [ TextEdit.create ~newText ~range:Range.(whole_document doc) ]

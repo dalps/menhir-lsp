@@ -7,6 +7,8 @@ include Comment_location.Make (struct
 
   include Located
   include Range
+
+  (* let get_comments = Lexer.get_comments *)
 end)
 
 class formatter =
@@ -153,3 +155,18 @@ class formatter =
     method! visit_Range _ c1 c2 =
       self#visit_Character () c1 ^^ minus ^^ self#visit_Character () c2 (**)
   end
+
+(* This should really go in comment_location, but I couldn't figure out how to generalize it over the endo visitor :/ *)
+let main ~ast ~doc =
+  let buf = Buffer.create 80 in
+  let bag_of_comments = Lexer.get_comments () |> init_bag in
+  let attach_vtor =
+    object
+      inherit [_] Syntax.syntax_endo
+      method! visit_located = visit_attach ~bag_of_comments ~doc
+    end
+  in
+  attach_comments ast (attach_vtor#visit_main ()) ~bag_of_comments ~doc
+  |> (new formatter)#visit_main ()
+  |> PPrint.ToBuffer.pretty 0.8 80 buf;
+  Buffer.contents buf

@@ -547,21 +547,7 @@ let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
     res)
   |> O.to_list
 
-let format (state : state) ~notify_back:_ ~(doc : Text_document.t)
+let format (state : state) ~(doc : Text_document.t)
     ~options:(_ : FormattingOptions.t) : TextEdit.t list =
-  let open Menhirformat_lib.Menhir in
-  let buf = Buffer.create 80 in
-  let bag_of_comments = init_bag (Lexer.get_comments ()) in
-  let attach_vtor =
-    object
-      inherit [_] Syntax.ast_endo
-      method! visit_located = visit_attach ~bag_of_comments ~doc
-    end
-  in
-  attach_comments state.grammar
-    (attach_vtor#visit_main ())
-    ~bag_of_comments ~doc
-  |> (new formatter)#visit_main ()
-  |> PPrint.ToBuffer.pretty 0.8 80 buf;
-  let newText = Buffer.contents buf in
+  let newText = Menhirformat_lib.Menhir.main ~doc ~ast:state.grammar in
   [ TextEdit.create ~newText ~range:Range.(whole_document doc) ]
