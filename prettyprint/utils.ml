@@ -29,6 +29,10 @@ module PPrint = struct
   let separate_map sep f docs =
     L.fold_left (fun accu -> f >> between sep accu) empty docs
 
+  (** Indexed [separate_map]. *)
+  let separate_mapi sep f docs =
+    L.foldi (fun accu idx -> f idx >> between sep accu) empty docs
+
   let separate sep = separate_map sep (fun x -> x)
 
   (** A smarter [flow_map] that doesn't insert [sep] if either side is empty. *)

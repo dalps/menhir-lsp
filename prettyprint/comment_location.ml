@@ -1,6 +1,6 @@
 open Utils
 
-let log_info = Printf.eprintf
+let log_info s = Printf.ksprintf prerr_endline s
 
 (** This module is responsible for attaching comments to located syntax nodes
     over a generic syntax interface. Every lexed comment must be attached to a
@@ -10,9 +10,12 @@ module Make (Syntax : sig
 
   type 'a located = { p : range; v : 'a; mutable comment : comments }
   and comments = comment list option
-  and comment = { text : string; relpos : [ `Before | `After ] }
+  and distance = { character : int; line : int }
 
-  (* val get_comments : unit -> string located list *)
+  and comment = {
+    text : string;
+    relpos : [ `Before of distance | `After of distance ];
+  }
 
   type syntax
 end) =
@@ -31,7 +34,7 @@ struct
     let of_lexer_comment (c : string located) : t =
       Cmt
         {
-          c = { text = c.v; relpos = `Before };
+          c = { text = c.v; relpos = `Before { character = 42; line = 0 } };
           range = Range.of_lexical_positions c.p;
           last_parent = ref None;
         }
@@ -63,8 +66,16 @@ struct
 
   let init_bag = L.map Cmt.of_lexer_comment >> Bag.of_list >> ref
 
-  (** Override the visit_located method with this. *)
-  let visit_attach ~bag_of_comments ~doc visit_v env located =
+  (** Override the visit_located method of your endo object with this. *)
+  let visit_attach :
+      'env 'a.
+      bag_of_comments:Bag.t ref ->
+      doc:TD.t ->
+      ('env -> 'a -> 'a) ->
+      'env ->
+      'a located ->
+      'a located =
+   fun ~bag_of_comments ~doc visit_v env located ->
     let range_loc = Range.of_lexical_positions located.p in
     let parent_ref = ref (Some located) in
     let ok_comments =
@@ -72,17 +83,28 @@ struct
       |> Bag.filter_map (fun (Cmt cmt as c) ->
           log_info "Seeing if comment %s can be directly attached to node: %s"
             (Cmt.show c) (show_loc ~doc located);
-          match Range.compare_inclusion cmt.range range_loc with
-          | `Before
-            when only_comments ~doc ~allow_newlines:true
+          let relpos = Range.compare_inclusion cmt.range range_loc in
+          match relpos with
+          | `Before { character; line }
+            when only_comments ~doc ~allow_newlines:`AllowNewlines
                    Range.(create ~start:cmt.range.end_ ~end_:range_loc.start) ->
               log_info "* Yes, prepending.";
-              Some (Cmt { cmt with c = { cmt.c with relpos = `Before } })
-          | `After
-            when only_comments ~doc ~allow_newlines:false
+              Some
+                (Cmt
+                   {
+                     cmt with
+                     c = { cmt.c with relpos = `Before { character; line } };
+                   })
+          | `After { character; line }
+            when only_comments ~doc ~allow_newlines:`DisallowNewlines
                    Range.(create ~start:range_loc.end_ ~end_:cmt.range.start) ->
               log_info "* Yes, appending.";
-              Some (Cmt { cmt with c = { cmt.c with relpos = `After } })
+              Some
+                (Cmt
+                   {
+                     cmt with
+                     c = { cmt.c with relpos = `After { character; line } };
+                   })
           | `Contained ->
               (* The comment comes way before or is contained: remember this node in case the comment is never picked up by the previous case. *)
               log_info
@@ -107,15 +129,15 @@ struct
   (** Starts the attaching process. *)
   let attach_comments ~bag_of_comments grammar (v : syntax -> syntax) ~doc:_ =
     let res = v grammar in
-    log_info
+    (* log_info
       "There are %d comments left in the bag. Trying to find a home for them..."
-      (Bag.cardinal !bag_of_comments);
+      (Bag.cardinal !bag_of_comments); *)
     Bag.iter
-      (fun (Cmt { last_parent; c; _ } as cmt) ->
-        log_info "Considering comment %s." (Cmt.show cmt);
+      (fun (Cmt { last_parent; c; _ } as _cmt) ->
+        (* log_info "Considering comment %s." (Cmt.show cmt); *)
         O.iter
           (fun (loc : _ located) ->
-            log_info "This comment has a parent!";
+            (* log_info "This comment has a parent!"; *)
             loc.comment <-
               O.fold (fun init cs -> cs @ init) [ c ] loc.comment |> O.some)
           !last_parent)
@@ -130,12 +152,37 @@ struct
     let before_comments, after_comments =
       O.map_or ~default:([], [])
         (L.partition_map_either (fun ({ text; relpos } : comment) ->
-             let text = string text in
+             (* let text = string text in *)
              match relpos with
-             | `Before -> CCEither.Left text
-             | `After -> CCEither.Right text))
+             | `Before dist -> CCEither.Left (text, dist)
+             | `After dist -> CCEither.Right (text, dist)))
         comment
     in
-    separate (twice hardline) before_comments
-    // (k located ^^ space ^! separate space after_comments)
+    (* let rest, closest =
+      L.(take_drop (length before_comments - 1) before_comments)
+      |> CCPair.map_snd L.head_opt
+    in *)
+    let n_before = L.(length before_comments) in
+    L.foldi
+      (fun doc idx (text, { character; line }) ->
+        log_info "\nbefore comment %s with distance (%d, %d)" text character
+          line;
+        doc ^^ string text
+        ^^
+        if idx = n_before - 1 then repeat (min 2 line |> max 1) hardline
+        else twice hardline)
+      empty before_comments
+    ^^ k located
+    ^^ L.foldi
+         (fun doc idx (text, { character; line }) ->
+           log_info "\nafter comment %s with distance (%d, %d)" text character
+             line;
+
+           doc
+           ^^ (match (idx, line, character) with
+             | 0, 0, _ -> blank 1 (* inline this, break the rest *)
+             | 0, l, _ -> repeat (min 2 l) hardline
+             | _ -> twice hardline)
+           ^^ string text)
+         empty after_comments
 end

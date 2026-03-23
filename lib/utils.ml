@@ -46,6 +46,7 @@ module C = CCChar
 module Pr = Printf
 module U = CCParse.U
 module Lsp = Linol_lsp.Lsp
+
 (* module Loc = M.Located *)
 module Log = (val Logs.src_log Linol.logs_src)
 include Lsp.Types
@@ -166,8 +167,8 @@ module Range = struct
     | Lt, _, Eq, Lt -> `AdjacentBefore
     | Gt, Eq, _, Gt -> `AdjacentAfter
     *)
-    | Lt, _, _, Lt -> `Before
-    | Gt, _, _, Gt -> `After
+    | Lt, _, _, Lt -> `Before Position.(y.start - x.end_)
+    | Gt, _, _, Gt -> `After Position.(x.start - y.end_)
 
   let contains (x : t) (y : t) =
     let open Ordering in

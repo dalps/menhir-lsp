@@ -15,7 +15,9 @@ type 'a located =
 
 and comments = comment list option
 
-and comment = {text: string; relpos: [ `Before | `After ]}
+and distance = {character: int; line: int}
+
+and comment = {text: string; relpos: [ `Before of distance | `After of distance ]}
 
 
 let[@inline] locate ?comment p v =
