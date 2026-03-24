@@ -235,3 +235,21 @@ let substring doc range =
   let text = TD.text doc in
   if start < 0 || start > end_ || end_ > String.length text then None
   else Some (CCStringLabels.sub text ~pos:start ~len:(end_ - start))
+
+type distance = Position.t = { character : int; line : int }
+type relpos = [ `Before of distance | `After of distance ]
+
+let compare_relpos (r1 : relpos) (r2 : relpos) =
+  match (r1, r2) with
+  | `After d1, `After d2
+  | `Before d1, `After d2
+  | `After d1, `Before d2
+  | `Before d1, `Before d2 ->
+      CCOrd.int (abs d1.line) (abs d2.line)
+
+(* module Relpos = struct
+  type t = { rel : [ `Before | `After ]; distance : Position.t }
+
+  let compare (r1 : t) (r2 : t) =
+    CCOrd.int (abs r1.distance.line) (abs r2.distance.line)
+end *)

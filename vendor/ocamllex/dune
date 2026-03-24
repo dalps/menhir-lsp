@@ -1,6 +1,6 @@
 (library
  (name ocamllexSyntax)
- (libraries menhirLib menhirCST pprint)
+ (libraries menhirLib menhirCST pprint menhir_lsp_lib)
  (preprocess
   (pps visitors.ppx)))
 
