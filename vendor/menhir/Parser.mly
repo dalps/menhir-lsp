@@ -494,13 +494,15 @@ postlude:
 
 new_rule:
 | pr_public     = boption(PUBLIC)
-  LET
+  _tk_let = LET
   pr_nt           = LID
   pr_attributes   = ATTRIBUTE*
   pr_parameters   = plist(symbol)
   pr_inline       = equality_symbol
   pr_branches     = expression
-    { locate $loc {
+    { (* [menhir-lsp] avoid using $loc here *)
+      let startpos = if pr_public then $startpos(pr_public) else $startpos(_tk_let) in
+      locate (startpos, $endpos) {
        pr_public;
        pr_inline;
        pr_nt;

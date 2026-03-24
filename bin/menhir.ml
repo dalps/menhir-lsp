@@ -70,8 +70,14 @@ let process_symbols : partial_grammar -> symbol located list =
 
       method! visit_parameterized_rule =
         fun v env parameterized_rule ->
-          parameterized_rule.pr_nt
-          :: super#visit_parameterized_rule v env parameterized_rule
+          (parameterized_rule.pr_nt :: parameterized_rule.pr_parameters)
+          @ super#visit_parameterized_rule v env parameterized_rule
+
+      (* new syntax visitors *)
+
+      method! visit_ESymbol =
+        fun _ located list _attributes ->
+          located :: L.flat_map (super#visit_expression ()) list
     end
   in
   v#visit_partial_grammar ()
@@ -212,6 +218,13 @@ let document_symbols ({ grammar = { pg_rules; _ }; tokens; _ } : state) :
                            ~name:binder.v ~range ~selectionRange:range
                            ~detail:(string_of_params par) ();
                        ]
+
+               method! visit_SemPatVar =
+                 fun _ binder ->
+                   [
+                     DocumentSymbol.create ~kind:SymbolKind.Variable
+                       ~name:binder.v ~range ~selectionRange:range ();
+                   ]
              end
            in
            v#visit_rule () rule)
