@@ -357,7 +357,7 @@ let definition (state : state) ~uri ~(pos : Position.t) : Locations.t =
   mk_location @@ to_list
   @@
   (* Get the symbol under the cursor, if any. *)
-  let* _sym_range, sym = symbol_at_position state pos in
+  let* sym_range, sym = symbol_at_position state pos in
   (* log_info ~notify_back "[Definition] symbol under cursor: %s" sym.v; *)
   (* Search for the symbol in the terminals or in the nonterminals. *)
   let+ def =
@@ -368,8 +368,19 @@ let definition (state : state) ~uri ~(pos : Position.t) : Locations.t =
        (locate t.p t.v.terminal))
     <|> fun () ->
     let*? rule = state.grammar.pg_rules in
-    let pr_nt = match rule with Old r -> r.v.pr_nt | New r -> r.v.pr_nt in
+    let pr_nt, pr_params, range =
+      match rule with
+      | Old r -> (r.v.pr_nt, r.v.pr_parameters, r.p)
+      | New r -> (r.v.pr_nt, r.v.pr_parameters, r.p)
+    in
+    let range = Range.of_lexical_positions range in
     O.if_ (fun _ -> String.equal pr_nt.v sym.v) pr_nt
+    <|>
+    (* It could be a formal parameter of the rule! *)
+    fun () ->
+    if (Range.contains range sym_range) then
+      L.find_opt (fun param -> String.equal param.v sym.v) pr_params
+    else None
   in
   (* log_info ~notify_back "[Definition] found definition at: %s"
   @@ M.Range.show def.p; *)
