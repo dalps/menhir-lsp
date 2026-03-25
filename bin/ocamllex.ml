@@ -14,7 +14,7 @@ type state = {
 let regexp_bindings =
   let v =
     object
-      inherit [_] syntax_reduce as super
+      inherit [_] ast_reduce as super
       method zero = []
       method plus = ( @ )
 
@@ -27,7 +27,7 @@ let regexp_bindings =
 let process_symbols : lexer_definition -> string located list =
   let v =
     object
-      inherit [_] syntax_reduce as super
+      inherit [_] ast_reduce as super
       method zero = []
       method plus = ( @ )
       method! visit_Ref = fun _ name -> [ name ]
@@ -354,7 +354,7 @@ let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
   (* This visitor descends the lexer's syntax tree nodes which contain pos, connecting them in a ladder of [SelectionRange]s. *)
   let v =
     object
-      inherit [_] syntax_iter
+      inherit [_] ast_iter
 
       method! visit_located =
         fun visit_a _env located ->
@@ -390,7 +390,7 @@ let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
   (* This visitor searches the smallest regexp node that contains [range] and stores it into [node]. *)
   let v =
     object
-      inherit [_] syntax_iter
+      inherit [_] ast_iter
 
       (* Bail out on character sets, so the substitution always produces valid regular expressions. *)
       method! visit_character_class_syntax = fun _env _cls -> node := None

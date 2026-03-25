@@ -14,7 +14,7 @@ end)
 class formatter =
   let open Syntax in
   object (self)
-    inherit [_] syntax_reduce as super
+    inherit [_] ast_reduce as super
     method zero = empty
     method plus = ( ^^ )
 
@@ -42,7 +42,9 @@ class formatter =
       self#with_located (fun v ->
           let v =
             match Ocamlformat_client.format (String.trim v) with
-            | Ok formatted -> formatted
+            | Ok formatted ->
+                Printf.eprintf "[ocf] '%s' --> '%s'\n\n" v formatted;
+                formatted
             | Error _ -> v
           in
           surround 2 1 lbrace (v |> String.trim |> arbitrary_string) rbrace)
@@ -162,7 +164,7 @@ let main ~ast ~doc =
   let bag_of_comments = Lexer.get_comments () |> init_bag in
   let attach_vtor =
     object
-      inherit [_] Syntax.syntax_endo
+      inherit [_] Syntax.ast_endo
       method! visit_located = visit_attach ~bag_of_comments ~doc
     end
   in

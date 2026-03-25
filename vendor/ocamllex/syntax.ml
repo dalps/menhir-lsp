@@ -82,11 +82,10 @@ and 'a located = 'a Located.located = {
 
 and main = lexer_definition
 [@@deriving
-  visitors { name = "syntax_map"; variety = "map"; polymorphic = true },
-  visitors { name = "syntax_reduce"; variety = "reduce"; polymorphic = true },
-  visitors { name = "syntax_iter"; variety = "iter"; polymorphic = true },
-  visitors { name = "syntax_endo"; variety = "endo"; polymorphic = true }
-  ]
+  visitors { name = "ast_map"; variety = "map"; polymorphic = true },
+  visitors { name = "ast_reduce"; variety = "reduce"; polymorphic = true },
+  visitors { name = "ast_iter"; variety = "iter"; polymorphic = true },
+  visitors { name = "ast_endo"; variety = "endo"; polymorphic = true }]
 
 (* Also tried:
 
