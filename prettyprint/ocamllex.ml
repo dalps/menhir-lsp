@@ -54,19 +54,21 @@ class formatter =
         lexer_definition
       in
       optional (self#visit_action ()) header
-      //// optional (self#visit_action ()) refill_handler
+      //// optional
+             (fun handler -> text "refill" ^-^ self#visit_action () handler)
+             refill_handler
       //// separate_map
              (hardline ^^ break 1)
              (self#visit_located self#visit_named_regexp ())
              named_regexps
-      ////
-      let h, t = L.take_drop 1 entrypoints in
-      let render_entries start =
-        separate_map
-          (hardline ^^ break 1)
-          (fun e -> text start ^-^ self#visit_located self#visit_entry () e)
-      in
-      render_entries "rule" h // render_entries "and" t
+      //// separate_mapi
+             (hardline ^^ break 1)
+             (fun idx (e : entry located) ->
+               let opening = if idx = 0 then "rule" else "and" in
+               self#with_located
+                 (fun located -> text opening ^-^ self#visit_entry () located)
+                 e)
+             entrypoints
       //// optional (self#visit_action ()) trailer
 
     method! visit_named_regexp _ { name; regexp } =
@@ -90,10 +92,9 @@ class formatter =
       ^^ separate_map (hardline ^^ barspace) (self#visit_case ()) clauses
 
     method visit_case _ (regexp, action) =
-      nest 2
+      nest 2 @@ group
       @@ self#with_located self#visit_regexp regexp
-      ^/^ nest 2
-      @@ self#visit_action () action
+      ^/^ self#visit_action () action
 
     method! visit_Wildcard _ = self#with_located (fun _ -> text "_")
     method! visit_EOF _ = self#with_located (fun _ -> text "eof")
@@ -105,10 +106,11 @@ class formatter =
     method! visit_String _ = self#with_located (text >> dquotes)
     method! visit_Ref _ = self#with_located text
 
+    (* todo: let the user decide whether to break the regexp onto multiple lines
+    if it doesn't fit in one (by default, we only break alternations) *)
     method! visit_Seq _ re1 re2 =
-      group @@ align
-      @@ self#with_located self#visit_regexp re1
-      ^/^ self#with_located self#visit_regexp re2
+      self#with_located self#visit_regexp re1
+      ^-^ self#with_located self#visit_regexp re2
 
     method! visit_Alt _ re1 re2 =
       group @@ align
@@ -119,7 +121,7 @@ class formatter =
     method! visit_CharSetDifference _ re1 re2 =
       group @@ align
       @@ self#with_located self#visit_regexp re1
-      ^/^ sharp
+      ^-^ sharp
       ^-^ self#with_located self#visit_regexp re2
 
     method! visit_Rep _ =
@@ -134,22 +136,22 @@ class formatter =
     method! visit_Group _ =
       self#with_located (function
         | Group re -> self#visit_Group () re (* already grouped *)
-        | re -> surround 2 0 lparen (self#visit_regexp re) rparen)
+        | re -> enclose lparen (self#visit_regexp re) rparen)
 
     method! visit_As _ re ident =
       (* To get a better idea of what is being captured, we could surround alternation and sequences with parens. *)
       self#with_located self#visit_regexp re
-      ^/^ text "as"
+      ^-^ text "as"
       ^-^ self#with_located text ident
 
     method! visit_CharSet _ =
       self#with_located (fun v ->
-          surround 2 0 lbracket (self#visit_charclass v) rbracket)
+          enclose lbracket (self#visit_charclass v) rbracket)
 
     method! visit_Union _ cls1 cls2 =
       group
       @@ self#with_located self#visit_charclass cls1
-      ^/^ self#with_located self#visit_charclass cls2
+      ^-^ self#with_located self#visit_charclass cls2
 
     method! visit_Complement _ cls =
       caret ^^ self#with_located self#visit_charclass cls

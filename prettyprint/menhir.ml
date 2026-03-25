@@ -92,8 +92,9 @@ class formatter =
           ^-^ flow_map (break 1) self#visit_loctext located)
 
     method! visit_DCode =
-      fun _ located ->
-        surround 2 1 (text "%{") (self#visit_loctext located) (text "%}")
+      fun _ ->
+        self#with_located (fun code ->
+            surround 2 1 (text "%{") (self#visit_ocaml code) (text "%}"))
 
     method! visit_DType =
       fun _ ocamltype parameter ->
@@ -139,9 +140,9 @@ class formatter =
       fun _ ocamltype ->
         surround 2 0 langle (super#visit_ocamltype () ocamltype) rangle
 
-    method! visit_Declared = self#visit_terminal >> self#with_located
-    method! visit_Inferred = self#visit_terminal
-    method! visit_alias _ = optional @@ self#visit_loctext
+    method! visit_Declared _ = self#with_located self#visit_ocaml
+    method! visit_Inferred _ = self#visit_ocaml
+    method! visit_alias _ = optional self#visit_loctext
 
     method private visit_loctext : string located -> document =
       self#with_located text
@@ -215,18 +216,16 @@ class formatter =
                self#visit_attributes () pb_attributes;
              ]
 
+    method private visit_ocaml (code : string) : document =
+      code |> Ocamlformat_client.format |> R.get_or ~default:code |> String.trim
+      |> arbitrary_string
+
     method! visit_action _ expr =
-      let content =
-        match expr with
-        | IL.ETextual located ->
-            self#with_located
-              (fun v ->
-                Ocamlformat_client.format v
-                |> R.get_or ~default:v |> String.trim |> arbitrary_string)
-              located
-        | _ -> text ""
-      in
-      surround 2 1 lbrace content rbrace
+      surround 2 1 lbrace
+        (match expr with
+        | IL.ETextual located -> self#with_located self#visit_ocaml located
+        | _ -> text "")
+        rbrace
 
     method! visit_prec_annotation _ =
       optional @@ fun p ->

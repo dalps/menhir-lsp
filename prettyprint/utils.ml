@@ -48,4 +48,5 @@ module PPrint = struct
   let flow sep = flow_map sep (fun x -> x)
   let if_ ?(else_ = empty) ~then_ b = if b then then_ else else_
   let barspace = text "| "
+  let enclose l x r = enclose l r x
 end
