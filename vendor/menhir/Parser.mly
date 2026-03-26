@@ -313,9 +313,26 @@ old_rule:
       in rule
     }
 
+separated_located_list(separator, X):
+  x = located(X)
+    { [ x ] }
+| xs = separated_located_list(separator, X); _sep = separator; x = X;
+    { locate' ($startpos(_sep), $endpos(x)) x :: xs }
+
 %inline branches:
-  prods = separated_nonempty_list(BAR, production_group)
-    { List.flatten prods }
+  groups = separated_located_list(BAR, production_group)
+    { (* [menhir-lsp] We need to do a bit of rewiring of the location nodes here. *)
+      (* 1. Extend the range of first group to include the bar as well. *)
+      groups
+      (* |> List.rev *)
+      (* 2. Extend the range of first production of each group to include the bar as well. *)
+      |> List.fold_left
+           (fun acc group ->
+             match group.v with
+             | [] -> acc
+             | prod0 :: ps ->
+                 (locate' (startp group, endp prod0) prod0.v :: ps) @ acc)
+           [] }
 
 flags:
   /* epsilon */
@@ -329,9 +346,9 @@ flags:
     { true, true }
 
 optional_bar:
-  /* epsilon */ %prec no_optional_bar
+  /* epsilon */ { None } %prec no_optional_bar
 | BAR
-    { () }
+    { Some (locate' $loc ()) }
 
 /* ------------------------------------------------------------------------- */
 /* A production group is a set of productions that share a semantic action.
@@ -342,11 +359,12 @@ optional_bar:
    followed by a possibly empty list of attributes. */
 
 production_group:
-  productions = separated_nonempty_list(BAR, located(production))
+  productions = separated_located_list(BAR, production)
   action = located(ACTION) /* action is lexically delimited by braces */
   oprec2 = ioption(located(precedence))
   attrs = ATTRIBUTE*
     {
+      (* let productions = List.rev productions in *)
       (* If multiple productions share a single semantic action, check
          that all of them bind the same names. *)
       ParserAux.check_production_group productions;
@@ -359,7 +377,7 @@ production_group:
         (* let names = ParserAux.producer_names producers in
         let pb_action = locate action.p @@ action.v !ParserAux.dollars names in *)
         let pb_action = action in
-        locate' $loc {
+        locate' pos {
           pb_producers;
           pb_action;
           pb_prec_annotation  = ParserAux.override pos oprec1 oprec2;
