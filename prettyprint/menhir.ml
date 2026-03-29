@@ -30,6 +30,12 @@ class formatter =
         'env 'a. ('a -> document) -> 'a located -> document =
       fun f b -> self#visit_located (fun _ v -> f v) () b
 
+    method private with_located_debug :
+        'env 'a. ('a -> document) -> 'a located -> document =
+      fun f b ->
+        self#visit_located (fun _ v -> f v) () b
+        ^^ arbitrary_string (Range.show b.p)
+
     method! visit_located visit_v env =
       render_located (super#visit_located visit_v env)
 
@@ -151,6 +157,15 @@ class formatter =
     method! visit_nonterminal _ = text
     method! visit_identifier _ = text
 
+    method! visit_early_producer =
+      fun _ (ident, param, attrs) ->
+        optional
+          (fun ident ->
+            self#with_located (self#visit_identifier ()) ident ^-^ equals)
+          ident
+        ^-^ self#visit_parameter () param
+        ^-^ self#visit_attributes () attrs
+
     method! visit_producer =
       fun _ (ident, param, attrs) ->
         if_
@@ -162,7 +177,7 @@ class formatter =
     method! visit_attributes _ = flow_map (break 1) (self#visit_attribute ())
 
     method! visit_attribute _ ({ key; payload; _ } : Attribute.attribute) =
-      enclose lbracket rbracket (at ^^ text key ^-^ text payload)
+      enclose lbracket (at ^^ text key ^-^ text payload) rbracket
 
     method! visit_old_rule =
       fun _
@@ -179,10 +194,9 @@ class formatter =
         ^-^ self#visit_loctext pr_nt
         ^^ self#visit_rule_args pr_parameters
         ^^ colon)
-        ^^ nest 2
-             (hardline ^^ twice space
-             ^^ self#visit_old_rule_branches pr_branches
-             ^/^ self#visit_attributes () pr_attributes)
+        ^^ nest 2 @@ hardline
+        ^^ self#visit_old_rule_branches pr_branches
+        ^/^ self#visit_attributes () pr_attributes
 
     method private visit_rule_args =
       surround_separate_map 2 0 empty lparen
@@ -190,31 +204,31 @@ class formatter =
         rparen self#visit_loctext
 
     method private visit_old_rule_branches branches =
-      separate_map
-        (break 1 ^^ barspace)
-        (self#with_located (self#visit_parameterized_branch ()))
+      separate_map hardline
+        (self#with_located (fun branch ->
+             self#visit_parameterized_branch () branch))
         branches
 
+    method! visit_early_production =
+      fun _ (producers, prec_annotation, _) ->
+        bar
+        ^-^ flow_map (break 1)
+              (self#with_located (self#visit_early_producer ()))
+              producers
+        ^/^ self#visit_prec_annotation () prec_annotation
+
     method! visit_parameterized_branch =
-      fun _
-          {
-            pb_producers;
-            pb_action;
-            pb_prec_annotation;
-            pb_production_level = _;
-            pb_attributes;
-          } ->
-        nest 2
-        @@ prefix 2 1
-             (flow_map (break 1)
-                (self#with_located (self#visit_producer ()))
-                pb_producers)
-        @@ separate (break 1)
-             [
-               self#with_located (self#visit_action ()) pb_action;
-               self#visit_prec_annotation () pb_prec_annotation;
-               self#visit_attributes () pb_attributes;
-             ]
+      fun _ { pb_productions; pb_action; pb_prec_annotation; pb_attributes } ->
+        nest 2 @@ group
+        @@ separate_map hardline
+             (self#with_located (self#visit_early_production ()))
+             pb_productions
+        ^/^ separate (break 1)
+              [
+                self#with_located (self#visit_action ()) pb_action;
+                self#visit_prec_annotation () pb_prec_annotation;
+                self#visit_attributes () pb_attributes;
+              ]
 
     method private visit_ocaml (code : string) : document =
       code |> Ocamlformat_client.format |> R.get_or ~default:code |> String.trim

@@ -22,6 +22,41 @@ type state = {
 let get_cmly_file = fetch_build_dir ~ext:".cmly"
 let get_conflicts_file = fetch_build_dir ~ext:".conflicts"
 
+let debug_ast (state : state) : string =
+  let open Menhirformat_lib.Utils in
+  let open PPrint in
+  let v =
+    object
+      inherit [_] ast_reduce as super
+      method zero = empty
+      method plus = ( ^^ )
+
+      method! visit_parameterized_rule =
+        fun v env r -> string "<rule>" ^^ super#visit_parameterized_rule v env r
+
+      method! visit_parameterized_branch =
+        fun _ b ->
+          string "<production_group>" ^^ super#visit_parameterized_branch () b
+
+      method! visit_early_production =
+        fun _ p -> string "<production>" ^^ super#visit_early_production () p
+
+      method! visit_terminal _ = string
+      method! visit_nonterminal _ = string
+      method! visit_symbol _ = string
+      method! visit_identifier _ = string
+
+      method! visit_located =
+        fun visit_v v loc ->
+          (hardline ^^ arbitrary_string
+          @@ Range.(of_lexical_positions loc.p |> show))
+          ^^ nest 4 (super#visit_located visit_v v loc)
+    end
+  in
+  let buf = Buffer.create 80 in
+  v#visit_partial_grammar () state.grammar |> PPrint.ToBuffer.pretty 0.8 80 buf;
+  Buffer.contents buf
+
 let rec string_of_params : parameter -> string = function
   | ParamVar p -> p.v
   | ParamApp (p, ps) ->
@@ -378,7 +413,7 @@ let definition (state : state) ~uri ~(pos : Position.t) : Locations.t =
     <|>
     (* It could be a formal parameter of the rule! *)
     fun () ->
-    if (Range.contains range sym_range) then
+    if Range.contains range sym_range then
       L.find_opt (fun param -> String.equal param.v sym.v) pr_params
     else None
   in
@@ -434,19 +469,22 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         if_ (fun _ -> pos_inside action_range)
         @@ Keywords.position_keywords ?range:word_range ()
         @ (let open L in
-           let+ { v = binder, par, _; _ } = branch.pb_producers in
-           let binder =
-             O.(
-               CCString.chop_prefix ~pre:"_" binder.v
-               >|= ( ^ ) "$" |> get_or ~default:binder.v)
-           in
-           CompletionItem.create ~kind:Variable ~detail:(string_of_params par)
-             ~label:binder
-             ?textEdit:
-               O.(
-                 let+ range = word_range in
-                 `TextEdit TextEdit.{ newText = binder; range })
-             ())
+           let* { v = producers, _, _; _ } = branch.pb_productions in
+           let* { v = binder, par, _; _ } = producers in
+           (* We only suggest the explicitly named producers. *)
+           match binder with
+           | None ->
+               [] (* hide $1, $2... corresponding to anonymous parameters *)
+           | Some { v = binder; _ } ->
+               [
+                 CompletionItem.create ~kind:Variable
+                   ~detail:(string_of_params par) ~label:binder
+                   ?textEdit:
+                     O.(
+                       let+ range = word_range in
+                       `TextEdit TextEdit.{ newText = binder; range })
+                   ();
+               ])
         @ merlin_compls ()
     | New _ -> None
   in
@@ -543,9 +581,11 @@ let code_actions (state : state) ~uri ~(range : Range.t) : CodeActionResult.t =
     state.tokens
   |> some
 
-let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
-    ~(notify_back : notify_back) : SelectionRange.t list =
+let selection_range ({ grammar; _ } as state : state)
+    ~(positions : Position.t list) ~(notify_back : notify_back) :
+    SelectionRange.t list =
   let open L in
+  log_info ~notify_back "AST ranges view:\n%s" (debug_ast state);
   let@* i, pos = positions in
   let parent_ref = ref @@ None in
   (* This visitor descends the grammar's syntax tree nodes which contain pos, connecting them in a ladder of [SelectionRange]s. *)

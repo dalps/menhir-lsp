@@ -137,7 +137,7 @@ module Range = struct
     spr "[ %s, %s ]" (Position.show start) (Position.show end_)
 
   let of_lexical_positions ((start, end_) : Lexing.position * Lexing.position) =
-    Range.create
+    create
       ~start:(Position.of_lexical_position start)
       ~end_:(Position.of_lexical_position end_)
 
