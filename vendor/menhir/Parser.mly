@@ -23,6 +23,8 @@
 open Syntax
 open Located
 
+let log = Printf.eprintf
+
 (* An injection of symbol expressions into choice expressions. *)
 
 let inject (e : symbol_expression located) : expression =
@@ -44,6 +46,8 @@ let locate' locs v =
   locate (Range.make locs) v
 
 let singleton x = [ x ]
+
+let last_bar = ref None
 %}
 
 /* ------------------------------------------------------------------------- */
@@ -106,8 +110,8 @@ let singleton x = [ x ]
 /* ------------------------------------------------------------------------- */
 /* Type annotations and start symbol. */
 
-%type <ParserAux.early_producer> producer
-%type <ParserAux.early_production> production
+%type <Syntax.early_producer located> producer
+%type <Syntax.early_production located> production
 %start <Syntax.partial_grammar> grammar
 
 %type <Syntax.declaration located list> declaration (* [menhir-lsp] removed [list] *)
@@ -123,7 +127,7 @@ let singleton x = [ x ]
    The new rule syntax does not have this possibility, and has no ambiguity. */
 
 %nonassoc no_optional_bar
-%nonassoc BAR
+%nonassoc BAR // UID LID QID
 
 /* ------------------------------------------------------------------------- */
 /* On-error-reduce declarations. */
@@ -300,9 +304,11 @@ old_rule:
     {
       let public, inline = flags.v in
       let startpos = Range.startp (
-        if flags.v = (false, false) then symbol.p else flags.p
-      ) in
-      let rule = locate (startpos, $endpos) {
+          if flags.v = (false, false) then symbol.p else flags.p
+        )
+      in
+      last_bar := None;
+      locate (startpos, $endpos) {
         pr_public = public;
         pr_inline = inline;
         pr_nt          = symbol;
@@ -310,29 +316,10 @@ old_rule:
         pr_parameters  = params; (* [menhir-lsp] change to located *)
         pr_branches    = branches
       }
-      in rule
     }
 
-separated_located_list(separator, X):
-  x = located(X)
-    { [ x ] }
-| xs = separated_located_list(separator, X); _sep = separator; x = X;
-    { locate' ($startpos(_sep), $endpos(x)) x :: xs }
-
-%inline branches:
-  groups = separated_located_list(BAR, production_group)
-    { (* [menhir-lsp] We need to do a bit of rewiring of the location nodes here. *)
-      (* 1. Extend the range of first group to include the bar as well. *)
-      groups
-      (* |> List.rev *)
-      (* 2. Extend the range of first production of each group to include the bar as well. *)
-      |> List.fold_left
-           (fun acc group ->
-             match group.v with
-             | [] -> acc
-             | prod0 :: ps ->
-                 (locate' (startp group, endp prod0) prod0.v :: ps) @ acc)
-           [] }
+let branches ==
+  ~ = separated_nonempty_list(mandatory_bar, production_group); <>
 
 flags:
   /* epsilon */
@@ -345,10 +332,13 @@ flags:
 | INLINE PUBLIC
     { true, true }
 
+mandatory_bar:
+  BAR { last_bar := Some $startpos }
+
 optional_bar:
-  /* epsilon */ { None } %prec no_optional_bar
+  /* epsilon */ { log "No leading bar ($loc is: %s)\n" (Range.show $loc) } %prec no_optional_bar
 | BAR
-    { Some (locate' $loc ()) }
+    { log "Found leading bar at %s\n" (Range.show $loc); last_bar := Some $startpos }
 
 /* ------------------------------------------------------------------------- */
 /* A production group is a set of productions that share a semantic action.
@@ -359,7 +349,7 @@ optional_bar:
    followed by a possibly empty list of attributes. */
 
 production_group:
-  productions = separated_located_list(BAR, production)
+  productions = separated_nonempty_list(mandatory_bar, production)
   action = located(ACTION) /* action is lexically delimited by braces */
   oprec2 = ioption(located(precedence))
   attrs = ATTRIBUTE*
@@ -369,22 +359,32 @@ production_group:
          that all of them bind the same names. *)
       ParserAux.check_production_group productions;
       (* Then, *)
-      List.map (fun Located.{ v = (producers, oprec1, level); p = pos; _ } ->
         (* Replace [$i] with [_i]. *)
-        let pb_producers : producer located list = ParserAux.normalize_producers producers in
+        let _pb_productions : production located list =
+          List.map (Located.map (fun (producers, oprec1, level) ->
+            (ParserAux.normalize_producers producers, oprec1, level))
+          ) productions
+        in
         (* Distribute the semantic action and attributes onto every production.
            Also, check that every [$i] is within bounds. *)
         (* let names = ParserAux.producer_names producers in
         let pb_action = locate action.p @@ action.v !ParserAux.dollars names in *)
-        let pb_action = action in
-        locate' pos {
-          pb_producers;
-          pb_action;
-          pb_prec_annotation  = ParserAux.override pos oprec1 oprec2;
-          pb_production_level = level;
-          pb_attributes       = attrs;
-        })
-      productions
+        (* [menhir-lsp] we'dont distribute the actions across the productions anymore to highlight syntactic structure. *)
+      let pb_productions = productions in
+      let pb_action = action in
+      (* [menhir-lsp] The group starts at start position of its first production,
+        which is always a leading bar except for the first group's first production. *)
+      let startpos = match productions with
+        | [] -> $startpos
+        | p :: _ -> startp p
+      in
+      locate' (startpos, $endpos) {
+        pb_productions;
+        pb_action;
+        pb_prec_annotation  = oprec2; (* There are two levels of these, this is the outer group level. *)
+        (* pb_production_level = level; *)
+        pb_attributes       = attrs;
+      }
     }
 
 // precedence:
@@ -400,10 +400,16 @@ precedence:
    precedence declaration. */
 
 production:
-  producers = located(producer)* oprec = ioption(located(precedence))
-    { producers,
+  producers = producer* oprec = ioption(located(precedence))
+    { (* [menhir-lsp] if there's no leading bar, use the start of first producer. *)
+      let startpos = Option.value ~default:(
+        match producers with
+        | [] -> $startpos (* we're screwed *)
+        | p :: _ -> startp p
+      ) !last_bar in
+      locate' (startpos, $endpos) (producers,
       oprec,
-      ParserAux.new_production_level() }
+      ParserAux.new_production_level()) }
 
 /* ------------------------------------------------------------------------- */
 /* A producer is an actual parameter, possibly preceded by a
@@ -420,7 +426,11 @@ production:
 
 producer:
 | id = ioption(terminated(LID, EQUAL)) p = actual attrs = ATTRIBUTE* SEMI*
-    { id, p, attrs }
+    { let startpos = match id with
+        | None -> $startpos(p)
+        | Some _ -> $startpos(id)
+      in
+      locate' (startpos, $endpos) (id, p, attrs) }
 
 /* ------------------------------------------------------------------------- */
 /* The ideal syntax of actual parameters includes:

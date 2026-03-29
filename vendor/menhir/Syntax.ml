@@ -170,12 +170,23 @@ and properties = {
    Before anonymous rules have been eliminated, a parameter can also be an
    anonymous rule, represented as a list of branches. *)
 and parameter =
-  | ParamVar of (symbol[@opaque]) located
-  | ParamApp of (symbol[@opaque]) located * parameters
+  | ParamVar of symbol located
+  | ParamApp of symbol located * parameters
   | ParamAnonymous of parameterized_branch located list located
 
 and parameters = parameter list
 (* -------------------------------------------------------------------------- *)
+
+and early_producer = identifier located option * parameter * attributes
+and early_producers = early_producer located list
+
+and early_production =
+  early_producers
+  * prec_annotation
+  * (* optional precedence *)
+  production_level
+
+and early_productions = early_production located list
 
 and producer = identifier located * parameter * attributes
 (**A producer is a pair of identifier and a parameter. In concrete syntax, it
@@ -185,16 +196,25 @@ and producer = identifier located * parameter * attributes
    of attributes. *)
 (* -------------------------------------------------------------------------- *)
 
+and production =
+  producer located list
+  * prec_annotation
+  * (* optional precedence *)
+    production_level
+
+(* Output by the parser rule `production_group`. *)
 and parameterized_branch = {
+  (* [menhir-lsp] lifted [pb_position : range] to outer located *)
   (* pb_position         : range; *)
-  (*[menhir-lsp] lifted [pb_position : range] to outer located *)
-  pb_producers : producer located list;
-      (**The producers. ([menhir-lsp]: made located) *)
+  (* [menhir-lsp] new field that preserves the sugar *)
+  pb_productions : early_productions;
+  (* pb_producers : producer located list; *)
+      (**The producers. ([menhir-lsp]: hidden) *)
   pb_action : action located;
       (**The semantic action. ([menhir-lsp]: made located) *)
   pb_prec_annotation : prec_annotation;  (**An optional [%prec] annotation. *)
-  pb_production_level : production_level; [@opaque]
-      (**The branch's production level. *)
+  (* pb_production_level : production_level; [@opaque] *)
+      (**The branch's production level. ([menhir-lsp]: hidden, look into the productions) *)
   pb_attributes : attributes;  (**The attributes attached with this branch. *)
 }
 (**A branch (the right-hand side of a production) is a sequence of producers
