@@ -25,21 +25,45 @@ let get_conflicts_file = fetch_build_dir ~ext:".conflicts"
 let debug_ast (state : state) : string =
   let open Menhirformat_lib.Utils in
   let open PPrint in
+  let with_label :
+      'env 'a. string -> ('env -> 'a -> document) -> 'env -> 'a -> document =
+   fun label v env x -> angles (string label) ^^ v env x
+  in
   let v =
     object
       inherit [_] ast_reduce as super
       method zero = empty
       method plus = ( ^^ )
 
-      method! visit_parameterized_rule =
-        fun v env r -> string "<rule>" ^^ super#visit_parameterized_rule v env r
+      method private with_label :
+          'env 'a. string -> ('env -> 'a -> document) -> 'env -> 'a -> document
+          =
+        fun label v env x -> angles (string label) ^^ v env x
+
+      method! visit_parameterized_rule v =
+        with_label "rule" (super#visit_parameterized_rule v)
 
       method! visit_parameterized_branch =
-        fun _ b ->
-          string "<production_group>" ^^ super#visit_parameterized_branch () b
+        with_label "production_group" super#visit_parameterized_branch
 
       method! visit_early_production =
-        fun _ p -> string "<production>" ^^ super#visit_early_production () p
+        with_label "production" super#visit_early_production
+
+      method! visit_early_producer =
+        with_label "producer" super#visit_early_producer
+
+      method! visit_parameter = with_label "parameter" super#visit_parameter
+
+      method! visit_symbol_expression =
+        with_label "symbol_expression" super#visit_symbol_expression
+
+      method! visit_choice_expression =
+        with_label "choice_expression" super#visit_choice_expression
+
+      method! visit_branch = with_label "branch" super#visit_branch
+
+      method! visit_raw_seq_expression =
+        with_label "seq_expression" super#visit_raw_seq_expression
 
       method! visit_terminal _ = string
       method! visit_nonterminal _ = string

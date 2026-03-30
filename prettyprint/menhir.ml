@@ -157,7 +157,8 @@ class formatter =
     method! visit_nonterminal _ = text
     method! visit_identifier _ = text
 
-    method private visit_parameter_loc _ = self#with_located @@ super#visit_parameter ()
+    method private visit_parameter_loc _ =
+      self#with_located @@ super#visit_parameter ()
 
     method! visit_early_producer =
       fun _ (ident, param, attrs) ->
@@ -282,7 +283,7 @@ class formatter =
     method! visit_EChoice _ branches =
       separate_map
         (break 1 ^^ barspace)
-        ((* self#with_located *) self#visit_branch ())
+        (self#with_located @@ self#visit_branch ())
         branches
 
     method! visit_ECons _ pattern symbol_expression seq_expression =
@@ -291,7 +292,8 @@ class formatter =
           (match pattern with
           | SemPatWildcard -> empty
           | _ -> self#visit_pattern () pattern ^-^ equals);
-          self#visit_symbol_expression () symbol_expression ^^ semi;
+          self#with_located (self#visit_symbol_expression ()) symbol_expression
+          ^^ semi;
           self#visit_seq_expression () seq_expression;
         ]
 

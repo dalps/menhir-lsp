@@ -29,14 +29,14 @@ let log = Printf.eprintf
 
 let inject (e : symbol_expression located) : expression =
   let range = position e in
-  Located.map (fun e ->
+  Located.map (fun (e : symbol_expression) ->
     let branch =
       Branch (
-        locate range (ESingleton e),
+        locate range (ESingleton (locate range e)),
         ParserAux.new_production_level()
       )
     in
-    EChoice [ branch ]
+    EChoice [ locate range branch ]
   ) e
 
 (* This variant of [locate] expects a pair of positions, such as $loc,
@@ -320,7 +320,7 @@ old_rule:
     }
 
 let branches ==
-  ~ = separated_nonempty_list(mandatory_bar, production_group); <>
+  separated_nonempty_list(mandatory_bar, production_group)
 
 flags:
   /* epsilon */
@@ -554,9 +554,8 @@ equality_symbol:
 
 /* An expression is a choice expression. */
 
-expression:
-  e = located(choice_expression)
-    { e }
+let expression :=
+  choice_expression
 
 /* A choice expression is a bar-separated list of alternatives, with an
    optional leading bar, which is ignored. Each alternative is a sequence
@@ -571,11 +570,15 @@ expression:
 
 %inline choice_expression:
   branches = preceded_or_separated_nonempty_llist(BAR, branch)
-    { EChoice branches }
+    { let startpos = match branches with
+      | [] -> $startpos
+      | b :: _ -> startp b
+      in
+      locate (startpos, $endpos) @@ EChoice branches }
 
 %inline branch:
-  e = seq_expression
-    { Branch (e, ParserAux.new_production_level()) }
+  e = raw_seq_expression
+    { locate (startp e, $endpos) @@ Branch (e, ParserAux.new_production_level()) }
 
 /* A sequence expression takes one of the following forms:
 
@@ -605,22 +608,23 @@ expression:
    to do this, as we wish to make it clear in this case that this is a
    sequence whose last element is the action expression. */
 
-%inline seq_expression:
-  e = located(raw_seq_expression)
-    { e }
+(* [menhir-lsp] this yields sloppy locations, so I muted it. *)
+// %inline seq_expression:
+//   e = located(raw_seq_expression)
+//     { e }
 
 raw_seq_expression:
 |                    e1 = symbol_expression e2 = continuation
-    { ECons (SemPatWildcard, e1, e2) }
-| p1 = pattern EQUAL e1 = symbol_expression e2 = continuation
-    { ECons (p1, e1, e2) }
+    { locate' (startp e1, $endpos) @@ ECons (SemPatWildcard, e1, e2) }
+| p1 = located(pattern) EQUAL e1 = symbol_expression e2 = continuation
+    { locate' (startp p1, $endpos) @@ ECons (p1.v, e1, e2) }
 | e = symbol_expression
-    { ESingleton e }
+    { locate' (startp e, $endpos) @@ ESingleton e }
 | e = action_expression
-    { e }
+    { locate' $loc @@ e }
 
 %inline continuation:
-  SEMI e2 = seq_expression
+  SEMI e2 = raw_seq_expression
 /* |   e2 = action_expression */
     { e2 }
 
@@ -640,12 +644,12 @@ raw_seq_expression:
 
 symbol_expression:
 | symbol = symbol es = plist(expression) attrs = ATTRIBUTE*
-    { ESymbol (symbol, es, attrs) }
-| e = located(symbol_expression) m = located(modifier) attrs = ATTRIBUTE*
+    { locate' (startp symbol, $endpos) @@ ESymbol (symbol, es, attrs) }
+| e = symbol_expression m = located(modifier) attrs = ATTRIBUTE*
     (* We are forced by syntactic considerations to require a symbol expression
        in a position where an expression is expected. As a result, an injection
        must be applied. *)
-    { ESymbol (m, [ inject e ], attrs) }
+    { locate' $loc @@ ESymbol (m, [ inject e ], attrs) }
 
 /* An action expression is a semantic action, optionally preceded or followed
    with a precedence annotation. */

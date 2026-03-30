@@ -263,7 +263,7 @@ and expression = choice_expression located
 (**A toplevel expression is a choice expression. *)
 
 (**A choice expression is a list of branches. *)
-and choice_expression = EChoice of branch list
+and choice_expression = EChoice of branch located list (* [menhir-lsp] located branches *)
 
 (**A branch is a sequence expression and an ugly [production_level]. *)
 and branch = Branch of seq_expression * production_level
@@ -272,9 +272,10 @@ and seq_expression = raw_seq_expression located
 
 (**A sequence is either a cons [p = e1; e2] or a lone symbol expression [e] or a
    semantic action. *)
+(* [menhir-lsp] located symbol_expression *)
 and raw_seq_expression =
-  | ECons of pattern * symbol_expression * seq_expression
-  | ESingleton of symbol_expression
+  | ECons of pattern * symbol_expression located * seq_expression
+  | ESingleton of symbol_expression located
   | EAction of extended_action * prec_annotation * attributes
 
 (**A symbol expression is a symbol, possibly accompanied with actual parameters
