@@ -30,6 +30,9 @@ let[@inline] value { v; _ } =
 let map f ({ v; _ } as loc) =
   { loc with v = f v }
 
+let iter (f : 'a -> 'b) ({ v; _ } : 'a located) =
+  f v
+
 let parenthesize { p; v; comment } =
   locate ?comment (Range.decrement p) ("(" ^ v ^ ")")
 

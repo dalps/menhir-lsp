@@ -122,7 +122,7 @@ class formatter =
         self#visit_loctext
           located (* ^^ align --- only if subtree is ParamAnon *)
         ^^ surround 2 0 lparen
-             (separate_map (text ",") (self#visit_parameter ()) parameters)
+             (separate_map (text ",") (self#visit_parameter_loc ()) parameters)
              rparen
 
     method! visit_DToken =
@@ -157,13 +157,15 @@ class formatter =
     method! visit_nonterminal _ = text
     method! visit_identifier _ = text
 
+    method private visit_parameter_loc _ = self#with_located @@ super#visit_parameter ()
+
     method! visit_early_producer =
       fun _ (ident, param, attrs) ->
         optional
           (fun ident ->
             self#with_located (self#visit_identifier ()) ident ^-^ equals)
           ident
-        ^-^ self#visit_parameter () param
+        ^-^ self#visit_parameter_loc () param
         ^-^ self#visit_attributes () attrs
 
     method! visit_producer =
@@ -171,7 +173,7 @@ class formatter =
         if_
           (not @@ String.starts_with ~prefix:"_" ident.v)
           ~then_:(self#with_located (self#visit_identifier ()) ident ^-^ equals)
-        ^-^ self#visit_parameter () param
+        ^-^ self#visit_parameter_loc () param
         ^-^ self#visit_attributes () attrs
 
     method! visit_attributes _ = flow_map (break 1) (self#visit_attribute ())

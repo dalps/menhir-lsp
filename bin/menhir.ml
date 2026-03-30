@@ -60,7 +60,8 @@ let debug_ast (state : state) : string =
 let rec string_of_params : parameter -> string = function
   | ParamVar p -> p.v
   | ParamApp (p, ps) ->
-      spr "%s(%s)" p.v L.(ps >|= string_of_params |> String.concat ", ")
+      spr "%s(%s)" p.v
+        L.(ps >|= Located.iter string_of_params |> String.concat ", ")
   | ParamAnonymous _ -> ""
 
 let process_symbols : partial_grammar -> symbol located list =
@@ -251,7 +252,7 @@ let document_symbols ({ grammar = { pg_rules; _ }; tokens; _ } : state) :
                        [
                          DocumentSymbol.create ~kind:SymbolKind.Variable
                            ~name:binder.v ~range ~selectionRange:range
-                           ~detail:(string_of_params par) ();
+                           ~detail:(string_of_params par.v) ();
                        ]
 
                method! visit_SemPatVar =
@@ -478,7 +479,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
            | Some { v = binder; _ } ->
                [
                  CompletionItem.create ~kind:Variable
-                   ~detail:(string_of_params par) ~label:binder
+                   ~detail:(string_of_params par.v) ~label:binder
                    ?textEdit:
                      O.(
                        let+ range = word_range in

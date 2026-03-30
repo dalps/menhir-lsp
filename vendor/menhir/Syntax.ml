@@ -174,10 +174,10 @@ and parameter =
   | ParamApp of symbol located * parameters
   | ParamAnonymous of parameterized_branch located list located
 
-and parameters = parameter list
+and parameters = parameter located list (* [menhir-lsp] inserted located *)
 (* -------------------------------------------------------------------------- *)
 
-and early_producer = identifier located option * parameter * attributes
+and early_producer = identifier located option * parameter located * attributes
 and early_producers = early_producer located list
 
 and early_production =
@@ -188,7 +188,7 @@ and early_production =
 
 and early_productions = early_production located list
 
-and producer = identifier located * parameter * attributes
+and producer = identifier located * parameter located * attributes
 (**A producer is a pair of identifier and a parameter. In concrete syntax, it
    could be [e = expr], for instance. The identifier [e] is always present. (A
    use of the keyword [$i] in a semantic action is turned by the lexer and
@@ -305,11 +305,11 @@ and declaration =
       (**Start symbol declaration. *)
   | DTokenProperties of terminal located list * associativity * precedence_level
       (**Priority and associativity declaration. *)
-  | DType of ocamltype * parameter located list  (**Type declaration. *)
+  | DType of ocamltype * parameters  (**Type declaration. *)
   | DGrammarAttribute of attribute  (**Grammar-level attribute declaration. *)
-  | DSymbolAttributes of parameter list * attributes
+  | DSymbolAttributes of parameters * attributes
       (**Attributes shared among multiple symbols, i.e., [%attribute]. *)
-  | DOnErrorReduce of parameter located list * on_error_reduce_level
+  | DOnErrorReduce of parameters * on_error_reduce_level
       (**On-error-reduce declaration. *)
 (* -------------------------------------------------------------------------- *)
 

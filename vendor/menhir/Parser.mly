@@ -110,6 +110,7 @@ let last_bar = ref None
 /* ------------------------------------------------------------------------- */
 /* Type annotations and start symbol. */
 
+%type <Syntax.parameter located> actual strict_actual lax_actual
 %type <Syntax.early_producer located> producer
 %type <Syntax.early_production located> production
 %start <Syntax.partial_grammar> grammar
@@ -182,7 +183,7 @@ declaration:
     { locate' $loc @@ DStart (t, nts) |> singleton }
 
 | TYPE t = ocamltype ss = clist(strict_actual)
-    { locate' $loc @@ DType (t, (List.map Parameter.locate ss)) |> singleton }
+    { locate' $loc @@ DType (t, ss) |> singleton }
 
 | k = priority_keyword ss = clist(symbol)
     { let prec = ParserAux.new_precedence_level $loc(k) in
@@ -199,7 +200,7 @@ declaration:
 
 | ON_ERROR_REDUCE ss = clist(strict_actual)
     { let prec = ParserAux.new_on_error_reduce_level() in
-      locate' $loc @@ DOnErrorReduce ((List.map Parameter.locate ss), prec) |> singleton }
+      locate' $loc @@ DOnErrorReduce (ss, prec) |> singleton }
 
 | SEMI
     { [] }
@@ -427,7 +428,7 @@ production:
 producer:
 | id = ioption(terminated(LID, EQUAL)) p = actual attrs = ATTRIBUTE* SEMI*
     { let startpos = match id with
-        | None -> $startpos(p)
+        | None -> startp p
         | Some _ -> $startpos(id)
       in
       locate' (startpos, $endpos) (id, p, attrs) }
@@ -457,10 +458,10 @@ producer:
 %inline generic_actual(A, B):
 (* 1- *)
   symbol = symbol actuals = plist(A)
-    { Parameter.apply symbol actuals }
+    { locate' (startp symbol, $endpos(actuals)) @@ Parameter.apply symbol actuals }
 (* 2- *)
 | p = B m = located(modifier)
-    { Parameter.apply m [p] }
+    { locate' $loc @@ Parameter.apply m [p] }
 
 strict_actual:
   p = generic_actual(strict_actual, strict_actual)
@@ -476,7 +477,7 @@ lax_actual:
 (* 3- *)
 | /* leading bar disallowed */
   branches = located(branches)
-    { ParamAnonymous branches }
+    { locate' $loc @@ ParamAnonymous branches }
     (* 2016/05/18: we used to eliminate anonymous rules on the fly during
        parsing. However, when an anonymous rule appears in a parameterized
        definition, the fresh nonterminal symbol that is created should be
