@@ -1,6 +1,6 @@
 (library
  (name menhirSyntax)
- (libraries menhirSdk menhirLib unix menhir_lsp_lib)
+ (libraries unix menhir_lsp_lib)
  (preprocess
   (pps visitors.ppx)))
 

@@ -1,6 +1,6 @@
 (library
  (name ocamllexSyntax)
- (libraries menhirLib menhirCST pprint menhir_lsp_lib)
+ (libraries menhir_lsp_lib)
  (preprocess
   (pps visitors.ppx)))
 
@@ -13,5 +13,4 @@
 (ocamllex lexer)
 
 (menhir
- (modules parser)
- (flags --table --unparsing))
+ (modules parser))

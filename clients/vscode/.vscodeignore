@@ -7,3 +7,5 @@ src/**
 tsconfig.json
 vsc-extension-quickstart.md
 **/_build
+node_modules
+samples

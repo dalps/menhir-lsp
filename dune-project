@@ -39,8 +39,11 @@
   ("stdune"
    (>= "3.20.2"))
   visitors
+  ("pprint"
+   (>= "20230830"))
   dune-build-info
-  ocamlformat-rpc-lib)
+  (ocamlformat-rpc-lib
+   (>= "0.23.0")))
  (tags
   ("lsp" "menhir" "ocamllex")))
 

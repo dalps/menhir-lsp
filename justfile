@@ -20,9 +20,9 @@ publish:
     opam publish .
 
 bump version: build
-    git tag -a {{ version }}
+    git tag -a {{ version }} -m 'beta {{version}}'
     git push origin {{ version }}
-    gh release create
+    gh release create {{ version }} -t 'menhir-lsp.{{ version }}' --generate-notes
 
 # 1. check if tag arg is valid
 # 2. upload the executable
