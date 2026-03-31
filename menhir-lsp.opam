@@ -24,6 +24,8 @@ depends: [
   "merlin-lib"
   "stdune" {>= "3.20.2"}
   "visitors"
+  "dune-build-info"
+  "ocamlformat-rpc-lib"
   "odoc" {with-doc}
 ]
 build: [
@@ -36,6 +38,8 @@ build: [
     "-j"
     jobs
     "@install"
+    "@runtest" {with-test}
+    "@doc" {with-doc}
   ]
 ]
 dev-repo: "git+https://github.com/dalps/menhir-lsp.git"

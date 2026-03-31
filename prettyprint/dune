@@ -14,7 +14,6 @@
 (library
  (name menhirformat_lib)
  (libraries
-  ANSITerminal
   menhirSyntax
   ocamllexSyntax
   ocamlformat-rpc-lib

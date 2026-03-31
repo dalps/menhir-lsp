@@ -339,8 +339,25 @@ let run () =
       Printf.eprintf "error: %s\n%!" e;
       exit 1
 
-(* Finally, we actually run the server *)
 let () =
+  let version =
+    let open Build_info in
+    match V1.version () with None -> "dev" | Some v -> V1.Version.to_string v
+  in
+  let stdio = ref false in
+  let print_version () =
+    prerr_endline version;
+    exit 0
+  in
+  Arg.parse
+    [
+      ("--version", Unit print_version, "Print the version of menhir-lsp");
+      ("--stdio", Set stdio, "(the server only communicates on stdio for now)");
+    ]
+    (fun _ -> ())
+    {|A language server for Ocamllex and Menhir.
+
+Usage: menhir-lsp|};
   Printexc.record_backtrace true;
   (* let module Cli = Linol_lsp.Cli in
   let arg = Cli.Arg.create () in

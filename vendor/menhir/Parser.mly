@@ -23,8 +23,6 @@
 open Syntax
 open Located
 
-let log = Printf.eprintf
-
 (* An injection of symbol expressions into choice expressions. *)
 
 let inject (e : symbol_expression located) : expression =
@@ -337,9 +335,9 @@ mandatory_bar:
   BAR { last_bar := Some $startpos }
 
 optional_bar:
-  /* epsilon */ { log "No leading bar ($loc is: %s)\n" (Range.show $loc) } %prec no_optional_bar
+  /* epsilon */ { () } %prec no_optional_bar
 | BAR
-    { log "Found leading bar at %s\n" (Range.show $loc); last_bar := Some $startpos }
+    { last_bar := Some $startpos }
 
 /* ------------------------------------------------------------------------- */
 /* A production group is a set of productions that share a semantic action.

@@ -38,7 +38,9 @@
   merlin-lib
   ("stdune"
    (>= "3.20.2"))
-  visitors)
+  visitors
+  dune-build-info
+  ocamlformat-rpc-lib)
  (tags
   ("lsp" "menhir" "ocamllex")))
 
