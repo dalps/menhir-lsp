@@ -10,7 +10,7 @@ or download the binary from the [latest release](https://github.com/dalps/menhir
 
 The extension will activate and launch the server upon opening a file ending with `.mly` or `.mll`.
 
-**Important:** This extension does not provide syntax highlighting for the two languages. The [OCaml Platform](https://marketplace.visualstudio.com/items?itemName=ocamllabs.ocaml-platform) extension already takes care of that; make sure you have it installed before using this. The Menhir extension aims to complement by providing completions and code browsing features in those files.
+**Important:** This extension does not provide syntax highlighting for the two languages. The [OCaml Platform](https://marketplace.visualstudio.com/items?itemName=ocamllabs.ocaml-platform) extension already takes care of that; make sure you have it installed before using this. The Menhir extension aims to complement the official one by providing completions and code browsing features in Ocamllex and Menhir specifications.
 
 Enjoy ease of navigation and *rock*-solid language support in your grammars!
 
@@ -21,9 +21,10 @@ Enjoy ease of navigation and *rock*-solid language support in your grammars!
 * Jump to Definition (Ctrl+Click on any symbol)
 * Hover documentation for token aliases and Menhir's standard library rules
 * Document Symbols (Ctrl+Shift+O)
-* Rename symbol (F2 on a rule name or a token name)
+* Rename Symbol (F2 on a rule name or a token name)
 * Refactorings for Menhir tokens and Ocamllex regular expressions (Cltr+.)
-* Selection ranges (Shift+Alt+← / Shift+Alt+→ to respectively shrink / expand your selection on a regular expression)
+* Selection Ranges (Shift+Alt+← / Shift+Alt+→ to respectively shrink / expand your selection on a regular expression)
+* Document Formatting (Shift+Alt+F)
 * Fancy file icons
 
 ## License
