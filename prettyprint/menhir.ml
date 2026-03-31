@@ -87,6 +87,13 @@ class formatter =
         super#visit_associativity () associativity
         ^-^ separate_map (break 1) self#visit_loctext located
 
+    method! visit_DOnErrorReduce =
+      fun _ parameters _on_error_reduce_level ->
+        text "%on_error_reduce"
+        ^-^ separate_map (break 1)
+              (self#with_located @@ self#visit_parameter ())
+              parameters
+
     method! visit_NonAssoc _ = text "%nonassoc"
     method! visit_LeftAssoc _ = text "%left"
     method! visit_RightAssoc _ = text "%right"
