@@ -1,6 +1,7 @@
 open Utils
 
-let log_info s = Printf.ksprintf prerr_endline s
+let debug = false
+let log_info s = Printf.ksprintf (fun s -> if debug then prerr_endline s) s
 
 (** This module is responsible for attaching comments to located syntax nodes
     over a generic syntax interface. Every lexed comment must be attached to a
@@ -93,47 +94,47 @@ struct
     let ok_comments =
       !bag_of_comments
       |> Bag.filter_map (fun (Cmt cmt as c) ->
-          log_info "Seeing if comment %s can be directly attached to node: %s"
-            (Cmt.show c) (show_loc ~doc located);
+          (* log_info "Seeing if comment %s can be directly attached to node: %s"
+            (Cmt.show c) (show_loc ~doc located); *)
           let relpos = Range.compare_inclusion cmt.range range_loc in
           match relpos with
           | `Before dist
             when only_comments ~doc ~allow_newlines:`AllowNewlines
                    Range.(create ~start:cmt.range.end_ ~end_:range_loc.start) ->
-              log_info "* Yes, prepending.";
+              (* log_info "* Yes, prepending."; *)
               Some (Cmt { cmt with relpos = `Before dist })
           | `After dist
             when only_comments ~doc ~allow_newlines:`DisallowNewlines
                    Range.(create ~start:range_loc.end_ ~end_:cmt.range.start) ->
-              log_info "* Yes, appending.";
+              (* log_info "* Yes, appending."; *)
               Some (Cmt { cmt with relpos = `After dist })
           | `Contained ->
-              log_info
+              (* log_info
                 "* No, but it is contained in the node, so I'll remember this \
-                 node as its parent.";
+                 node as its parent."; *)
               Bag.replace_ref bag_of_comments c (Cmt.with_parent c parent_ref);
               None
           | _ ->
-              log_info "* No.";
+              (* log_info "* No."; *)
               (match relpos with
-              | (`After dist | `Before dist) as relpos -> (
-                  log_info "The distance to this node is %s."
-                    (Position.show dist);
+              | (`After _dist | `Before _dist) as relpos -> (
+                  (* log_info "The distance to this node is %s."
+                    (Position.show dist); *)
                   match cmt.nearest_loc with
                   | None ->
-                      log_info
+                      (* log_info
                         "The nearest_loc field was empty, so I'll make this \
-                         node the nearest.";
+                         node the nearest."; *)
                       Bag.replace_ref bag_of_comments c
                         (Cmt.with_nearest c (nearest_ref, relpos))
                   | Some (_, old_relpos)
                     when compare_relpos relpos old_relpos < 0 ->
-                      log_info
+                      (* log_info
                         "The node is closer than the old nearest with distance \
                          %s"
                         (Position.show
                            (match old_relpos with
-                           | `After dist | `Before dist -> dist));
+                           | `After dist | `Before dist -> dist)); *)
                       Bag.replace_ref bag_of_comments c
                         (Cmt.with_nearest c (nearest_ref, relpos))
                   | _ -> ())
@@ -160,27 +161,27 @@ struct
   let attach_comments ~bag_of_comments grammar (v : syntax -> syntax) ~doc:_ =
     (* Run the visitor at the root node *)
     let res = v grammar in
-    log_info
+    (* log_info
       "There are %d comments left in the bag. Trying to find a home for them..."
-      (Bag.cardinal !bag_of_comments);
+      (Bag.cardinal !bag_of_comments); *)
     Bag.iter
-      (fun (Cmt { text; relpos; last_parent; nearest_loc; _ } as cmt) ->
+      (fun (Cmt { text; relpos; last_parent; nearest_loc; _ } as _cmt) ->
         let c = { text; relpos } in
-        log_info "Considering comment %s." (Cmt.show cmt);
+        (* log_info "Considering comment %s." (Cmt.show cmt); *)
         match !last_parent with
         | Some loc ->
-            log_info "This comment has a parent!";
+            (* log_info "This comment has a parent!"; *)
             loc.comment <-
               O.fold (fun init cs -> cs @ init) [ c ] loc.comment |> O.some
         | None -> (
             match nearest_loc with
             | Some (loc, _) ->
                 let loc = !loc in
-                log_info
+                (* log_info
                   "The comment '%s' is an orphan, so I'll attach it to its \
                    nearest node at %s."
                   c.text
-                  Range.(show (of_lexical_positions loc.p));
+                  Range.(show (of_lexical_positions loc.p)); *)
                 loc.comment <-
                   O.fold (fun init cs -> cs @ init) [ c ] loc.comment |> O.some
             | None -> failwith "impossible"))
@@ -207,9 +208,9 @@ struct
     in *)
     let n_before = L.(length before_comments) in
     L.foldi
-      (fun doc idx (text, { character; line }) ->
-        log_info "\nbefore comment %s with distance (%d, %d)" text character
-          line;
+      (fun doc idx (text, { character = _; line }) ->
+        (* log_info "\nbefore comment %s with distance (%d, %d)" text character
+          line; *)
         doc ^^ string text
         ^^
         if idx = n_before - 1 then repeat (min 2 line |> max 1) hardline
@@ -218,9 +219,8 @@ struct
     ^^ k located
     ^^ L.foldi
          (fun doc idx (text, { character; line }) ->
-           log_info "\nafter comment %s with distance (%d, %d)" text character
-             line;
-
+           (* log_info "\nafter comment %s with distance (%d, %d)" text character
+             line; *)
            doc
            ^^ (match (idx, line, character) with
              | 0, 0, _ -> blank 1 (* inline this, break the rest *)

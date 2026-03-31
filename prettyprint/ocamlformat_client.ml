@@ -84,7 +84,7 @@ let set_config c =
 
 let format ?(format_args = empty_args) x =
   get_client () >>= fun cl ->
-  log "[ocf] Format '%s'\n" x;
+  (* log "[ocf] Format '%s'\n" x; *)
   Ocf.format ~format_args x cl
 
 let halt () =

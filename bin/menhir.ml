@@ -606,11 +606,10 @@ let code_actions (state : state) ~uri ~(range : Range.t) : CodeActionResult.t =
     state.tokens
   |> some
 
-let selection_range ({ grammar; _ } as state : state)
+let selection_range ({ grammar; _ } as _state : state)
     ~(positions : Position.t list) ~(notify_back : notify_back) :
     SelectionRange.t list =
   let open L in
-  log_info ~notify_back "AST ranges view:\n%s" (debug_ast state);
   let@* i, pos = positions in
   let parent_ref = ref @@ None in
   (* This visitor descends the grammar's syntax tree nodes which contain pos, connecting them in a ladder of [SelectionRange]s. *)

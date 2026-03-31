@@ -6,8 +6,15 @@ build:
 watch:
     dune build @ocaml-index -w
 
+test:
+    dune test -w
+
 install: build
     dune install
+
+format file: install
+    clear
+    ./_build/install/default/bin/menhirformat {{ file }}
 
 # 1. check if tag arg is valid
 # 2. upload the executable
