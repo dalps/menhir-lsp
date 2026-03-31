@@ -16,6 +16,14 @@ format file: install
     clear
     ./_build/install/default/bin/menhirformat {{ file }}
 
+publish:
+    opam publish .
+
+bump version: build
+    git tag -a {{ version }}
+    git push origin {{ version }}
+    gh release create
+
 # 1. check if tag arg is valid
 # 2. upload the executable
 upload-binary tag:

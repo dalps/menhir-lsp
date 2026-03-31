@@ -3,12 +3,16 @@
 VS Code extension providing IntelliSense for [Menhir](https://fpottier.gitlabpages.inria.fr/menhir/) grammars and [Ocamllex](https://ocaml.org/manual/5.4/lexyacc.html) lexers. In order to work, it needs the Menhir language server [menhir-lsp](https://github.com/dalps/menhir-lsp). Install it with [opam](https://ocaml.org/packages), the OCaml package manager:
 
 ```
-opam update && opam install menhir-lsp
+opam install menhir-lsp
 ```
 
 or download the binary from the [latest release](https://github.com/dalps/menhir-lsp/releases/latest) and add it to your PATH.
 
-The extension will activate and launch the server upon opening a file ending with `.mly` or `.mll`. Enjoy ease of navigation and solid language support in your grammars!
+The extension will activate and launch the server upon opening a file ending with `.mly` or `.mll`.
+
+**Important:** This extension does not provide syntax highlighting for the two languages. The [OCaml Platform](https://marketplace.visualstudio.com/items?itemName=ocamllabs.ocaml-platform) extension already takes care of that; make sure you have it installed before using this. The Menhir extension aims to complement by providing completions and code browsing features in those files.
+
+Enjoy ease of navigation and *rock*-solid language support in your grammars!
 
 ## Features
 
