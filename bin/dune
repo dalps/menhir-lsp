@@ -3,14 +3,17 @@
  (name main)
  (preprocess
   (pps lwt_ppx))
+ (package menhir-lsp)
  (libraries
   merlin-lib.kernel
   merlin-lib.query_commands
   menhirSyntax
   ocamllexSyntax
+  menhirformat_lib
   linol
   linol-lwt
   containers
   ordering
   re
-  stdune))
+  stdune
+  menhir_lsp_lib))

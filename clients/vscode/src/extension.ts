@@ -80,11 +80,14 @@ export function activate(context: vscode.ExtensionContext) {
     outputChannel.show,
   );
 
-  // vscode.commands.registerCommand("menhir-lsp-client.restartClient", () => {
-  //   if (client.isRunning()) client.stop();
+  vscode.commands.registerCommand(
+    "menhir-lsp-client.restartServer",
+    async () => {
+      if (client.isRunning()) await client.stop();
 
-  //   client.start();
-  // });
+      client.start();
+    },
+  );
 
   vscode.commands.registerCommand(
     "menhir-lsp-client.promptAlias",

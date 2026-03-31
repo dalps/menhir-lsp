@@ -23,18 +23,20 @@
 open Syntax
 open Located
 
+let log = Printf.eprintf
+
 (* An injection of symbol expressions into choice expressions. *)
 
 let inject (e : symbol_expression located) : expression =
   let range = position e in
-  Located.map (fun e ->
+  Located.map (fun (e : symbol_expression) ->
     let branch =
       Branch (
-        locate range (ESingleton e),
+        locate range (ESingleton (locate range e)),
         ParserAux.new_production_level()
       )
     in
-    EChoice [ branch ]
+    EChoice [ locate range branch ]
   ) e
 
 (* This variant of [locate] expects a pair of positions, such as $loc,
@@ -43,6 +45,9 @@ let inject (e : symbol_expression located) : expression =
 let locate' locs v =
   locate (Range.make locs) v
 
+let singleton x = [ x ]
+
+let last_bar = ref None
 %}
 
 /* ------------------------------------------------------------------------- */
@@ -87,7 +92,7 @@ let locate' locs v =
 %token <string Located.located Lazy.t>
   PERCENTPERCENT   "%%"
 
-%token <Syntax.raw_action>
+%token <Syntax.action> (* [menhir-lsp] This was [raw_action] *)
   ACTION           "{}"
 
 %token <Attribute.attribute>
@@ -105,11 +110,12 @@ let locate' locs v =
 /* ------------------------------------------------------------------------- */
 /* Type annotations and start symbol. */
 
-%type <ParserAux.early_producer> producer
-%type <ParserAux.early_production> production
+%type <Syntax.parameter located> actual strict_actual lax_actual
+%type <Syntax.early_producer located> producer
+%type <Syntax.early_production located> production
 %start <Syntax.partial_grammar> grammar
 
-%type <Syntax.declaration located list> declaration
+%type <Syntax.declaration located list> declaration (* [menhir-lsp] removed [list] *)
 
 /* ------------------------------------------------------------------------- */
 /* Priorities. */
@@ -122,7 +128,7 @@ let locate' locs v =
    The new rule syntax does not have this possibility, and has no ambiguity. */
 
 %nonassoc no_optional_bar
-%nonassoc BAR
+%nonassoc BAR // UID LID QID
 
 /* ------------------------------------------------------------------------- */
 /* On-error-reduce declarations. */
@@ -166,47 +172,35 @@ grammar:
 declaration:
 
 | h = HEADER /* lexically delimited by %{ ... %} */
-    { [ locate' $loc (DCode h) ] }
+    { locate' $loc @@ DCode h |> singleton }
 
 | TOKEN ty = ocamltype? ts = clist(terminal_alias_attrs)
-    { List.map (Located.map (fun (terminal, alias, attrs) ->
-        DToken (ty, terminal, alias, attrs)
-      )) ts }
+    { locate' $loc @@ DToken (ty, ts) |> singleton } (* [menhir-lsp] Turned into a singleton. *)
 
 | START t = ocamltype? nts = clist(nonterminal)
     /* %start <ocamltype> foo is syntactic sugar for %start foo %type <ocamltype> foo */
-    {
-      match t with
-      | None ->
-          List.map (fun nonterminal -> locate $loc @@ DStart nonterminal) nts
-      | Some t ->
-         let dstart nt = locate $loc @@ DStart nt
-         and dtype ntloc = (fun _nt -> locate $loc @@ DType (t, ParamVar ntloc)) ntloc in (* ugly/weird *)
-         List.map dstart nts @
-         List.map dtype nts
-    }
+    (* [menhir-lsp] desugared. *)
+    { locate' $loc @@ DStart (t, nts) |> singleton }
 
 | TYPE t = ocamltype ss = clist(strict_actual)
-    { List.map (Located.map (fun nt -> DType (t, nt)))
-        (List.map Parameter.locate ss) }
+    { locate' $loc @@ DType (t, ss) |> singleton }
 
 | k = priority_keyword ss = clist(symbol)
     { let prec = ParserAux.new_precedence_level $loc(k) in
-      List.map ((fun symbol -> locate $loc @@ DTokenProperties (symbol, k, prec))) ss }
+      locate' $loc @@ DTokenProperties (ss, k, prec) |> singleton }
 
 | PARAMETER t = ANGLED
-    { [ locate' $loc (DParameter t) ] }
+    { locate' $loc @@ DParameter t |> singleton }
 
 | attr = GRAMMARATTRIBUTE
-    { [ locate' $loc (DGrammarAttribute attr) ] }
+    { locate' $loc @@ DGrammarAttribute attr |> singleton }
 
 | PERCENTATTRIBUTE actuals = clist(strict_actual) attrs = ATTRIBUTE+
-    { [ locate' $loc (DSymbolAttributes (actuals, attrs)) ] }
+    { locate' $loc @@ DSymbolAttributes (actuals, attrs) |> singleton }
 
 | ON_ERROR_REDUCE ss = clist(strict_actual)
     { let prec = ParserAux.new_on_error_reduce_level() in
-      List.map (Located.map (fun nt -> DOnErrorReduce (nt, prec)))
-        (List.map Parameter.locate ss) }
+      locate' $loc @@ DOnErrorReduce (ss, prec) |> singleton }
 
 | SEMI
     { [] }
@@ -287,12 +281,12 @@ symbol:
 /* A rule is expressed either in the traditional (yacc-style) syntax or in
    the new syntax. */
 
-%inline rule:
-  old_rule
-    { $1 }
-| new_rule
-    /* The new syntax is converted on the fly to the old syntax. */
-    { locate $loc @@ NewRuleSyntax.rule $1 }
+let rule ==
+  ~ = old_rule;
+    <Old>
+| ~ = new_rule;
+    /* The new syntax is converted on the fly to the old syntax. */ (* [menhir-lsp] Not anymore! *)
+    <New>
 
 /* ------------------------------------------------------------------------- */
 /* A rule defines a symbol. It is optionally declared %public, and optionally
@@ -311,9 +305,11 @@ old_rule:
     {
       let public, inline = flags.v in
       let startpos = Range.startp (
-        if flags.v = (false, false) then symbol.p else flags.p
-      ) in
-      let rule = locate (startpos, $endpos) {
+          if flags.v = (false, false) then symbol.p else flags.p
+        )
+      in
+      last_bar := None;
+      locate (startpos, $endpos) {
         pr_public = public;
         pr_inline = inline;
         pr_nt          = symbol;
@@ -321,12 +317,10 @@ old_rule:
         pr_parameters  = params; (* [menhir-lsp] change to located *)
         pr_branches    = branches
       }
-      in rule
     }
 
-%inline branches:
-  prods = separated_nonempty_list(BAR, production_group)
-    { List.flatten prods }
+let branches ==
+  separated_nonempty_list(mandatory_bar, production_group)
 
 flags:
   /* epsilon */
@@ -339,10 +333,13 @@ flags:
 | INLINE PUBLIC
     { true, true }
 
+mandatory_bar:
+  BAR { last_bar := Some $startpos }
+
 optional_bar:
-  /* epsilon */ %prec no_optional_bar
+  /* epsilon */ { log "No leading bar ($loc is: %s)\n" (Range.show $loc) } %prec no_optional_bar
 | BAR
-    { () }
+    { log "Found leading bar at %s\n" (Range.show $loc); last_bar := Some $startpos }
 
 /* ------------------------------------------------------------------------- */
 /* A production group is a set of productions that share a semantic action.
@@ -353,30 +350,42 @@ optional_bar:
    followed by a possibly empty list of attributes. */
 
 production_group:
-  productions = separated_nonempty_list(BAR, located(production))
+  productions = separated_nonempty_list(mandatory_bar, production)
   action = located(ACTION) /* action is lexically delimited by braces */
   oprec2 = ioption(located(precedence))
   attrs = ATTRIBUTE*
     {
+      (* let productions = List.rev productions in *)
       (* If multiple productions share a single semantic action, check
          that all of them bind the same names. *)
       ParserAux.check_production_group productions;
       (* Then, *)
-      List.map (fun Located.{ v = (producers, oprec1, level); p = pos } ->
         (* Replace [$i] with [_i]. *)
-        let pb_producers : producer located list = ParserAux.normalize_producers producers in
+        let _pb_productions : production located list =
+          List.map (Located.map (fun (producers, oprec1, level) ->
+            (ParserAux.normalize_producers producers, oprec1, level))
+          ) productions
+        in
         (* Distribute the semantic action and attributes onto every production.
            Also, check that every [$i] is within bounds. *)
-        let names = ParserAux.producer_names producers in
-        let pb_action = locate action.p @@ action.v !ParserAux.dollars names in
-        locate' $loc {
-          pb_producers;
-          pb_action;
-          pb_prec_annotation  = ParserAux.override pos oprec1 oprec2;
-          pb_production_level = level;
-          pb_attributes       = attrs;
-        })
-      productions
+        (* let names = ParserAux.producer_names producers in
+        let pb_action = locate action.p @@ action.v !ParserAux.dollars names in *)
+        (* [menhir-lsp] we'dont distribute the actions across the productions anymore to highlight syntactic structure. *)
+      let pb_productions = productions in
+      let pb_action = action in
+      (* [menhir-lsp] The group starts at start position of its first production,
+        which is always a leading bar except for the first group's first production. *)
+      let startpos = match productions with
+        | [] -> $startpos
+        | p :: _ -> startp p
+      in
+      locate' (startpos, $endpos) {
+        pb_productions;
+        pb_action;
+        pb_prec_annotation  = oprec2; (* There are two levels of these, this is the outer group level. *)
+        (* pb_production_level = level; *)
+        pb_attributes       = attrs;
+      }
     }
 
 // precedence:
@@ -392,10 +401,16 @@ precedence:
    precedence declaration. */
 
 production:
-  producers = located(producer)* oprec = ioption(located(precedence))
-    { producers,
+  producers = producer* oprec = ioption(located(precedence))
+    { (* [menhir-lsp] if there's no leading bar, use the start of first producer. *)
+      let startpos = Option.value ~default:(
+        match producers with
+        | [] -> $startpos (* we're screwed *)
+        | p :: _ -> startp p
+      ) !last_bar in
+      locate' (startpos, $endpos) (producers,
       oprec,
-      ParserAux.new_production_level() }
+      ParserAux.new_production_level()) }
 
 /* ------------------------------------------------------------------------- */
 /* A producer is an actual parameter, possibly preceded by a
@@ -412,7 +427,11 @@ production:
 
 producer:
 | id = ioption(terminated(LID, EQUAL)) p = actual attrs = ATTRIBUTE* SEMI*
-    { id, p, attrs }
+    { let startpos = match id with
+        | None -> startp p
+        | Some _ -> $startpos(id)
+      in
+      locate' (startpos, $endpos) (id, p, attrs) }
 
 /* ------------------------------------------------------------------------- */
 /* The ideal syntax of actual parameters includes:
@@ -439,10 +458,10 @@ producer:
 %inline generic_actual(A, B):
 (* 1- *)
   symbol = symbol actuals = plist(A)
-    { Parameter.apply symbol actuals }
+    { locate' (startp symbol, $endpos(actuals)) @@ Parameter.apply symbol actuals }
 (* 2- *)
 | p = B m = located(modifier)
-    { Parameter.apply m [p] }
+    { locate' $loc @@ Parameter.apply m [p] }
 
 strict_actual:
   p = generic_actual(strict_actual, strict_actual)
@@ -458,7 +477,7 @@ lax_actual:
 (* 3- *)
 | /* leading bar disallowed */
   branches = located(branches)
-    { ParamAnonymous branches }
+    { locate' $loc @@ ParamAnonymous branches }
     (* 2016/05/18: we used to eliminate anonymous rules on the fly during
        parsing. However, when an anonymous rule appears in a parameterized
        definition, the fresh nonterminal symbol that is created should be
@@ -503,20 +522,22 @@ postlude:
    give rise to a shift/reduce conflict that we would not be able to solve. */
 
 new_rule:
-| rule_public     = boption(PUBLIC)
-  LET
-  rule_lhs        = LID
-  rule_attributes = ATTRIBUTE*
-  rule_formals    = plist(symbol)
-  rule_inline     = equality_symbol
-  rule_rhs        = expression
-    {{
-       rule_public;
-       rule_inline;
-       rule_lhs;
-       rule_attributes;
-       rule_formals;
-       rule_rhs;
+| pr_public     = boption(PUBLIC)
+  _tk_let = LET
+  pr_nt           = LID
+  pr_attributes   = ATTRIBUTE*
+  pr_parameters   = plist(symbol)
+  pr_inline       = equality_symbol
+  pr_branches     = expression
+    { (* [menhir-lsp] avoid using $loc here *)
+      let startpos = if pr_public then $startpos(pr_public) else $startpos(_tk_let) in
+      locate (startpos, $endpos) {
+       pr_public;
+       pr_inline;
+       pr_nt;
+       pr_attributes;
+       pr_parameters;
+       pr_branches;
     }}
 
 /* A new rule is written [let foo := ...] or [let foo == ...].
@@ -533,9 +554,8 @@ equality_symbol:
 
 /* An expression is a choice expression. */
 
-expression:
-  e = located(choice_expression)
-    { e }
+let expression :=
+  choice_expression
 
 /* A choice expression is a bar-separated list of alternatives, with an
    optional leading bar, which is ignored. Each alternative is a sequence
@@ -550,11 +570,15 @@ expression:
 
 %inline choice_expression:
   branches = preceded_or_separated_nonempty_llist(BAR, branch)
-    { EChoice branches }
+    { let startpos = match branches with
+      | [] -> $startpos
+      | b :: _ -> startp b
+      in
+      locate (startpos, $endpos) @@ EChoice branches }
 
 %inline branch:
-  e = seq_expression
-    { Branch (e, ParserAux.new_production_level()) }
+  e = raw_seq_expression
+    { locate (startp e, $endpos) @@ Branch (e, ParserAux.new_production_level()) }
 
 /* A sequence expression takes one of the following forms:
 
@@ -584,22 +608,23 @@ expression:
    to do this, as we wish to make it clear in this case that this is a
    sequence whose last element is the action expression. */
 
-%inline seq_expression:
-  e = located(raw_seq_expression)
-    { e }
+(* [menhir-lsp] this yields sloppy locations, so I muted it. *)
+// %inline seq_expression:
+//   e = located(raw_seq_expression)
+//     { e }
 
 raw_seq_expression:
 |                    e1 = symbol_expression e2 = continuation
-    { ECons (SemPatWildcard, e1, e2) }
-| p1 = pattern EQUAL e1 = symbol_expression e2 = continuation
-    { ECons (p1, e1, e2) }
+    { locate' (startp e1, $endpos) @@ ECons (SemPatWildcard, e1, e2) }
+| p1 = located(pattern) EQUAL e1 = symbol_expression e2 = continuation
+    { locate' (startp p1, $endpos) @@ ECons (p1.v, e1, e2) }
 | e = symbol_expression
-    { ESingleton e }
+    { locate' (startp e, $endpos) @@ ESingleton e }
 | e = action_expression
-    { e }
+    { locate' $loc @@ e }
 
 %inline continuation:
-  SEMI e2 = seq_expression
+  SEMI e2 = raw_seq_expression
 /* |   e2 = action_expression */
     { e2 }
 
@@ -619,12 +644,12 @@ raw_seq_expression:
 
 symbol_expression:
 | symbol = symbol es = plist(expression) attrs = ATTRIBUTE*
-    { ESymbol (symbol, es, attrs) }
-| e = located(symbol_expression) m = located(modifier) attrs = ATTRIBUTE*
+    { locate' (startp symbol, $endpos) @@ ESymbol (symbol, es, attrs) }
+| e = symbol_expression m = located(modifier) attrs = ATTRIBUTE*
     (* We are forced by syntactic considerations to require a symbol expression
        in a position where an expression is expected. As a result, an injection
        must be applied. *)
-    { ESymbol (m, [ inject e ], attrs) }
+    { locate' $loc @@ ESymbol (m, [ inject e ], attrs) }
 
 /* An action expression is a semantic action, optionally preceded or followed
    with a precedence annotation. */

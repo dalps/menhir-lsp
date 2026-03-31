@@ -41,7 +41,7 @@ let[@inline] linecount (startp, endp) =
 let[@inline] column (startp, _endp) =
   startp.pos_cnum - startp.pos_bol
 
-let[@inline] end_column (startp, endp) =
+let[@inline] _end_column (startp, endp) =
   endp.pos_cnum - startp.pos_bol (* intentionally [startp.pos_bol] *)
 
 let decrement (pos : position) : position =
@@ -52,12 +52,9 @@ let decrement (pos : position) : position =
 let decrement ((startp, endp) : range) : range =
   make (decrement startp, endp)
 
-let show range =
+let show =
   (* [filename] is hopefully not empty. *)
-  sprintf
-    "File \"%s\", line %d, characters %d-%d"
-    (filename range) (linenum range)
-    (column range) (end_column range)
+  Menhir_lsp_lib.Utils.(Range.of_lexical_positions >> Range.show)
 
 let current lexbuf =
   (lexeme_start_p lexbuf, lexeme_end_p lexbuf)

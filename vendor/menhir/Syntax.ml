@@ -33,12 +33,19 @@
 (******************************************************************************)
 
 open Attribute
-
 include BaseTypes
 
 type ocamltype = OCamlType.ocamltype =
   | Declared of string located
   | Inferred of string
+
+and attribute = Attribute.attribute = {
+  key : key; [@opaque]
+  payload : payload; [@opaque]
+  origin : Range.range; [@opaque]
+}
+
+and attributes = attribute list
 
 and terminal = string
 (**A terminal symbol. *)
@@ -73,8 +80,9 @@ and identifier = string
 and filename = string
 (**A file name. *)
 
-and action = (Action.t[@opaque])
+and action = (IL.expr[@opaque])
 (**A semantic action. *)
+(* [menhir-lsp] was (Action.t[@opaque]) *)
 
 (**The associativity status of a terminal symbol. *)
 and associativity = LeftAssoc | RightAssoc | NonAssoc | UndefinedAssoc
@@ -97,7 +105,7 @@ and precedence_level =
 and production_level = ProductionLevel of (InputFile.file[@opaque]) * int
 
 and prec_annotation =
-  symbol located located option (* [menhir-lsp] double-located *)
+  symbol located located option (* [menhir-lsp] doubly-located *)
 (**A [%prec] annotation is optional. A production can carry at most one. If
    there is one, it is a symbol name. See [ParserAux]. *)
 
@@ -116,7 +124,7 @@ and properties = {
   tk_alias : alias;
       (**A "token alias" can be declared for this terminal symbol. It is
          optional. *)
-  tk_attributes : attributes; [@opaque] [@opaque]
+  tk_attributes : attributes;
       (**The attributes attached with this terminal symbol. *)
   tk_associativity : associativity;
       (**The associativity status of this terminal symbol. *)
@@ -162,14 +170,25 @@ and properties = {
    Before anonymous rules have been eliminated, a parameter can also be an
    anonymous rule, represented as a list of branches. *)
 and parameter =
-  | ParamVar of (symbol[@opaque]) located
-  | ParamApp of (symbol[@opaque]) located * parameters
+  | ParamVar of symbol located
+  | ParamApp of symbol located * parameters
   | ParamAnonymous of parameterized_branch located list located
 
-and parameters = parameter list
+and parameters = parameter located list (* [menhir-lsp] inserted located *)
 (* -------------------------------------------------------------------------- *)
 
-and producer = (identifier[@opaque]) located * parameter * (attributes[@opaque])
+and early_producer = identifier located option * parameter located * attributes
+and early_producers = early_producer located list
+
+and early_production =
+  early_producers
+  * prec_annotation
+  * (* optional precedence *)
+  production_level
+
+and early_productions = early_production located list
+
+and producer = identifier located * parameter located * attributes
 (**A producer is a pair of identifier and a parameter. In concrete syntax, it
    could be [e = expr], for instance. The identifier [e] is always present. (A
    use of the keyword [$i] in a semantic action is turned by the lexer and
@@ -177,72 +196,145 @@ and producer = (identifier[@opaque]) located * parameter * (attributes[@opaque])
    of attributes. *)
 (* -------------------------------------------------------------------------- *)
 
+and production =
+  producer located list
+  * prec_annotation
+  * (* optional precedence *)
+    production_level
+
+(* Output by the parser rule `production_group`. *)
 and parameterized_branch = {
+  (* [menhir-lsp] lifted [pb_position : range] to outer located *)
   (* pb_position         : range; *)
-  (*[menhir-lsp] lifted [pb_position : range] to outer located *)
-  pb_producers : producer located list;
-      (**The producers. ([menhir-lsp]: made located) *)
-  pb_action : action located;  (**The semantic action. ([menhir-lsp]: made located) *)
+  (* [menhir-lsp] new field that preserves the sugar *)
+  pb_productions : early_productions;
+  (* pb_producers : producer located list; *)
+      (**The producers. ([menhir-lsp]: hidden) *)
+  pb_action : action located;
+      (**The semantic action. ([menhir-lsp]: made located) *)
   pb_prec_annotation : prec_annotation;  (**An optional [%prec] annotation. *)
-  pb_production_level : production_level; [@opaque]
-      (**The branch's production level. *)
-  pb_attributes : attributes; [@opaque]
-      (**The attributes attached with this branch. *)
+  (* pb_production_level : production_level; [@opaque] *)
+      (**The branch's production level. ([menhir-lsp]: hidden, look into the productions) *)
+  pb_attributes : attributes;  (**The attributes attached with this branch. *)
 }
 (**A branch (the right-hand side of a production) is a sequence of producers
    followed with a semantic action. *)
 (* -------------------------------------------------------------------------- *)
 
-and parameterized_rule = {
+and 'branches parameterized_rule = {
   pr_public : bool;  (**Is the [%public] keyword present? *)
   pr_inline : bool;  (**Is the [%inline] keyword present? *)
   pr_nt : nonterminal located;
       (**The name of the nonterminal symbol that is being defined. *)
   (* pr_positions  : ranges; *)
   (* [menhir-lsp] removed pr_positions field in favor of located values. *)
-  pr_attributes : attributes; [@opaque]
+  pr_attributes : attributes;
       (**Attributes attached with this nonterminal symbol. *)
   pr_parameters : symbol located list;
       (**The parameters of this nonterminal symbol. *)
-  pr_branches : parameterized_branch located list;  (**The productions. *)
+  pr_branches : 'branches;  (**The productions. *)
 }
 (**A rule is the definition of a nonterminal symbol.
 
    A rule has a header and several branches (productions). *)
 (* -------------------------------------------------------------------------- *)
+
+(**The new rule syntax. *)
+(**In the user's eyes, the new rule syntax replaces (or complements) the old
+   rule syntax, which corresponds to the types [parameter], [producer],
+   [parameterized_branch], and [parameterized_rule] above. *)
+(**Internally, the new rule syntax is translated down to the old rule syntax;
+   see the module [NewRuleSyntax]. This is done on the fly during parsing. *)
+(** [menhir-lsp] We keep the sugar. *)
+
+(**A pattern. See the manual. *)
+and pattern =
+  | SemPatVar of identifier located
+  | SemPatWildcard
+  | SemPatTilde of (range[@opaque])
+  | SemPatTuple of pattern list
+
+and raw_action =
+  ([ `DollarsDisallowed | `DollarsAllowed ] -> identifier option array -> action
+  [@opaque])
+(**The ugly type [raw_action] is produced by the lexer for an [ACTION] token. *)
+
+and expression = choice_expression located
+(**A toplevel expression is a choice expression. *)
+
+(**A choice expression is a list of branches. *)
+and choice_expression = EChoice of branch located list (* [menhir-lsp] located branches *)
+
+(**A branch is a sequence expression and an ugly [production_level]. *)
+and branch = Branch of seq_expression * production_level
+
+and seq_expression = raw_seq_expression located
+
+(**A sequence is either a cons [p = e1; e2] or a lone symbol expression [e] or a
+   semantic action. *)
+(* [menhir-lsp] located symbol_expression *)
+and raw_seq_expression =
+  | ECons of pattern * symbol_expression located * seq_expression
+  | ESingleton of symbol_expression located
+  | EAction of extended_action * prec_annotation * attributes
+
+(**A symbol expression is a symbol, possibly accompanied with actual parameters
+   and attributes. *)
+and symbol_expression =
+  | ESymbol of symbol located * expression list * attributes
+
+(**A semantic action is either traditional { ... } or point-free.
+    There are two forms of point-free actions, <> and <id>.
+    In the latter case, [id] is an OCaml identifier. *)
+and extended_action =
+  | XATraditional of (action[@opaque])
+  | XAPointFree of string located option
+
 (* -------------------------------------------------------------------------- *)
+and new_rule = expression parameterized_rule
+and old_rule = parameterized_branch located list parameterized_rule
+and rule = Old of old_rule located | New of new_rule located
 
 (**A declaration. (Only before joining.) *)
 and declaration =
   | DCode of string located  (**Raw OCaml code. *)
   | DParameter of string located  (**Raw OCaml functor parameter. *)
-  | DToken of ocamltype option * terminal located * alias * (attributes[@opaque])
+  | DToken of
+      ocamltype option * (terminal located * alias * attributes) located list
       (**Terminal symbol (token) declaration. *)
-  | DStart of nonterminal located  (**Start symbol declaration. *)
-  | DTokenProperties of terminal located * associativity * precedence_level
+  | DStart of ocamltype option * nonterminal located list
+      (**Start symbol declaration. *)
+  | DTokenProperties of terminal located list * associativity * precedence_level
       (**Priority and associativity declaration. *)
-  | DType of ocamltype * parameter  (**Type declaration. *)
-  | DGrammarAttribute of (attribute[@opaque])
-      (**Grammar-level attribute declaration. *)
-  | DSymbolAttributes of parameter list * (attributes[@opaque])
+  | DType of ocamltype * parameters  (**Type declaration. *)
+  | DGrammarAttribute of attribute  (**Grammar-level attribute declaration. *)
+  | DSymbolAttributes of parameters * attributes
       (**Attributes shared among multiple symbols, i.e., [%attribute]. *)
-  | DOnErrorReduce of parameter * on_error_reduce_level
+  | DOnErrorReduce of parameters * on_error_reduce_level
       (**On-error-reduce declaration. *)
 (* -------------------------------------------------------------------------- *)
 
 and partial_grammar = {
   pg_filename : filename;
-  pg_postlude : string located option;
   pg_declarations : declaration located list;
-  pg_rules : parameterized_rule located list;
+  pg_rules : rule list;
+  pg_postlude : string located option;
+      (* [menhir-lsp] moved down. The comment-attaching logic is sensible to the order of these fields. *)
 }
 (**A partial grammar. (Only before joining.) *)
 
-and 'a located = 'a Located.located = { p : range; [@opaque] v : 'a }
+and 'a located = 'a Located.located = {
+  p : range; [@opaque]
+  v : 'a;
+  mutable comment : Located.comments; [@opaque]
+}
+
+and main = partial_grammar
 [@@deriving
   visitors { name = "ast_map"; variety = "map"; polymorphic = true },
   visitors { name = "ast_reduce"; variety = "reduce"; polymorphic = true },
-  visitors { name = "ast_iter"; variety = "iter"; polymorphic = true }]
+  visitors { name = "ast_iter"; variety = "iter"; polymorphic = true },
+  visitors { name = "ast_endo"; variety = "endo"; polymorphic = true }]
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
@@ -257,7 +349,7 @@ type grammar = {
   p_on_error_reduce : (parameter * on_error_reduce_level) list;
   p_grammar_attributes : attributes;
   p_symbol_attributes : (parameter list * attributes) list;
-  p_rules : parameterized_rule StringMap.t;
+  p_rules : rule StringMap.t;
 }
 (**A grammar. (Only after joining.)
 
@@ -269,69 +361,41 @@ type grammar = {
    map, indexed by symbol names, instead of a list. 5. token aliases have been
    replaced with ordinary named terminal symbols. *)
 
-(* -------------------------------------------------------------------------- *)
-(* -------------------------------------------------------------------------- *)
+(* [menhir-lsp] Tried to organize declarations. This could be done in the parser directly. *)
+module DBuckets = struct
+  type bucket = declaration located list
 
-(**The new rule syntax. *)
+  (* The order of these fields determines their order in which they are printed out. *)
+  and t = {
+    dCode : bucket;
+    dParameter : bucket;
+    dToken : bucket;
+    dStart : bucket;
+    dType : bucket;
+    dTokenProperties : bucket;
+    dGrammarAttribute : bucket;
+    dSymbolAttributes : bucket;
+    dOnErrorReduce : bucket;
+  }
+  [@@deriving
+    visitors
+      {
+        name = "buckets_reduce";
+        variety = "reduce";
+        polymorphic = true;
+        ancestors = [ "ast_reduce" ];
+      }]
 
-(**In the user's eyes, the new rule syntax replaces (or complements) the old
-   rule syntax, which corresponds to the types [parameter], [producer],
-   [parameterized_branch], and [parameterized_rule] above. *)
-
-(**Internally, the new rule syntax is translated down to the old rule syntax;
-   see the module [NewRuleSyntax]. This is done on the fly during parsing. *)
-
-(**A pattern. See the manual. *)
-type pattern =
-  | SemPatVar of identifier located
-  | SemPatWildcard
-  | SemPatTilde of range
-  | SemPatTuple of pattern list
-
-type raw_action =
-  [ `DollarsDisallowed | `DollarsAllowed ] -> identifier option array -> action
-(**The ugly type [raw_action] is produced by the lexer for an [ACTION] token. *)
-
-type expression = choice_expression located
-(**A toplevel expression is a choice expression. *)
-
-(**A choice expression is a list of branches. *)
-and choice_expression = EChoice of branch list
-
-(**A branch is a sequence expression and an ugly [production_level]. *)
-and branch = Branch of seq_expression * production_level
-
-and seq_expression = raw_seq_expression located
-
-(**A sequence is either a cons [p = e1; e2] or a lone symbol expression [e] or a
-   semantic action. *)
-and raw_seq_expression =
-  | ECons of pattern * symbol_expression * seq_expression
-  | ESingleton of symbol_expression
-  | EAction of extended_action * prec_annotation * attributes
-
-(**A symbol expression is a symbol, possibly accompanied with actual parameters
-   and attributes. *)
-and symbol_expression =
-  | ESymbol of symbol located * expression list * attributes
-
-(**A semantic action is either traditional { ... } or point-free.
-   There are two forms of point-free actions, <> and <id>.
-   In the latter case, [id] is an OCaml identifier. *)
-and extended_action =
-  | XATraditional of raw_action
-  | XAPointFree of string located option
-
-type rule = {
-  rule_public : bool;  (**Is the [%public] keyword present? *)
-  rule_inline : bool;  (**Is the [%inline] keyword present? *)
-  rule_lhs : symbol located;
-      (**The name of the nonterminal symbol that is being defined. *)
-  rule_attributes : attributes;
-      (**Attributes attached with this nonterminal symbol. *)
-  rule_formals : symbol located list;
-      (**The parameters of this nonterminal symbol. *)
-  rule_rhs : expression;  (**The productions. *)
-}
-(**The type [rule] in the new rule syntax corresponds roughly to the type
-   [parameterized_rule] in the old rule syntax. *)
+  let init : t =
+    {
+      dCode = [];
+      dParameter = [];
+      dToken = [];
+      dStart = [];
+      dTokenProperties = [];
+      dType = [];
+      dGrammarAttribute = [];
+      dSymbolAttributes = [];
+      dOnErrorReduce = [];
+    }
+end

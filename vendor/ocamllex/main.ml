@@ -1,6 +1,7 @@
 let parse lexbuf =
+  Lexer.init ();
   try Ok (Parser.lexer_definition Lexer.main lexbuf) with
-  | Syntax.SyntaxError { v; p } | Lexer.Lexical_error { v; p } -> Error (v, p)
+  | Syntax.SyntaxError { v; p; _ } | Lexer.Lexical_error { v; p; _ } -> Error (v, p)
   | _ ->
       let range =
         Range.make Lexing.(lexeme_start_p lexbuf, lexeme_end_p lexbuf)

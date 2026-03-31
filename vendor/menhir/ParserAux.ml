@@ -10,20 +10,11 @@
 
 open Located
 open Syntax
-open Attribute
+(* open Attribute *)
 
 exception ParserError of string located
 
-type early_producer = identifier located option * parameter * attributes
-type early_producers = early_producer located list
-
-type early_production =
-  early_producers
-  * prec_annotation
-  * (* optional precedence *)
-    production_level
-
-type early_productions = early_production located list
+(* [menhir-lsp] types moved to Syntax *)
 
 let new_precedence_level =
   let c = ref 0 in
@@ -86,7 +77,7 @@ let check_production_group (right_hand_sides : early_productions) =
 (* [normalize_producer i p] assigns a name of the form [_i]
    to the unnamed producer [p]. *)
 let normalize_producer i
-    Located.{ v = opt_identifier, parameter, attrs; p = pos } =
+    Located.{ v = opt_identifier, parameter, attrs; p = pos; _ } =
   let id =
     match opt_identifier with
     | Some id -> id

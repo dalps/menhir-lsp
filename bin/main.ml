@@ -126,6 +126,7 @@ class lsp_server =
             (`RenameOptions
                { prepareProvider = Some true; workDoneProgress = None });
         selectionRangeProvider = Some (`Bool true);
+        documentFormattingProvider = Some (`Bool true);
       }
 
     method! on_notification_unhandled ~notify_back =
@@ -187,7 +188,23 @@ class lsp_server =
             log_info ~notify_back "Requested selection range at positions: %s"
               (L.to_string Position.show r.positions);
             self#_on_req_selection_range ~notify_back ~r
+        | Lsp.Client_request.TextDocumentFormatting
+            (r : DocumentFormattingParams.t) ->
+            log_info ~notify_back "Requested document formatting";
+            self#_on_req_document_formatting ~notify_back ~r
         | _ -> Lwt.fail_with "Unhandled request type"
+
+    method private _on_req_document_formatting ~notify_back
+        ~r:
+          ({ textDocument = { uri; _ }; options; _ } :
+            DocumentFormattingParams.t) : TextEdit.t list option Lwt.t =
+      (* The AST is provided by the handler's state parameter. *)
+      Lwt.return
+      @@
+      let open O in
+      let* doc = self#get_text_document ~uri in
+      self#_dispatch uri ~notify_back ~mll_handler:(Mll.format ~doc ~options)
+        ~mly_handler:(Mly.format ~doc ~options)
 
     method private _on_req_references =
       fun ~notify_back ~id:_ ~uri ~pos : Location.t list option Lwt.t ->

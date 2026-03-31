@@ -25,8 +25,8 @@ exception SyntaxError of string located
 
 type location = unit located
 
+(* Syntax that can only appear within [ .. ] *)
 and character_class_syntax =
-  | Wildcard of location
   | Character of int located
   | Range of int located * int located
   | Union of character_class_syntax located * character_class_syntax located
@@ -34,6 +34,8 @@ and character_class_syntax =
 
 and regular_expression_syntax =
   | Epsilon of location
+  | Wildcard of location
+  | Char of int located
   | CharSet of character_class_syntax located
   | String of string located
   | EOF of location
@@ -58,22 +60,32 @@ and entry = {
   name : string located;
   shortest : bool located;
   args : string located list;
-  clauses : (regular_expression_syntax located * location) list;
+  clauses : (regular_expression_syntax located * action) list;
 }
 
+(* The order of these fields should reflect the position in the concrete syntax. *)
 and lexer_definition = {
-  header : location option;
-  entrypoints : entry located list;
-  trailer : location option;
-  refill_handler : location option;
+  header : action option;
+  refill_handler : action option;
   named_regexps : named_regexp located list;
+  entrypoints : entry located list;
+  trailer : action option;
 }
 
-and 'a located = 'a Located.located = { p : range; [@opaque] v : 'a }
+and action = string located
+
+and 'a located = 'a Located.located = {
+  p : range; [@opaque]
+  v : 'a;
+  mutable comment : Located.comments; [@opaque]
+}
+
+and main = lexer_definition
 [@@deriving
-  visitors { name = "syntax_map"; variety = "map"; polymorphic = true },
-  visitors { name = "syntax_reduce"; variety = "reduce"; polymorphic = true },
-  visitors { name = "syntax_iter"; variety = "iter"; polymorphic = true }]
+  visitors { name = "ast_map"; variety = "map"; polymorphic = true },
+  visitors { name = "ast_reduce"; variety = "reduce"; polymorphic = true },
+  visitors { name = "ast_iter"; variety = "iter"; polymorphic = true },
+  visitors { name = "ast_endo"; variety = "endo"; polymorphic = true }]
 
 (* Also tried:
 

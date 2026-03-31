@@ -6,8 +6,15 @@ build:
 watch:
     dune build @ocaml-index -w
 
+test:
+    dune test -w
+
 install: build
     dune install
+
+format file: install
+    clear
+    ./_build/install/default/bin/menhirformat {{ file }}
 
 publish:
     opam publish .

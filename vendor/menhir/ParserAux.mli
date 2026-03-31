@@ -13,24 +13,25 @@
 
 open Lexing
 open Syntax
-open Attribute
+(* open Attribute *)
 
 exception ParserError of string located
 
 (* A few types used in the parser. *)
 
 (* [menhir-lsp] Lifted [Range.range] component in favor of collection of [located]. *)
-type early_producer = identifier located option * parameter * attributes
-type early_producers = early_producer located list
+(* type early_producer = identifier located option * parameter * attributes
+type early_producers = early_producer located list *)
 
 (* [menhir-lsp] Lifted [Range.range] component in favor of collection of [located]. *)
-type early_production =
+(* type early_production =
   early_producers
   * prec_annotation
   * (* optional precedence *)
     production_level
 
 type early_productions = early_production located list
+*)
 
 val new_precedence_level : position * position -> precedence_level
 (**[new_precedence_level (pos1, pos2)] creates a new precendence level, which is

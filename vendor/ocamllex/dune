@@ -1,5 +1,6 @@
 (library
  (name ocamllexSyntax)
+ (libraries menhirLib menhirCST pprint menhir_lsp_lib)
  (preprocess
   (pps visitors.ppx)))
 
@@ -7,9 +8,10 @@
 
 (env
  (dev
-  (flags :standard -warn-error -7-17)))
+  (flags :standard -warn-error -7-17 -w -27)))
 
 (ocamllex lexer)
 
 (menhir
- (modules parser))
+ (modules parser)
+ (flags --table --unparsing))

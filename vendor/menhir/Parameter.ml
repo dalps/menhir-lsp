@@ -44,7 +44,7 @@ let rec iter f p =
       f x
   | ParamApp (x, ps) ->
       f x;
-      List.iter (iter f) ps
+      List.iter (Located.iter (iter f)) ps
   | ParamAnonymous _ ->
       assert false
 
@@ -53,7 +53,7 @@ let rec map f p =
   | ParamVar x ->
       ParamVar (f x)
   | ParamApp (x, ps) ->
-      ParamApp (f x, List.map (map f) ps)
+      ParamApp (f x, List.map (Located.map (map f)) ps)
   | ParamAnonymous _ ->
       assert false
 
@@ -67,7 +67,7 @@ let rec subst f p =
   | ParamVar x ->
       f x
   | ParamApp (x, ps) ->
-      apply' (f x) (List.map (subst f) ps)
+      apply' (f x) (List.map (Located.map @@ subst f) ps)
   | ParamAnonymous _ ->
       assert false
 
@@ -76,7 +76,7 @@ let rec occurs x p =
   | ParamVar y ->
       x = value y
   | ParamApp (y, ps) ->
-      x = value y || List.exists (occurs x) ps
+      x = value y || List.exists (Located.iter @@ occurs x) ps
   | ParamAnonymous _ ->
       assert false
 
@@ -85,7 +85,7 @@ let rec equal x y =
     | ParamVar x, ParamVar y ->
         value x = value y
     | ParamApp (p1, p2), ParamApp (p1', p2') ->
-        value p1 = value p1' && List.for_all2 equal p2 p2'
+        value p1 = value p1' && List.for_all2 (fun l1 l2 -> equal l1.v l2.v) p2 p2'
     | _ ->
         false
 
@@ -116,6 +116,6 @@ let rec print separator p =
   | ParamApp (x, ps) ->
       Printf.sprintf "%s(%s)"
         (value x)
-        (MString.separated_list (print separator) separator ps)
+        (MString.separated_list (Located.iter @@ print separator) separator ps)
   | ParamAnonymous _ ->
       assert false

@@ -1,5 +1,5 @@
 open Utils
-open Loc
+open M.Located
 open MenhirSyntax
 open Syntax
 module Range = Utils.Range
@@ -22,10 +22,70 @@ type state = {
 let get_cmly_file = fetch_build_dir ~ext:".cmly"
 let get_conflicts_file = fetch_build_dir ~ext:".conflicts"
 
+let debug_ast (state : state) : string =
+  let open Menhirformat_lib.Utils in
+  let open PPrint in
+  let with_label :
+      'env 'a. string -> ('env -> 'a -> document) -> 'env -> 'a -> document =
+   fun label v env x -> angles (string label) ^^ v env x
+  in
+  let v =
+    object
+      inherit [_] ast_reduce as super
+      method zero = empty
+      method plus = ( ^^ )
+
+      method private with_label :
+          'env 'a. string -> ('env -> 'a -> document) -> 'env -> 'a -> document
+          =
+        fun label v env x -> angles (string label) ^^ v env x
+
+      method! visit_parameterized_rule v =
+        with_label "rule" (super#visit_parameterized_rule v)
+
+      method! visit_parameterized_branch =
+        with_label "production_group" super#visit_parameterized_branch
+
+      method! visit_early_production =
+        with_label "production" super#visit_early_production
+
+      method! visit_early_producer =
+        with_label "producer" super#visit_early_producer
+
+      method! visit_parameter = with_label "parameter" super#visit_parameter
+
+      method! visit_symbol_expression =
+        with_label "symbol_expression" super#visit_symbol_expression
+
+      method! visit_choice_expression =
+        with_label "choice_expression" super#visit_choice_expression
+
+      method! visit_branch = with_label "branch" super#visit_branch
+
+      method! visit_raw_seq_expression =
+        with_label "seq_expression" super#visit_raw_seq_expression
+
+      method! visit_terminal _ = string
+      method! visit_nonterminal _ = string
+      method! visit_symbol _ = string
+      method! visit_identifier _ = string
+
+      method! visit_located =
+        fun visit_v v loc ->
+          (hardline ^^ arbitrary_string
+          @@ Range.(of_lexical_positions loc.p |> show))
+          ^^ nest 4 (super#visit_located visit_v v loc)
+    end
+  in
+  let buf = Buffer.create 80 in
+  v#visit_partial_grammar () state.grammar |> PPrint.ToBuffer.pretty 0.8 80 buf;
+  Buffer.contents buf
+
 let rec string_of_params : parameter -> string = function
   | ParamVar p -> p.v
   | ParamApp (p, ps) ->
-      spr "%s(%s)" p.v L.(ps >|= string_of_params |> String.concat ", ")
+      spr "%s(%s)" p.v
+        L.(ps >|= Located.iter string_of_params |> String.concat ", ")
   | ParamAnonymous _ -> ""
 
 let process_symbols : partial_grammar -> symbol located list =
@@ -33,18 +93,20 @@ let process_symbols : partial_grammar -> symbol located list =
   let v =
     object
       inherit [_] ast_reduce as super
-      method zero = []
+      method zero : symbol located list = []
       method plus = ( @ )
 
       method! visit_DToken =
-        fun _ _option terminal alias _attributes ->
-          O.iter (fun a -> Hashtbl.add aliases a.v terminal.v) alias;
-          [ terminal ]
+        fun _ _option ts ->
+          ts
+          |> L.map (fun { v = terminal, alias, _attributes; _ } ->
+              O.iter (fun a -> Hashtbl.add aliases a.v terminal.v) alias;
+              terminal)
 
       method! visit_DTokenProperties =
-        fun _ terminal _associativity _precedence_level -> [ terminal ]
+        fun _ ts _associativity _precedence_level -> ts
 
-      method! visit_DStart = fun _ nonterminal -> [ nonterminal ]
+      method! visit_DStart = fun _ _ nts -> nts
 
       method! visit_ParamVar =
         fun _ sym ->
@@ -67,9 +129,15 @@ let process_symbols : partial_grammar -> symbol located list =
           O.(prec_annotation >|= M.Located.value |> to_list)
 
       method! visit_parameterized_rule =
-        fun _ parameterized_rule ->
-          parameterized_rule.pr_nt
-          :: super#visit_parameterized_rule () parameterized_rule
+        fun v env parameterized_rule ->
+          (parameterized_rule.pr_nt :: parameterized_rule.pr_parameters)
+          @ super#visit_parameterized_rule v env parameterized_rule
+
+      (* new syntax visitors *)
+
+      method! visit_ESymbol =
+        fun _ located list _attributes ->
+          located :: L.flat_map (super#visit_expression ()) list
     end
   in
   v#visit_partial_grammar ()
@@ -77,19 +145,19 @@ let process_symbols : partial_grammar -> symbol located list =
 let load_state_from_partial_grammar (grammar : partial_grammar) =
   let symbols = process_symbols grammar in
   let tokens : tokens =
-    List.filter_map
+    L.flat_map
       (function
-        | ({ p; v = DToken (ocamltype, terminal, alias, _attributes) } :
-            declaration located) ->
-            locate p
-              {
-                ocamltype;
-                terminal = terminal.v;
-                alias = O.map Located.value alias;
-                _attributes;
-              }
-            |> O.some
-        | _ -> None)
+        | { v = DToken (ocamltype, ts); _ } ->
+            ts
+            |> L.map @@ Located.map
+               @@ fun (terminal, alias, _attributes) ->
+               {
+                 ocamltype;
+                 terminal = terminal.v;
+                 alias = O.map Located.value alias;
+                 _attributes;
+               }
+        | _ -> [])
       grammar.pg_declarations
   in
   { grammar; tokens; symbols }
@@ -133,10 +201,16 @@ let default_completions ?range:(orange : Range.t option)
                    ~value:(spr "alias for `%s`" t.v.terminal)))
            ())
         |> to_list))
-  @ let+ { v = rule; _ } = grammar.pg_rules in
-    let label = rule.pr_nt.v in
+  @ let+ rule = grammar.pg_rules in
+    let label = match rule with Old r -> r.v.pr_nt.v | New r -> r.v.pr_nt.v in
     let params_o =
-      match rule.pr_parameters with [] -> None | _ -> Some rule.pr_parameters
+      match
+        match rule with
+        | Old r -> r.v.pr_parameters
+        | New r -> r.v.pr_parameters
+      with
+      | [] -> None
+      | ps -> Some ps
     in
     let comp =
       CompletionItem.create ~kind:CompletionItemKind.Function ~label
@@ -157,9 +231,7 @@ let default_completions ?range:(orange : Range.t option)
             let+ params = params_o in
             CompletionItemLabelDetails.create
               ~detail:
-                (L.to_string ~start:"(" ~stop:")"
-                   (fun { p = _; v } -> v)
-                   params)
+                (L.to_string ~start:"(" ~stop:")" (fun { v; _ } -> v) params)
               ())
     in
     comp ()
@@ -177,27 +249,45 @@ let document_symbols ({ grammar = { pg_rules; _ }; tokens; _ } : state) :
        ~selectionRange:range
        ~detail:(O.get_or ~default:"" t.v.alias)
        ())
-    @ let+ { v = rule; p; _ } = pg_rules in
+    @ let+ rule = pg_rules in
+      let p = match rule with Old r -> r.p | New r -> r.p in
       let range = Range.of_lexical_positions p in
       let selectionRange = Range.of_lexical_positions p in
-      DocumentSymbol.create ~kind:SymbolKind.Function ~name:rule.pr_nt.v ~range
-        ~selectionRange
+      DocumentSymbol.create ~kind:SymbolKind.Function
+        ~name:(match rule with Old r -> r.v.pr_nt.v | New r -> r.v.pr_nt.v)
+        ~range ~selectionRange
         ~children:
-          (let* { v = branch; _ } = rule.pr_branches in
-           let* { v = binder, par, _; _ } = branch.pb_producers in
-           let range = Range.of_lexical_positions binder.p in
-           match
-             let open CCParse in
-             parse_string ((char '_' <|> char '$') *> U.int) binder.v
-           with
-           (* don't show positional binders *)
-           | Ok _ -> []
-           | Error _ ->
-               [
-                 DocumentSymbol.create ~kind:SymbolKind.Variable ~name:binder.v
-                   ~range ~selectionRange:range ~detail:(string_of_params par)
-                   ();
-               ])
+          (let v =
+             object
+               inherit [_] Syntax.ast_reduce
+               method zero = []
+               method plus = ( @ )
+
+               method! visit_producer =
+                 fun _ (binder, par, _) ->
+                   let range = Range.of_lexical_positions binder.p in
+                   match
+                     let open CCParse in
+                     parse_string ((char '_' <|> char '$') *> U.int) binder.v
+                   with
+                   (* don't show positional binders *)
+                   | Ok _ -> []
+                   | Error _ ->
+                       [
+                         DocumentSymbol.create ~kind:SymbolKind.Variable
+                           ~name:binder.v ~range ~selectionRange:range
+                           ~detail:(string_of_params par.v) ();
+                       ]
+
+               method! visit_SemPatVar =
+                 fun _ binder ->
+                   [
+                     DocumentSymbol.create ~kind:SymbolKind.Variable
+                       ~name:binder.v ~range ~selectionRange:range ();
+                   ]
+             end
+           in
+           v#visit_rule () rule)
         ())
 
 let symbol_at_position (state : state) (pos : Position.t) :
@@ -312,7 +402,7 @@ let references (state : state) ~uri ~(pos : Position.t) : Location.t list =
    epr "Looking for references of %s\n" sym_name;
    Some
      (L.filter_map
-        (fun { v; p } ->
+        (fun { v; p; _ } ->
           epr "Comparing with %s at %s\n" v
             Range.(show @@ of_lexical_positions p);
           if_
@@ -321,14 +411,13 @@ let references (state : state) ~uri ~(pos : Position.t) : Location.t list =
         state.symbols))
   |> O.to_list |> L.flatten
 
-let definition (state : state) ~uri ~(pos : Position.t) :
-    Locations.t =
+let definition (state : state) ~uri ~(pos : Position.t) : Locations.t =
   let mk_location locs = `Location locs in
   let open O in
   mk_location @@ to_list
   @@
   (* Get the symbol under the cursor, if any. *)
-  let* _sym_range, sym = symbol_at_position state pos in
+  let* sym_range, sym = symbol_at_position state pos in
   (* log_info ~notify_back "[Definition] symbol under cursor: %s" sym.v; *)
   (* Search for the symbol in the terminals or in the nonterminals. *)
   let+ def =
@@ -338,8 +427,20 @@ let definition (state : state) ~uri ~(pos : Position.t) :
        (fun _ -> String.equal t.v.terminal sym.v || t.v.alias = Some sym.v)
        (locate t.p t.v.terminal))
     <|> fun () ->
-    let*? { v = r; _ } = state.grammar.pg_rules in
-    O.if_ (fun _ -> String.equal r.pr_nt.v sym.v) r.pr_nt
+    let*? rule = state.grammar.pg_rules in
+    let pr_nt, pr_params, range =
+      match rule with
+      | Old r -> (r.v.pr_nt, r.v.pr_parameters, r.p)
+      | New r -> (r.v.pr_nt, r.v.pr_parameters, r.p)
+    in
+    let range = Range.of_lexical_positions range in
+    O.if_ (fun _ -> String.equal pr_nt.v sym.v) pr_nt
+    <|>
+    (* It could be a formal parameter of the rule! *)
+    fun () ->
+    if Range.contains range sym_range then
+      L.find_opt (fun param -> String.equal param.v sym.v) pr_params
+    else None
   in
   (* log_info ~notify_back "[Definition] found definition at: %s"
   @@ M.Range.show def.p; *)
@@ -361,7 +462,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         match v with
         | DCode { p; _ }
         | DType (Declared { p; _ }, _)
-        | DToken (Some (Declared { p; _ }), _, _, _)
+        | DToken (Some (Declared { p; _ }), _)
         | DParameter { p; _ } ->
             let range = Range.of_lexical_positions p in
             if pos_inside range then Some (merlin_compls ()) else None
@@ -379,36 +480,38 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
   in
   (* If we are inside a semantic action we shall suggest bound variables, position keywords and OCaml symbols *)
   let action_completions () =
-    L.find_map
-      (fun { v = rule; _ } ->
-        L.find_map
-          (fun { v = branch; _ } ->
-            let* action_range =
-              match branch.pb_action.v.expr with
-              | M.IL.ETextual { p; _ } -> Some (Range.of_lexical_positions p)
-              | _ -> None
-            in
-            if pos_inside action_range then
-              Keywords.position_keywords ?range:word_range ()
-              @ (let open L in
-                 let+ { v = binder, par, _; _ } = branch.pb_producers in
-                 let binder =
-                   O.(
-                     CCString.chop_prefix ~pre:"_" binder.v
-                     >|= ( ^ ) "$" |> get_or ~default:binder.v)
-                 in
+    let open L in
+    let*? rule = grammar.pg_rules in
+    match rule with
+    | Old r ->
+        let*? { v = branch; _ } = r.v.pr_branches in
+        let open O in
+        let* action_range =
+          match branch.pb_action.v with
+          | M.IL.ETextual { p; _ } -> Some (Range.of_lexical_positions p)
+          | _ -> None
+        in
+        if_ (fun _ -> pos_inside action_range)
+        @@ Keywords.position_keywords ?range:word_range ()
+        @ (let open L in
+           let* { v = producers, _, _; _ } = branch.pb_productions in
+           let* { v = binder, par, _; _ } = producers in
+           (* We only suggest the explicitly named producers. *)
+           match binder with
+           | None ->
+               [] (* hide $1, $2... corresponding to anonymous parameters *)
+           | Some { v = binder; _ } ->
+               [
                  CompletionItem.create ~kind:Variable
-                   ~detail:(string_of_params par) ~label:binder
+                   ~detail:(string_of_params par.v) ~label:binder
                    ?textEdit:
                      O.(
                        let+ range = word_range in
                        `TextEdit TextEdit.{ newText = binder; range })
-                   ())
-              @ merlin_compls ()
-              |> some
-            else None)
-          rule.pr_branches)
-      grammar.pg_rules
+                   ();
+               ])
+        @ merlin_compls ()
+    | New _ -> None
   in
   let grammar_completions () =
     some
@@ -503,8 +606,9 @@ let code_actions (state : state) ~uri ~(range : Range.t) : CodeActionResult.t =
     state.tokens
   |> some
 
-let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
-    ~(notify_back : notify_back) : SelectionRange.t list =
+let selection_range ({ grammar; _ } as _state : state)
+    ~(positions : Position.t list) ~(notify_back : notify_back) :
+    SelectionRange.t list =
   let open L in
   let@* i, pos = positions in
   let parent_ref = ref @@ None in
@@ -530,3 +634,8 @@ let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
       (Range.show res.SelectionRange.range);
     res)
   |> O.to_list
+
+let format (state : state) ~(doc : Text_document.t)
+    ~options:(_ : FormattingOptions.t) : TextEdit.t list =
+  let newText = Menhirformat_lib.Menhir.main ~doc ~ast:state.grammar in
+  [ TextEdit.create ~newText ~range:Range.(whole_document doc) ]

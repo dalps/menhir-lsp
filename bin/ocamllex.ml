@@ -14,7 +14,7 @@ type state = {
 let regexp_bindings =
   let v =
     object
-      inherit [_] syntax_reduce as super
+      inherit [_] ast_reduce as super
       method zero = []
       method plus = ( @ )
 
@@ -27,7 +27,7 @@ let regexp_bindings =
 let process_symbols : lexer_definition -> string located list =
   let v =
     object
-      inherit [_] syntax_reduce as super
+      inherit [_] ast_reduce as super
       method zero = []
       method plus = ( @ )
       method! visit_Ref = fun _ name -> [ name ]
@@ -106,7 +106,7 @@ let references (state : state) ~uri ~(pos : Position.t) : Location.t list =
   (let open O in
    let+ _sym_range, sym = symbol_at_position state pos in
    L.filter_map
-     (fun { v; p } ->
+     (fun { v; p; _ } ->
        if_
          (fun _ -> v = sym.v)
          (Location.create ~uri ~range:(Range.of_lexical_positions p)))
@@ -267,7 +267,7 @@ let completions
      get_merlin_compls ~notify_back ~uri ~pos word)
     |> get_or_nil
   in
-  let region_completions (oregion : location option) () =
+  let region_completions (oregion : string located option) () =
     let* range = oregion >|= (Located.position >> Range.of_lexical_positions) in
     if_ (fun _ -> pos_inside range) (merlin_compls ())
   in
@@ -354,7 +354,7 @@ let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
   (* This visitor descends the lexer's syntax tree nodes which contain pos, connecting them in a ladder of [SelectionRange]s. *)
   let v =
     object
-      inherit [_] syntax_iter
+      inherit [_] ast_iter
 
       method! visit_located =
         fun visit_a _env located ->
@@ -390,7 +390,7 @@ let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
   (* This visitor searches the smallest regexp node that contains [range] and stores it into [node]. *)
   let v =
     object
-      inherit [_] syntax_iter
+      inherit [_] ast_iter
 
       (* Bail out on character sets, so the substitution always produces valid regular expressions. *)
       method! visit_character_class_syntax = fun _env _cls -> node := None
@@ -448,3 +448,8 @@ let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
       ()
   in
   Some [ `CodeAction extract_action ]
+
+let format (state : state) ~(doc : Text_document.t)
+    ~options:(_ : FormattingOptions.t) : TextEdit.t list =
+  let newText = Menhirformat_lib.Ocamllex.main ~doc ~ast:state.grammar in
+  [ TextEdit.create ~newText ~range:Range.(whole_document doc) ]

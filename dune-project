@@ -42,6 +42,29 @@
  (tags
   ("lsp" "menhir" "ocamllex")))
 
+(package
+ (name menhirformat)
+ (synopsis "A beautifier for Menhir and Ocamllex programs.")
+ (description "A beautifier for Menhir and Ocamllex programs.")
+ (depends
+  ("ocaml"
+   (>= "4.14"))
+  ("linol"
+   (>= "0.10"))
+  linol-lwt
+  lwt_ppx
+  ("containers"
+   (>= "3.6"))
+  ("ordering"
+   (>= "3.20.2"))
+  ("menhir"
+   (>= "20250912"))
+  menhirSdk
+  menhirLib
+  ("re"
+   (>= "1.14.0"))
+  visitors))
+
 (using menhir 3.0)
 
 ; See the complete stanza docs at https://dune.readthedocs.io/en/stable/reference/dune-project/index.html
