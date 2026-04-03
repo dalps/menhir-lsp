@@ -48,6 +48,10 @@
 				"command": "menhir-lsp-client.restartServer"
 			},
 			{
+				"title": "Menhir: Show AST view",
+				"command": "menhir-lsp-client.astView"
+			},
+			{
 				"title": "Menhir: prompt for an alias",
 				"enablement": "never",
 				"command": "menhir-lsp-client.promptAlias"
@@ -67,9 +71,11 @@
 		"@types/vscode": "^1.73.0",
 		"@vscode/test-electron": "^2.5.2",
 		"mocha": "^11.7.5",
+		"svelte": "^5.55.1",
 		"vscode-test": "^1.6.1"
 	},
 	"dependencies": {
+		"@types/vscode-webview": "^1.57.5",
 		"vscode-languageclient": "^9.0.1"
 	}
 }

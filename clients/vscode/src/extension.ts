@@ -12,10 +12,13 @@ import {
   Range,
   DocumentUri,
 } from "vscode-languageclient/node";
+import { ASTPanel } from "./astPanel";
 
 let client: LanguageClient;
 
 const serverName = "menhir-lsp";
+const clientName = "menhir-lsp-client";
+const commandName = (name: string) => `${clientName}.${name}`;
 
 export function activate(context: vscode.ExtensionContext) {
   const _extId = context.extension.packageJSON.name;
@@ -113,6 +116,12 @@ export function activate(context: vscode.ExtensionContext) {
 
       vscode.workspace.applyEdit(w);
     },
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(commandName("astView"), () => {
+      ASTPanel.createOrShow(context.extensionUri);
+    }),
   );
 
   // vscode.window.showInformationMessage("Starting Menhir Client...");
