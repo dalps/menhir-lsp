@@ -81,6 +81,42 @@ let debug_ast (state : state) : string =
   v#visit_partial_grammar () state.grammar |> PPrint.ToBuffer.pretty 0.8 80 buf;
   Buffer.contents buf
 
+let yojson_of_ast (grammar : partial_grammar) : Json.t =
+  let open Json in
+  let string s = `String s in
+  let v =
+    object
+      inherit [_] ast_reduce
+      method zero : t = `List []
+
+      method plus (o1 : t) (o2 : t) =
+        match (o1, o2) with
+        | `List o1, `List o2 -> `List (o1 @ o2)
+        | `List o1, o2 -> `List (o1 @ [ o2 ])
+        | o1, `List o2 -> `List (o1 :: o2)
+        | _, _ -> `List [ o1; o2 ]
+
+      method! visit_located =
+        fun visit_v env loc ->
+          let range = Range.of_lexical_positions loc.p |> Range.yojson_of_t in
+          let value = visit_v env loc.v in
+          let _comments =
+            loc.comment
+            |> O.map
+               @@ List.map (fun { text; _ } ->
+                   `Assoc [ ("text", `String text) ])
+            |> O.get_or_nil
+          in
+          `Assoc [ ("range", range); ("value", value) ]
+
+      method! visit_terminal _ = string
+      method! visit_nonterminal _ = string
+      method! visit_symbol _ = string
+      method! visit_identifier _ = string
+    end
+  in
+  v#visit_partial_grammar () grammar
+
 let rec string_of_params : parameter -> string = function
   | ParamVar p -> p.v
   | ParamApp (p, ps) ->
@@ -609,6 +645,8 @@ let code_actions (state : state) ~uri ~(range : Range.t) : CodeActionResult.t =
 let selection_range ({ grammar; _ } as _state : state)
     ~(positions : Position.t list) ~(notify_back : notify_back) :
     SelectionRange.t list =
+  let json = yojson_of_ast grammar in
+  log_info ~notify_back "%s" @@ Json.pretty_to_string json;
   let open L in
   let@* i, pos = positions in
   let parent_ref = ref @@ None in

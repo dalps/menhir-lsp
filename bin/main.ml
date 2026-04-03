@@ -116,6 +116,7 @@ class lsp_server =
         `DocumentSymbol syms
 
     method! config_definition = Some (`Bool true)
+    method! config_list_commands = [ "getAst" ]
 
     method! config_modify_capabilities (default : ServerCapabilities.t) =
       {
@@ -131,6 +132,7 @@ class lsp_server =
 
     method! on_notification_unhandled ~notify_back =
       function
+      (* The code below is needed to sync the diagnostics with the current grammar's conflicts. *)
       | DidChangeWatchedFiles params ->
           let open R in
           let module P = Stdune.Path in
@@ -193,6 +195,28 @@ class lsp_server =
             log_info ~notify_back "Requested document formatting";
             self#_on_req_document_formatting ~notify_back ~r
         | _ -> Lwt.fail_with "Unhandled request type"
+
+    (* Wasted a lot of time thinking this request was not handled natively by Linol*)
+    method! on_req_execute_command ~notify_back ~id:_ ~workDoneToken:_
+        (command : string) (args : Yojson.Safe.t list option) : Json.t Lwt.t =
+      Lwt.return
+      @@
+      match command with
+      | "getAst" ->
+          let uri =
+            match args with
+            | Some [ `String uri ] ->
+                log_info ~notify_back "Client requested AST of %s" uri;
+                Uri.of_string uri
+            | _ ->
+                prerr_endline "Failed to read uri argument";
+                failwith "bad arguments: getAst"
+          in
+          self#_dispatch uri ~notify_back
+            ~mly_handler:(fun state -> Mly.yojson_of_ast state.grammar)
+            ~mll_handler:(fun _state -> `Null)
+          |> O.get_or ~default:`Null
+      | _ -> `Null
 
     method private _on_req_document_formatting ~notify_back
         ~r:

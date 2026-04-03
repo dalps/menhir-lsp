@@ -11,8 +11,12 @@ import {
   WorkspaceEdit,
   Range,
   DocumentUri,
+  ProtocolRequestType,
+  type ExecuteCommandRequest,
+  CancellationToken,
+  ExecuteCommandParams,
 } from "vscode-languageclient/node";
-import { ASTPanel } from "./astPanel";
+import { ASTPanel, getWebviewOptions } from "./astPanel";
 
 let client: LanguageClient;
 
@@ -141,4 +145,14 @@ export function deactivate(): Thenable<void> | undefined {
     return undefined;
   }
   return client.stop();
+}
+
+export async function getAst(uri: vscode.Uri) {
+  console.log(`Requesting AST of document: ${uri}`);
+
+  return await client.sendRequest(
+    "workspace/executeCommand",
+    { command: "getAst", arguments: [uri.toString()] } as ExecuteCommandParams,
+    CancellationToken.None,
+  );
 }

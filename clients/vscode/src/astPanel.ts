@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { Uri } from "vscode";
+import { getAst } from "./extension";
 
 export function getWebviewOptions(extensionUri: Uri): vscode.WebviewOptions {
   return {
@@ -19,8 +20,17 @@ export class ASTPanel implements vscode.Disposable {
   private readonly _extensionUri: Uri;
   private _disposables: vscode.Disposable[] = [];
 
-  public static createOrShow(extensionUri: Uri) {
-    const column = vscode.window.activeTextEditor?.viewColumn;
+  public static async createOrShow(extensionUri: Uri) {
+    const editor = vscode.window.activeTextEditor;
+
+    // There must be an open document
+    if (!editor) return;
+
+    let { uri, languageId } = editor.document;
+    if (languageId !== "ocaml.menhir" && languageId !== "ocaml.ocamllex")
+      return;
+
+    const column = editor.viewColumn;
 
     if (ASTPanel.currentPanel) {
       ASTPanel.currentPanel._panel.reveal();
@@ -29,11 +39,20 @@ export class ASTPanel implements vscode.Disposable {
 
     const panel = vscode.window.createWebviewPanel(
       ASTPanel.viewType,
-      "AST Viewer",
-      column || vscode.ViewColumn.One,
+      "AST Browser",
+      column ? column + 1 : vscode.ViewColumn.One,
       getWebviewOptions(extensionUri),
     );
 
+    let ast = await getAst(uri);
+    panel.webview.postMessage({ type: "publishAst", data: ast });
+
+    console.log("[ASTpanel] This is the AST I got:", ast);
+
+    ASTPanel.currentPanel = new ASTPanel(panel, extensionUri);
+  }
+
+  public static revive(panel: vscode.WebviewPanel, extensionUri: Uri) {
     ASTPanel.currentPanel = new ASTPanel(panel, extensionUri);
   }
 
@@ -75,6 +94,8 @@ export class ASTPanel implements vscode.Disposable {
   }
 
   public dispose() {
+    ASTPanel.currentPanel = undefined;
+
     this._panel.dispose();
 
     while (this._disposables.length) {
