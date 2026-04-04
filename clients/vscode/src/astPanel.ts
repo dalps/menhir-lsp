@@ -1,6 +1,12 @@
 import * as vscode from "vscode";
 import { Uri } from "vscode";
-import { getAst } from "./extension";
+import { getAst, liftRange } from "./extension";
+import { Range } from "vscode-languageclient";
+
+const highlightDecorationType = vscode.window.createTextEditorDecorationType({
+  backgroundColor: "#0000ff33", // #0000ff33
+  borderRadius: "2px",
+});
 
 export function getWebviewOptions(extensionUri: Uri): vscode.WebviewOptions {
   return {
@@ -15,6 +21,7 @@ export class ASTPanel implements vscode.Disposable {
 
   public static readonly viewType = "astView";
 
+  private static _editor: vscode.TextEditor | undefined;
   private readonly _title = "AST View";
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionUri: Uri;
@@ -22,6 +29,8 @@ export class ASTPanel implements vscode.Disposable {
 
   public static async createOrShow(extensionUri: Uri) {
     const editor = vscode.window.activeTextEditor;
+
+    this._editor = editor;
 
     // There must be an open document
     if (!editor) return;
@@ -79,7 +88,12 @@ export class ASTPanel implements vscode.Disposable {
     // Handle messages from the webview
     this._panel.webview.onDidReceiveMessage(
       (message) => {
-        // todo
+        switch (message.command) {
+          case "highlight":
+            console.log("message data", message.data);
+            this.focusAstNodeInEditor(message.data);
+            break;
+        }
       },
       null,
       this._disposables,
@@ -124,6 +138,31 @@ export class ASTPanel implements vscode.Disposable {
 </body>
 </html>`;
   }
+
+  //#region commands
+
+  public publishAst(data: any) {
+    ASTPanel.currentPanel?._panel.webview.postMessage({
+      command: "publishAst",
+      data,
+    });
+  }
+
+  public focusAstNodeInEditor(data: { range: Range }) {
+    const activeEditor = ASTPanel._editor;
+
+    if (!activeEditor) {
+      console.log("No active edtior, bye");
+      return;
+    }
+
+    let r = liftRange(data.range);
+
+    activeEditor.revealRange(r);
+    activeEditor.setDecorations(highlightDecorationType, [r]);
+  }
+
+  //#endregion commands
 }
 
 function getNonce() {

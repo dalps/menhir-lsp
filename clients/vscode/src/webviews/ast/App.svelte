@@ -1,13 +1,11 @@
 <script lang="ts">
   import { getContext } from "svelte";
   import { on } from "svelte/events";
-  import { createSubscriber } from "svelte/reactivity";
-  import type { WebviewApi } from "vscode-webview";
+  import "./app.css";
   import Located from "./Located.svelte";
+  import type { ASTNode, VsCode } from "./types";
 
-  type ASTNode = { range: any; value: ASTNode[] | string };
-
-  const vscode = getContext("vscode") as WebviewApi<unknown>;
+  const vscode = getContext<VsCode>("vscode");
 
   let ast = $state<ASTNode[]>([]);
 
@@ -16,7 +14,7 @@
       case "publishAst":
         ast = event.data.data;
         break;
-    
+
       default:
         break;
     }
@@ -25,7 +23,11 @@
 
 <h1>Tree Browser</h1>
 <div id="tree">
-  {#each ast as node}
-    <Located expanded {...node} />
-  {/each}
+  <ul>
+    {#each ast as node}
+      <li>
+        <Located expanded {...node} />
+      </li>
+    {/each}
+  </ul>
 </div>

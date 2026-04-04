@@ -128,10 +128,17 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
+  vscode.window.registerWebviewPanelSerializer(ASTPanel.viewType, {
+    async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: unknown) {
+      panel.webview.options = getWebviewOptions(context.extensionUri);
+      ASTPanel.revive(panel, context.extensionUri);
+    },
+  });
+
   // vscode.window.showInformationMessage("Starting Menhir Client...");
 }
 
-const liftRange = (r: Range): vscode.Range => {
+export const liftRange = (r: Range): vscode.Range => {
   let { start, end } = r;
 
   return new vscode.Range(
