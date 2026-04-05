@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { Uri } from "vscode";
 import { getAst, liftRange } from "./extension";
 import { Range } from "vscode-languageclient";
+import fs from "fs";
 
 const highlightDecorationType = vscode.window.createTextEditorDecorationType({
   backgroundColor: "#0000ff33", // #0000ff33
@@ -104,7 +105,7 @@ export class ASTPanel implements vscode.Disposable {
     const { webview } = this._panel;
 
     this._panel.title = this._title;
-    webview.html = this._getHtmlForWebview(webview);
+    webview.html = this._getHtmlForWebview(this._extensionUri, webview);
   }
 
   public dispose() {
@@ -118,25 +119,31 @@ export class ASTPanel implements vscode.Disposable {
     }
   }
 
-  private _getHtmlForWebview(webview: vscode.Webview) {
-    const nonce = getNonce();
-
-    const scriptUri = webview.asWebviewUri(
-      Uri.joinPath(this._extensionUri, "out", "webviews", "ast", "index.js"),
+  private _getHtmlForWebview(extensionUri: Uri, webview: vscode.Webview) {
+    const webviewPath = Uri.joinPath(
+      this._extensionUri,
+      "out",
+      "webviews",
+      "ast",
     );
 
-    return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Document</title>
-</head>
-<body>
-  <div id="app"></div>
-  <script nonce="${nonce}" src="${scriptUri}"></script>
-</body>
-</html>`;
+    const scriptUri = webview.asWebviewUri(
+      Uri.joinPath(webviewPath, "index.js"),
+    );
+
+    const styleUri = webview.asWebviewUri(
+      Uri.joinPath(webviewPath, "index.css"),
+    );
+
+    const template = fs
+      .readFileSync(Uri.joinPath(webviewPath, "index.html").fsPath)
+      .toString("utf-8");
+
+    return template
+      .replace(/\${webview.cspSource}/g, webview.cspSource)
+      .replace(/\${styleUri}/g, styleUri.toString())
+      .replace(/\${scriptUri}/g, scriptUri.toString())
+      .replace(/\${nonce}/g, getNonce());
   }
 
   //#region commands

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="base-uri 'self'; object-src 'none'; default-src 'none'; style-src ${webview.cspSource}; img-src ${webview.cspSource} https:; script-src 'nonce-${nonce}';"
+    />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <link rel="stylesheet" href="${styleUri}" />
+
+    <title>AST Explorer</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script nonce="${nonce}" src="${scriptUri}"></script>
+  </body>
+</html>
