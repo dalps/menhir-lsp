@@ -3,10 +3,18 @@ import type { Range, Position } from "vscode-languageclient";
 
 export type State = {};
 
-export type ASTNode = {
-  expanded?: boolean;
+export type Offset = number;
+
+export type RawRange = [Offset, Offset];
+
+export function isInRange(pos: Offset, [start, end]: RawRange): boolean {
+  return start <= pos && pos <= end;
+}
+
+export interface ASTNode {
   range: Range;
+  rawRange: RawRange;
   value: ASTNode[] | string;
-};
+}
 
 export type VsCode = WebviewApi<State>;

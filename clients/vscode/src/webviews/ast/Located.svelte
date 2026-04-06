@@ -5,16 +5,42 @@
   import { slide } from "svelte/transition";
   import { getContext } from "svelte";
 
-  import type { VsCode, ASTNode } from "./types";
+  import { type VsCode, type ASTNode, type Offset, isInRange } from "./types";
+  import Array from "./Array.svelte";
+  import { on } from "svelte/events";
 
   const vscode = getContext<VsCode>("vscode");
 
-  type Props = ASTNode;
+  interface Props extends ASTNode {
+    expanded?: boolean;
+    expandParent: () => void;
+  }
 
-  let { expanded = $bindable(false), range, value }: Props = $props();
+  let {
+    expanded = $bindable(false),
+    range,
+    rawRange,
+    value,
+    expandParent,
+  }: Props = $props();
+
+  on(window, "message", (event) => {
+    switch (event.data.type) {
+      case "focus":
+        reveal(event.data.offset);
+        break;
+    }
+  });
 
   function toggle() {
     expanded = !expanded;
+    // expandParent();
+  }
+
+  function reveal(offset: Offset) {
+    if (isInRange(offset, rawRange)) {
+      expanded = true;
+    }
   }
 
   function requestHighlight() {
@@ -43,6 +69,10 @@
   >
 {/snippet}
 
+{#snippet renderNode(node: ASTNode)}
+  <Located expandParent={toggle} {...node} />
+{/snippet}
+
 <button class="range" onclick={toggle} onpointerover={requestHighlight}>
   {expanded ? "-" : "+"}
   {@render showRange(range)}
@@ -52,23 +82,17 @@
   {#if typeof value === "string"}
     <Terminal {value} />
   {:else}
-    <ul transition:slide={{ duration: 300 }}>
-      {#each value as node}
-        <li>
-          <Located {...node} />
-        </li>
-      {/each}
-    </ul>
+    <Array elements={value} renderElement={renderNode} />
   {/if}
 {/if}
 
 <style>
-button.range {
-  appearance: none;
-  outline: none;
+  button.range {
+    appearance: none;
+    outline: none;
 
-  :hover {
-    text-decoration: underline;
+    :hover {
+      text-decoration: underline;
+    }
   }
-}
 </style>

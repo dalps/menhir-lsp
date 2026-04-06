@@ -126,6 +126,10 @@ export function activate(context: vscode.ExtensionContext) {
     vscode.commands.registerCommand(commandName("astView"), () => {
       ASTPanel.createOrShow(context.extensionUri);
     }),
+
+    vscode.commands.registerCommand(commandName("revealAstNode"), () => {
+      ASTPanel.revealNodeUnderCursor(context.extensionUri);
+    }),
   );
 
   vscode.window.registerWebviewPanelSerializer(ASTPanel.viewType, {

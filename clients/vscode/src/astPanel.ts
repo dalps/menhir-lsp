@@ -77,10 +77,10 @@ export class ASTPanel implements vscode.Disposable {
     // Dispose of this manager when the panel is closed
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 
-    // Update the content based on view changes
+    // Update the content based on view changes (e.g. the user clicks outside the webview)
     this._panel.onDidChangeViewState(
       () => {
-        if (this._panel.visible) this._update();
+        // if (this._panel.visible) this._update();
       },
       null,
       this._disposables,
@@ -103,6 +103,8 @@ export class ASTPanel implements vscode.Disposable {
 
   private _update() {
     const { webview } = this._panel;
+
+    console.log("Updating webview");
 
     this._panel.title = this._title;
     webview.html = this._getHtmlForWebview(this._extensionUri, webview);
@@ -167,6 +169,23 @@ export class ASTPanel implements vscode.Disposable {
 
     activeEditor.revealRange(r);
     activeEditor.setDecorations(highlightDecorationType, [r]);
+  }
+
+  public static async revealNodeUnderCursor(extensionUri: Uri) {
+    await ASTPanel.createOrShow(extensionUri);
+
+    const activeEditor = ASTPanel._editor;
+
+    if (!activeEditor) {
+      console.log("No active edtior, bye");
+      return;
+    }
+
+    const cursor = activeEditor.selection.start;
+    console.log("cursor is at:", cursor);
+    const offset = activeEditor.document.offsetAt(cursor);
+
+    this.currentPanel?._panel.webview.postMessage({ type: "focus", offset });
   }
 
   //#endregion commands

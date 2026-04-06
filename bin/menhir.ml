@@ -99,6 +99,9 @@ let yojson_of_ast (grammar : partial_grammar) : Json.t =
       method! visit_located =
         fun visit_v env loc ->
           let range = Range.of_lexical_positions loc.p |> Range.yojson_of_t in
+          let start, end_ =
+            CCPair.map_same (fun (pos : Lexing.position) -> pos.pos_cnum) loc.p
+          in
           let value = visit_v env loc.v in
           let _comments =
             loc.comment
@@ -107,7 +110,12 @@ let yojson_of_ast (grammar : partial_grammar) : Json.t =
                    `Assoc [ ("text", `String text) ])
             |> O.get_or_nil
           in
-          `Assoc [ ("range", range); ("value", value) ]
+          `Assoc
+            [
+              ("range", range);
+              ("rawRange", `List [ `Int start; `Int end_ ]);
+              ("value", value);
+            ]
 
       method! visit_terminal _ = string
       method! visit_nonterminal _ = string
