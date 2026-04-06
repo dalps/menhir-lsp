@@ -43,7 +43,7 @@
   >
 {/snippet}
 
-<button onclick={toggle} onpointerover={requestHighlight}>
+<button class="range" onclick={toggle} onpointerover={requestHighlight}>
   {expanded ? "-" : "+"}
   {@render showRange(range)}
 </button>
@@ -63,4 +63,12 @@
 {/if}
 
 <style>
+button.range {
+  appearance: none;
+  outline: none;
+
+  :hover {
+    text-decoration: underline;
+  }
+}
 </style>

@@ -5,7 +5,7 @@ import { Range } from "vscode-languageclient";
 import fs from "fs";
 
 const highlightDecorationType = vscode.window.createTextEditorDecorationType({
-  backgroundColor: "#0000ff33", // #0000ff33
+  backgroundColor: { id: "menhirlsp.astExplorer.highlightColor" },
   borderRadius: "2px",
 });
 
