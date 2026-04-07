@@ -1,24 +1,25 @@
 <script lang="ts">
+  import Value from "./Value.svelte";
+
   interface Props {
     elements: any[];
-    renderElement;
   }
 
-  let { elements, renderElement }: Props = $props();
+  let { elements }: Props = $props();
 </script>
 
 {#if elements.length === 0}
-  <p>[]</p>
+  <span class="delimiter">[]</span>
 {:else}
-  <p>[</p>
+  <span class="delimiter">[</span>
   <ul>
-    {#each elements as e}
+    {#each elements as value}
       <li>
-        {@render renderElement(e)}
+        <Value {value} />
       </li>
     {/each}
   </ul>
-  <p>]</p>
+  <span class="delimiter">]</span>
 {/if}
 
 <style>

@@ -84,9 +84,13 @@ let debug_ast (state : state) : string =
 let yojson_of_ast (grammar : partial_grammar) : Json.t =
   let open Json in
   let string s = `String s in
+  let with_label :
+      'env 'a. string -> ('env -> 'a -> Json.t) -> 'env -> 'a -> Json.t =
+   fun label v env x -> `Assoc [ ("type", `String label); ("value", v env x) ]
+  in
   let v =
     object
-      inherit [_] ast_reduce
+      inherit [_] ast_reduce as super
       method zero : t = `List []
 
       method plus (o1 : t) (o2 : t) =
@@ -121,6 +125,31 @@ let yojson_of_ast (grammar : partial_grammar) : Json.t =
       method! visit_nonterminal _ = string
       method! visit_symbol _ = string
       method! visit_identifier _ = string
+
+      method! visit_parameterized_rule v =
+        with_label "rule" (super#visit_parameterized_rule v)
+
+      method! visit_parameterized_branch =
+        with_label "production_group" super#visit_parameterized_branch
+
+      method! visit_early_production =
+        with_label "production" super#visit_early_production
+
+      method! visit_early_producer =
+        with_label "producer" super#visit_early_producer
+
+      method! visit_parameter = with_label "parameter" super#visit_parameter
+
+      method! visit_symbol_expression =
+        with_label "symbol_expression" super#visit_symbol_expression
+
+      method! visit_choice_expression =
+        with_label "choice_expression" super#visit_choice_expression
+
+      method! visit_branch = with_label "branch" super#visit_branch
+
+      method! visit_raw_seq_expression =
+        with_label "seq_expression" super#visit_raw_seq_expression
     end
   in
   v#visit_partial_grammar () grammar

@@ -91,7 +91,6 @@ export class ASTPanel implements vscode.Disposable {
       (message) => {
         switch (message.command) {
           case "highlight":
-            console.log("message data", message.data);
             this.focusAstNodeInEditor(message.data);
             break;
         }

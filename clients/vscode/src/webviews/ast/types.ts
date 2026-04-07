@@ -12,6 +12,7 @@ export function isInRange(pos: Offset, [start, end]: RawRange): boolean {
 }
 
 export interface ASTNode {
+  type: string;
   range: Range;
   rawRange: RawRange;
   value: ASTNode[] | string;

@@ -1,23 +1,22 @@
 <script lang="ts">
-  import Located from "./Located.svelte";
-  import type { Range, Position } from "vscode-languageclient";
-  import Terminal from "./Terminal.svelte";
-  import { slide } from "svelte/transition";
   import { getContext } from "svelte";
+  import type { Position, Range } from "vscode-languageclient";
 
-  import { type VsCode, type ASTNode, type Offset, isInRange } from "./types";
-  import Array from "./Array.svelte";
   import { on } from "svelte/events";
+  import { type ASTNode, type Offset, type VsCode, isInRange } from "./types";
+  import Value from "./Value.svelte";
 
   const vscode = getContext<VsCode>("vscode");
 
   interface Props extends ASTNode {
     expanded?: boolean;
+    highlighted?: boolean;
     expandParent: () => void;
   }
 
   let {
     expanded = $bindable(false),
+    highlighted = $bindable(false),
     range,
     rawRange,
     value,
@@ -39,7 +38,7 @@
 
   function reveal(offset: Offset) {
     if (isInRange(offset, rawRange)) {
-      expanded = true;
+      expanded = highlighted = true;
     }
   }
 
@@ -69,30 +68,34 @@
   >
 {/snippet}
 
-{#snippet renderNode(node: ASTNode)}
-  <Located expandParent={toggle} {...node} />
-{/snippet}
+<div class={{ highlighted }}>
+  <button class="range" onclick={toggle} onpointerover={requestHighlight}>
+    {expanded ? "-" : "+"}
+    {@render showRange(range)}
+  </button>
 
-<button class="range" onclick={toggle} onpointerover={requestHighlight}>
-  {expanded ? "-" : "+"}
-  {@render showRange(range)}
-</button>
-
-{#if expanded}
-  {#if typeof value === "string"}
-    <Terminal {value} />
-  {:else}
-    <Array elements={value} renderElement={renderNode} />
+  {#if expanded}
+    <Value {value} />
   {/if}
-{/if}
+</div>
 
 <style>
   button.range {
     appearance: none;
     outline: none;
+    border: none;
+    border-radius: 2px;
+
+    background-color: #333;
+    color: #ccc;
 
     :hover {
+      background-color: #444;
       text-decoration: underline;
     }
+  }
+
+  .highlighted {
+    background-color: rgba(140, 255, 0, 0.1);
   }
 </style>
