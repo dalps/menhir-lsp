@@ -214,7 +214,7 @@ class lsp_server =
           in
           self#_dispatch uri ~notify_back
             ~mly_handler:(fun state -> Mly.yojson_of_ast state.grammar)
-            ~mll_handler:(fun _state -> `Null)
+            ~mll_handler:(fun state -> Mll.yojson_of_ast state.grammar)
           |> O.get_or ~default:`Null
       | _ -> `Null
 
