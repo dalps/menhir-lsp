@@ -63,7 +63,7 @@ let yojson_of_ast (grammar : lexer_definition) : Json.t =
       method! visit_action = with_label "action" super#visit_action
       method! visit_entry = with_label "entry" super#visit_entry
       method! visit_case = with_label "case" super#visit_case
-      method! visit_string = with_label "symbol" super#visit_string
+      method! visit_string _ = string
     end
   in
   v#visit_main () grammar

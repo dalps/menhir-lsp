@@ -48,6 +48,7 @@ let rec as_cset = function
   | Alternative (e1, e2) -> Cset.union (as_cset e1) (as_cset e2)
   | _ -> raise Cset.Bad
 
+let last_bar = ref None
 %}
 
 %token <string> Tident
@@ -109,12 +110,22 @@ definition(opening):
     "parse"     { false } [@name parse]
   | "shortest"  { true } [@name shortest]
 
+mandatory_bar:
+  "|" { last_bar := Some $startpos }
+
+optional_bar:
+  /* epsilon */ { () }
+| "|"
+    { last_bar := Some $startpos }
+    
 entry:
-    option("|") l = separated_nonempty_list("|", case) { l } [@name entry]
+    optional_bar l = separated_nonempty_list(mandatory_bar, case) { l } [@name entry]
 
 case:
     re = regexp a = Taction
-        { locate $loc (fst re, a) } [@name case]
+        { let re, _ = re in
+          let startpos = Option.value ~default:(startp re) !last_bar in
+          locate (startpos, $endpos) (re, a) } [@name case]
 
 (* The semantic actions are really ugly because they produce two things: in the first component, we wrap each regexp AST node with its region in the source file, in the second component we preserve the original semantics of Ocamllex that resolve and validate both character sets and references. *)
 regexp:
