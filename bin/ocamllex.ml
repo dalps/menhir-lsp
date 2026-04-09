@@ -62,6 +62,8 @@ let yojson_of_ast (grammar : lexer_definition) : Json.t =
 
       method! visit_action = with_label "action" super#visit_action
       method! visit_entry = with_label "entry" super#visit_entry
+      method! visit_case = with_label "case" super#visit_case
+      method! visit_string = with_label "symbol" super#visit_string
     end
   in
   v#visit_main () grammar
@@ -123,7 +125,7 @@ let load_state_from_contents (_filename : string) (contents : string) :
       (let+ nr = grammar.named_regexps in
        `Declared nr)
       @ let* { v = entry; _ } = grammar.entrypoints in
-        let+ re, _ = entry.clauses in
+        let+ { v = re, _; _ } = entry.clauses in
         `Anonymous re)
   in
   { grammar; symbols; regexps }
@@ -137,7 +139,7 @@ let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
       ~selectionRange
       ~children:
         (entry.clauses
-        |> flat_map_i (fun _i (regexp, _) ->
+        |> flat_map_i (fun _i { v = regexp, _; _ } ->
             match regexp_bindings regexp.v with
             | [] -> []
             | binders ->
@@ -330,7 +332,7 @@ let completions
   let open L in
   let action_completions () =
     let*? { v = rule; _ } = grammar.entrypoints in
-    let*? regexp, action = rule.clauses in
+    let*? { v = regexp, action; _ } = rule.clauses in
     let range = Range.of_lexical_positions action.p in
     O.if_
       (fun _ -> pos_inside range)

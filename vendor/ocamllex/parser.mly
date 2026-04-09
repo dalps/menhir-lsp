@@ -114,7 +114,7 @@ entry:
 
 case:
     re = regexp a = Taction
-        { (fst re, a) } [@name case]
+        { locate $loc (fst re, a) } [@name case]
 
 (* The semantic actions are really ugly because they produce two things: in the first component, we wrap each regexp AST node with its region in the source file, in the second component we preserve the original semantics of Ocamllex that resolve and validate both character sets and references. *)
 regexp:

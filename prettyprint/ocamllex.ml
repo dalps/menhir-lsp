@@ -89,9 +89,11 @@ class formatter =
                shortest;
            ])
       @@ align barspace
-      ^^ separate_map (hardline ^^ barspace) (self#visit_case ()) clauses
+      ^^ separate_map (hardline ^^ barspace)
+           (self#with_located (self#visit_case ()))
+           clauses
 
-    method visit_case _ (regexp, action) =
+    method! visit_case _ (regexp, action) =
       nest 2 @@ group
       @@ self#with_located self#visit_regexp regexp
       ^/^ self#visit_action () action
