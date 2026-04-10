@@ -1,0 +1,3 @@
+(library
+ (name linkage)
+ (libraries dynlink))
