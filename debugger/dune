@@ -1,0 +1,3 @@
+(library
+ (name menhir_lsp_debugger)
+ (libraries menhirLib menhirSdk linkage))
