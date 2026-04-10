@@ -15,7 +15,9 @@ export interface ASTNode {
   type: string;
   range: Range;
   rawRange: RawRange;
-  value: ASTNode[] | string;
+  value: any;
 }
 
 export type VsCode = WebviewApi<State>;
+
+export const enPluralRules = new Intl.PluralRules("en-US");

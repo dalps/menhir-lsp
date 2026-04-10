@@ -5,6 +5,7 @@
   import { on } from "svelte/events";
   import { type ASTNode, type Offset, type VsCode, isInRange } from "./types";
   import Value from "./Value.svelte";
+  import Terminal from "./Terminal.svelte";
 
   const vscode = getContext<VsCode>("vscode");
 
@@ -59,7 +60,7 @@
 </script>
 
 {#snippet showPosition({ character, line }: Position)}
-  <span class="position">{line}:{character}</span>
+  <span class="position">{line + 1}:{character + 1}</span>
 {/snippet}
 
 {#snippet showRange({ start, end }: Range)}
@@ -68,16 +69,21 @@
   >
 {/snippet}
 
-<div class={{ highlighted }}>
+<span class={{ highlighted }}>
   <button class="range" onclick={toggle} onpointerover={requestHighlight}>
     {expanded ? "-" : "+"}
-    {@render showRange(range)}
+    <span class="switch">
+      {#if value.type}
+        <Terminal value={value.type} />
+      {/if}
+      {@render showRange(range)}
+    </span>
   </button>
 
   {#if expanded}
-    <Value {value} />
+    <Value value={value.type ? value.value : value} />
   {/if}
-</div>
+</span>
 
 <style>
   button.range {
@@ -87,11 +93,14 @@
     border-radius: 2px;
 
     background-color: #333;
-    color: #ccc;
+    color: #aaa;
 
     :hover {
-      background-color: #444;
       text-decoration: underline;
+    }
+
+    &:hover {
+      background-color: #444;
     }
   }
 

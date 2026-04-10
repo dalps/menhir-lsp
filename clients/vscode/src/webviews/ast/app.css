@@ -1,8 +1,31 @@
 body,
 button {
-  font-family: "Courier New", Courier, monospace;
+  font-family: "Cascadia Code", "Courier New", Courier, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --range-button-bg: #333;
+    --range-button-text: #ccc;
+  }
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --range-button-bg: #ccc;
+    --range-button-text: #333;
+  }
 }
 
 .delimiter {
   color: #777;
+}
+
+button {
+  appearance: none;
+  outline: none;
+
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
 }

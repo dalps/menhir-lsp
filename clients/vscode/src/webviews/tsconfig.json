@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "types": ["vscode-webview", "svelte"],
-    "module": "commonjs",
+    "module": "esnext",
     "target": "esnext",
     // "verbatimModuleSyntax": true
   },

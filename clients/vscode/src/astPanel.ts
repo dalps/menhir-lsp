@@ -12,7 +12,10 @@ const highlightDecorationType = vscode.window.createTextEditorDecorationType({
 export function getWebviewOptions(extensionUri: Uri): vscode.WebviewOptions {
   return {
     enableScripts: true,
-    localResourceRoots: [Uri.joinPath(extensionUri, "out", "webviews")],
+    localResourceRoots: [
+      Uri.joinPath(extensionUri, ".fileicons"),
+      Uri.joinPath(extensionUri, "out", "webviews"),
+    ],
   };
 }
 
@@ -21,17 +24,22 @@ export class ASTPanel implements vscode.Disposable {
   public static currentPanel: ASTPanel | undefined;
 
   public static readonly viewType = "astView";
-  private readonly _title = "AST View";
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionUri: Uri;
 
   private _editor: vscode.TextEditor | undefined;
   private _disposables: vscode.Disposable[] = [];
 
+  set title(newTitle: string) {
+    this._panel.title = newTitle;
+  }
+
   set editor(textEditor: vscode.TextEditor) {
     let { languageId } = textEditor.document;
+
     if (languageId !== "ocaml.menhir" && languageId !== "ocaml.ocamllex")
       return;
+
     this._editor = textEditor;
   }
 
@@ -120,15 +128,17 @@ export class ASTPanel implements vscode.Disposable {
   }
 
   private async _update() {
-    console.log("Updating webview");
-
-    this._panel.title = this._title;
-
     const { webview } = this._panel;
     const editor = this._editor;
 
     // There must be an open document
     if (!editor) return;
+
+    this.title = editor.document.fileName.split(/\//g).at(-1) ?? "AST View";
+    const lang = editor.document.languageId.split(".").at(-1)!;
+    const iconsPath = Uri.joinPath(this._extensionUri, ".fileicons");
+
+    this._panel.iconPath = Uri.joinPath(iconsPath, `${lang}.svg`);
 
     let ast = await getAst(editor.document.uri);
     webview.postMessage({ type: "publishAst", data: ast });
