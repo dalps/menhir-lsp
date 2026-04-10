@@ -150,6 +150,16 @@ let yojson_of_ast (grammar : partial_grammar) : Json.t =
 
       method! visit_raw_seq_expression =
         with_label "seq_expression" super#visit_raw_seq_expression
+
+      method! visit_raw_action = with_label "action" super#visit_raw_action
+      method! visit_action = with_label "action" super#visit_action
+
+      method! visit_declaration =
+        with_label "declaration" super#visit_declaration
+
+      method! visit_alias = with_label "alias" super#visit_alias
+      method! visit_ocamltype = with_label "ocamltype" super#visit_ocamltype
+      method! visit_attribute = with_label "attribute" super#visit_attribute
     end
   in
   v#visit_partial_grammar () grammar

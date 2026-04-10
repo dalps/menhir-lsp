@@ -2,19 +2,14 @@ import { exec } from "child_process";
 import * as vscode from "vscode";
 
 import {
-  LanguageClient,
-  LanguageClientOptions,
-  ServerOptions,
-  TransportKind,
-  ClientCapabilities,
-  RenameRequest,
-  WorkspaceEdit,
-  Range,
-  DocumentUri,
-  ProtocolRequestType,
-  type ExecuteCommandRequest,
-  CancellationToken,
-  ExecuteCommandParams,
+    CancellationToken,
+    DocumentUri,
+    ExecuteCommandParams,
+    LanguageClient,
+    LanguageClientOptions,
+    Range,
+    ServerOptions,
+    TransportKind
 } from "vscode-languageclient/node";
 import { ASTPanel, getWebviewOptions } from "./astPanel";
 
@@ -134,8 +129,13 @@ export function activate(context: vscode.ExtensionContext) {
 
   vscode.window.registerWebviewPanelSerializer(ASTPanel.viewType, {
     async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: unknown) {
+      const editor = vscode.window.activeTextEditor;
+
+      if (!editor) return;
+
       panel.webview.options = getWebviewOptions(context.extensionUri);
-      ASTPanel.revive(panel, context.extensionUri);
+
+      ASTPanel.revive(panel, editor, context.extensionUri);
     },
   });
 

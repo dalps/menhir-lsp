@@ -23,6 +23,7 @@ export function getWebviewOptions(extensionUri: Uri): vscode.WebviewOptions {
 export class ASTPanel implements vscode.Disposable {
   public static currentPanel: ASTPanel | undefined;
 
+  public static readonly defaultTitle = "AST View";
   public static readonly viewType = "astView";
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionUri: Uri;
@@ -34,11 +35,16 @@ export class ASTPanel implements vscode.Disposable {
     this._panel.title = newTitle;
   }
 
-  set editor(textEditor: vscode.TextEditor) {
+  private static validateEditor(textEditor: vscode.TextEditor) {
     let { languageId } = textEditor.document;
+    return languageId === "ocaml.menhir" || languageId === "ocaml.ocamllex";
+  }
 
-    if (languageId !== "ocaml.menhir" && languageId !== "ocaml.ocamllex")
+  set editor(textEditor: vscode.TextEditor) {
+    if (!ASTPanel.validateEditor(textEditor)) {
+      this._editor = undefined;
       return;
+    }
 
     this._editor = textEditor;
   }
@@ -46,9 +52,10 @@ export class ASTPanel implements vscode.Disposable {
   public static async createOrShow(extensionUri: Uri) {
     const editor = vscode.window.activeTextEditor;
 
-    // There must be an open document
-    if (!editor) {
-      console.log("Couldn't start AST explorer: no open editor");
+    if (!editor || !ASTPanel.validateEditor(editor)) {
+      vscode.window.showErrorMessage(
+        "Failed to start AST view: need an opened .mll or .mly file.",
+      );
       return;
     }
 
@@ -61,7 +68,7 @@ export class ASTPanel implements vscode.Disposable {
 
     const panel = vscode.window.createWebviewPanel(
       ASTPanel.viewType,
-      "AST Browser",
+      ASTPanel.defaultTitle,
       column ? column + 1 : vscode.ViewColumn.One,
       getWebviewOptions(extensionUri),
     );
@@ -69,9 +76,13 @@ export class ASTPanel implements vscode.Disposable {
     ASTPanel.currentPanel = new ASTPanel(panel, editor, extensionUri);
   }
 
-  // public static revive(panel: vscode.WebviewPanel, extensionUri: Uri) {
-  //   ASTPanel.currentPanel = new ASTPanel(panel, extensionUri);
-  // }
+  public static revive(
+    panel: vscode.WebviewPanel,
+    editor: vscode.TextEditor,
+    extensionUri: Uri,
+  ) {
+    ASTPanel.currentPanel = new ASTPanel(panel, editor, extensionUri);
+  }
 
   /** Only the manager can instantiate a panel. */
   private constructor(
@@ -83,10 +94,10 @@ export class ASTPanel implements vscode.Disposable {
     this.editor = editor;
     this._extensionUri = extensionUri;
 
+    // Set the webview's initial content
     const { webview } = this._panel;
-    webview.html = this._getHtmlForWebview(this._extensionUri, webview);
+    webview.html = this._getHtmlForWebview(extensionUri, webview);
 
-    // Set the webview's initial html content
     this._update();
 
     // Dispose of this manager when the panel is closed
@@ -96,7 +107,6 @@ export class ASTPanel implements vscode.Disposable {
       (newEditor) => {
         if (!newEditor) return;
 
-        console.log("active editor changed to:", newEditor?.document.fileName);
         this.editor = newEditor;
         this._update();
       },
@@ -130,18 +140,22 @@ export class ASTPanel implements vscode.Disposable {
   private async _update() {
     const { webview } = this._panel;
     const editor = this._editor;
+    let data: any;
 
     // There must be an open document
-    if (!editor) return;
+    if (!editor) {
+      data = { error: "Unrecognized file type." };
+    } else {
+      this.title = editor.document.fileName.split(/\//g).at(-1) ?? "AST View";
+      const lang = editor.document.languageId.split(".").at(-1)!;
+      const iconsPath = Uri.joinPath(this._extensionUri, ".fileicons");
 
-    this.title = editor.document.fileName.split(/\//g).at(-1) ?? "AST View";
-    const lang = editor.document.languageId.split(".").at(-1)!;
-    const iconsPath = Uri.joinPath(this._extensionUri, ".fileicons");
+      this._panel.iconPath = Uri.joinPath(iconsPath, `${lang}.svg`);
 
-    this._panel.iconPath = Uri.joinPath(iconsPath, `${lang}.svg`);
+      data = await getAst(editor.document.uri);
+    }
 
-    let ast = await getAst(editor.document.uri);
-    webview.postMessage({ type: "publishAst", data: ast });
+    webview.postMessage({ type: "publishAst", data });
   }
 
   public dispose() {
@@ -156,12 +170,7 @@ export class ASTPanel implements vscode.Disposable {
   }
 
   private _getHtmlForWebview(extensionUri: Uri, webview: vscode.Webview) {
-    const webviewPath = Uri.joinPath(
-      this._extensionUri,
-      "out",
-      "webviews",
-      "ast",
-    );
+    const webviewPath = Uri.joinPath(extensionUri, "out", "webviews", "ast");
 
     const scriptUri = webview.asWebviewUri(
       Uri.joinPath(webviewPath, "index.js"),
@@ -205,6 +214,7 @@ export class ASTPanel implements vscode.Disposable {
     activeEditor.setDecorations(highlightDecorationType, [r]);
   }
 
+  // broken
   public static async revealNodeUnderCursor(extensionUri: Uri) {
     await ASTPanel.createOrShow(extensionUri);
 

@@ -2,7 +2,7 @@
   import { getContext } from "svelte";
   import { on } from "svelte/events";
   import "./app.css";
-  import type { ASTNode, VsCode } from "./types";
+  import type { VsCode } from "./types";
   import Value from "./Value.svelte";
 
   const vscode = getContext<VsCode>("vscode");
@@ -13,7 +13,7 @@
     switch (event.data.type) {
       case "publishAst":
         ast = event.data.data;
-        console.log("[webview] received new ast", ast);
+        // console.log("[webview] received new ast", ast);
         break;
     }
   });
