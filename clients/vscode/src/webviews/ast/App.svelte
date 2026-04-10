@@ -9,13 +9,14 @@
 
   let { ast } = $props();
 
-  // on(window, "message", (event) => {
-  //   switch (event.data.type) {
-  //     case "publishAst":
-  //       ast = event.data.data;
-  //       break;
-  //   }
-  // });
+  on(window, "message", (event) => {
+    switch (event.data.type) {
+      case "publishAst":
+        ast = event.data.data;
+        console.log("[webview] received new ast", ast);
+        break;
+    }
+  });
 </script>
 
 <div id="tree">

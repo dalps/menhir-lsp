@@ -16,7 +16,6 @@
   <span class="delimiter">{"{"}</span>
   <ul>
     {#each entries as [k, v]}
-      {console.log("entry:", k)}
       <div>
         <span class="key">{k}</span>:
         <Value value={v} />

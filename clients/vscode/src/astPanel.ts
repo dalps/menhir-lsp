@@ -21,24 +21,28 @@ export class ASTPanel implements vscode.Disposable {
   public static currentPanel: ASTPanel | undefined;
 
   public static readonly viewType = "astView";
-
-  private static _editor: vscode.TextEditor | undefined;
   private readonly _title = "AST View";
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionUri: Uri;
+
+  private _editor: vscode.TextEditor | undefined;
   private _disposables: vscode.Disposable[] = [];
+
+  set editor(textEditor: vscode.TextEditor) {
+    let { languageId } = textEditor.document;
+    if (languageId !== "ocaml.menhir" && languageId !== "ocaml.ocamllex")
+      return;
+    this._editor = textEditor;
+  }
 
   public static async createOrShow(extensionUri: Uri) {
     const editor = vscode.window.activeTextEditor;
 
-    this._editor = editor;
-
     // There must be an open document
-    if (!editor) return;
-
-    let { uri, languageId } = editor.document;
-    if (languageId !== "ocaml.menhir" && languageId !== "ocaml.ocamllex")
+    if (!editor) {
+      console.log("Couldn't start AST explorer: no open editor");
       return;
+    }
 
     const column = editor.viewColumn;
 
@@ -54,22 +58,25 @@ export class ASTPanel implements vscode.Disposable {
       getWebviewOptions(extensionUri),
     );
 
-    let ast = await getAst(uri);
-    panel.webview.postMessage({ type: "publishAst", data: ast });
-
-    console.log("[ASTpanel] This is the AST I got:", ast);
-
-    ASTPanel.currentPanel = new ASTPanel(panel, extensionUri);
+    ASTPanel.currentPanel = new ASTPanel(panel, editor, extensionUri);
   }
 
-  public static revive(panel: vscode.WebviewPanel, extensionUri: Uri) {
-    ASTPanel.currentPanel = new ASTPanel(panel, extensionUri);
-  }
+  // public static revive(panel: vscode.WebviewPanel, extensionUri: Uri) {
+  //   ASTPanel.currentPanel = new ASTPanel(panel, extensionUri);
+  // }
 
   /** Only the manager can instantiate a panel. */
-  private constructor(panel: vscode.WebviewPanel, extensionUri: Uri) {
+  private constructor(
+    panel: vscode.WebviewPanel,
+    editor: vscode.TextEditor,
+    extensionUri: Uri,
+  ) {
     this._panel = panel;
+    this.editor = editor;
     this._extensionUri = extensionUri;
+
+    const { webview } = this._panel;
+    webview.html = this._getHtmlForWebview(this._extensionUri, webview);
 
     // Set the webview's initial html content
     this._update();
@@ -77,10 +84,22 @@ export class ASTPanel implements vscode.Disposable {
     // Dispose of this manager when the panel is closed
     this._panel.onDidDispose(() => this.dispose(), null, this._disposables);
 
+    vscode.window.onDidChangeActiveTextEditor(
+      (newEditor) => {
+        if (!newEditor) return;
+
+        console.log("active editor changed to:", newEditor?.document.fileName);
+        this.editor = newEditor;
+        this._update();
+      },
+      null,
+      this._disposables,
+    );
+
     // Update the content based on view changes (e.g. the user clicks outside the webview)
     this._panel.onDidChangeViewState(
       () => {
-        // if (this._panel.visible) this._update();
+        if (this._panel.visible) this._update();
       },
       null,
       this._disposables,
@@ -100,13 +119,19 @@ export class ASTPanel implements vscode.Disposable {
     );
   }
 
-  private _update() {
-    const { webview } = this._panel;
-
+  private async _update() {
     console.log("Updating webview");
 
     this._panel.title = this._title;
-    webview.html = this._getHtmlForWebview(this._extensionUri, webview);
+
+    const { webview } = this._panel;
+    const editor = this._editor;
+
+    // There must be an open document
+    if (!editor) return;
+
+    let ast = await getAst(editor.document.uri);
+    webview.postMessage({ type: "publishAst", data: ast });
   }
 
   public dispose() {
@@ -157,7 +182,7 @@ export class ASTPanel implements vscode.Disposable {
   }
 
   public focusAstNodeInEditor(data: { range: Range }) {
-    const activeEditor = ASTPanel._editor;
+    const activeEditor = this._editor;
 
     if (!activeEditor) {
       console.log("No active edtior, bye");
@@ -173,7 +198,7 @@ export class ASTPanel implements vscode.Disposable {
   public static async revealNodeUnderCursor(extensionUri: Uri) {
     await ASTPanel.createOrShow(extensionUri);
 
-    const activeEditor = ASTPanel._editor;
+    const activeEditor = ASTPanel.currentPanel?._editor;
 
     if (!activeEditor) {
       console.log("No active edtior, bye");
