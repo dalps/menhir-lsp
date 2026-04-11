@@ -70,6 +70,20 @@
    (>= "1.14.0"))
   visitors))
 
+(package
+ (name menhirdebug)
+ (synopsis "")
+ (description "")
+ (sites (lib plugins))
+ (depends
+  ("ocaml"
+   (>= "4.14"))
+  ("menhir"
+   (>= "20250912"))
+  menhirSdk
+  menhirLib))
+
+(using dune_site 0.1)
 (using menhir 3.0)
 
 ; See the complete stanza docs at https://dune.readthedocs.io/en/stable/reference/dune-project/index.html

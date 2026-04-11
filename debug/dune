@@ -1,0 +1,16 @@
+(executable
+ (public_name menhirdebug)
+ (name main)
+ (modules sites main)
+ (package menhirdebug)
+ (libraries menhirdebug_lib dune-site dune-site.plugins))
+
+(library
+ (name menhirdebug_lib)
+ (modules plugin_intf)
+ (libraries menhirLib))
+
+(generate_sites_module
+ (module sites)
+ (plugins
+  (app plugins)))
