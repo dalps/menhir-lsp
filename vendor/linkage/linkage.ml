@@ -20,13 +20,18 @@ let load s =
       Dynlink.adapt_filename s
     else
       s in
-  match Dynlink.loadfile_private s with
-  | () ->
-     Error Not_a_linkage_plugin
-  | exception (Loaded (_, p)) ->
-     Ok p
-  | exception Dynlink.Error e ->
-     Error (Dynlink_error e)
+  (* [menhir-lsp] For some weird reason, we need to re-raise the exception *)
+  try
+    try
+      match Dynlink.loadfile_private s with () -> Error Not_a_linkage_plugin
+    with
+    | Loaded (_, p) -> Ok p (* nope *)
+    | Dynlink.Error e -> (
+        match e with
+        | Dynlink.Library's_module_initializers_failed loadedexn ->
+            raise loadedexn
+        | e -> Error (Dynlink_error e))
+  with Loaded (_, p) -> Ok p
 
 (* By putting a string in the exception, the default
    exception printer will do a better job *)

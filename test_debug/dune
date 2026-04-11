@@ -6,17 +6,4 @@
 
 (menhir
  (modules calc)
- (flags --table --inspection))
-
-(rule
- (targets calc_debug.cmxs)
- (action
-  (run
-   %{ocamlopt}
-   -shared
-   -o
-   %{targets}
-   %{cmx:calc}
-   %{cmx:calc_debug}
-   -I
-   /home/dalpi/.opam/5.4.0/lib/menhirLib)))
+ (flags --table))

@@ -11,7 +11,8 @@ module type M = sig
     module Tables : TableFormat.TABLES with type token = token
 
     module MenhirInterpreter :
-      IncrementalEngine.EVERYTHING with type token = token
+      (* IncrementalEngine.EVERYTHING if you need --inspection stuff *)
+      IncrementalEngine.INCREMENTAL_ENGINE with type token = token
 
     module Incremental : sig
       val main : Lexing.position -> semantic_value MenhirInterpreter.checkpoint
