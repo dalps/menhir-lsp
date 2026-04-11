@@ -1,7 +1,7 @@
 open MenhirLib
 
 (** Barrel module containing all the information needed to start a debugging
-    session. Define it and feed it to [Linkage.provide] *)
+    session. Define it and feed it to [provide] *)
 module type M = sig
   type semantic_value
 
@@ -23,6 +23,6 @@ module type M = sig
   end
 end
 
-type Linkage.plugin += Menhir_lsp_plugin of (module M)
+type Linkage.plugin += Menhirdebug_plugin of (module M)
 
 let provide = Linkage.provide

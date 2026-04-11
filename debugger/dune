@@ -1,3 +1,11 @@
+(executable
+ (name main)
+ (public_name menhirdebug)
+ (package menhirdebug)
+ (libraries menhirdebug_lib findlib.dynload)
+ (modules main))
+
 (library
- (name menhir_lsp_debugger)
- (libraries menhirLib menhirSdk linkage))
+ (name menhirdebug_lib)
+ (libraries menhirLib menhirSdk linkage)
+ (modules plugin))
