@@ -55,12 +55,14 @@ and named_regexp = {
   regexp : regular_expression_syntax located;
 }
 
+and case = regular_expression_syntax located * action
+
 (* [menhir-lsp] To simplify the visitor, I fixed the type parameters ['arg] and ['action] to [string located] and [location], respectively. *)
 and entry = {
   name : string located;
   shortest : bool located;
   args : string located list;
-  clauses : (regular_expression_syntax located * action) list;
+  clauses : case located list;
 }
 
 (* The order of these fields should reflect the position in the concrete syntax. *)

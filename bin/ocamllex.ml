@@ -11,6 +11,63 @@ type state = {
     list;
 }
 
+let yojson_of_ast (grammar : lexer_definition) : Json.t =
+  let open Json in
+  let string s = `String s in
+  let with_label :
+      'env 'a. string -> ('env -> 'a -> Json.t) -> 'env -> 'a -> Json.t =
+   fun label v env x -> `Assoc [ ("type", `String label); ("value", v env x) ]
+  in
+  let v =
+    object
+      inherit [_] ast_reduce as super
+      method zero : t = `List []
+
+      method plus (o1 : t) (o2 : t) =
+        match (o1, o2) with
+        | `List o1, `List o2 -> `List (o1 @ o2)
+        | `List o1, o2 -> `List (o1 @ [ o2 ])
+        | o1, `List o2 -> `List (o1 :: o2)
+        | _, _ -> `List [ o1; o2 ]
+
+      method! visit_located =
+        fun visit_v env loc ->
+          let range = Range.of_lexical_positions loc.p |> Range.yojson_of_t in
+          let start, end_ =
+            CCPair.map_same (fun (pos : Lexing.position) -> pos.pos_cnum) loc.p
+          in
+          let value = visit_v env loc.v in
+          let _comments =
+            loc.comment
+            |> O.map
+               @@ List.map (fun ({ text; _ } : Located.comment) ->
+                   `Assoc [ ("text", string text) ])
+            |> O.get_or_nil
+          in
+          `Assoc
+            [
+              ("range", range);
+              ("rawRange", `List [ `Int start; `Int end_ ]);
+              ("value", value);
+            ]
+
+      method! visit_named_regexp =
+        with_label "named_regexp" super#visit_named_regexp
+
+      method! visit_regular_expression_syntax =
+        with_label "regular_expression" super#visit_regular_expression_syntax
+
+      method! visit_character_class_syntax =
+        with_label "character_class" super#visit_character_class_syntax
+
+      method! visit_action = with_label "action" super#visit_action
+      method! visit_entry = with_label "entry" super#visit_entry
+      method! visit_case = with_label "case" super#visit_case
+      method! visit_string _ = string
+    end
+  in
+  v#visit_main () grammar
+
 let regexp_bindings =
   let v =
     object
@@ -68,7 +125,7 @@ let load_state_from_contents (_filename : string) (contents : string) :
       (let+ nr = grammar.named_regexps in
        `Declared nr)
       @ let* { v = entry; _ } = grammar.entrypoints in
-        let+ re, _ = entry.clauses in
+        let+ { v = re, _; _ } = entry.clauses in
         `Anonymous re)
   in
   { grammar; symbols; regexps }
@@ -82,7 +139,7 @@ let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
       ~selectionRange
       ~children:
         (entry.clauses
-        |> flat_map_i (fun _i (regexp, _) ->
+        |> flat_map_i (fun _i { v = regexp, _; _ } ->
             match regexp_bindings regexp.v with
             | [] -> []
             | binders ->
@@ -275,7 +332,7 @@ let completions
   let open L in
   let action_completions () =
     let*? { v = rule; _ } = grammar.entrypoints in
-    let*? regexp, action = rule.clauses in
+    let*? { v = regexp, action; _ } = rule.clauses in
     let range = Range.of_lexical_positions action.p in
     O.if_
       (fun _ -> pos_inside range)

@@ -1,5 +1,6 @@
 module M = MenhirSyntax
 module MR = MenhirSyntax.Range
+module Json = Yojson.Safe
 include Menhir_lsp_lib.Utils
 
 let server_name = "menhir-lsp"

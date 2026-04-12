@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "types": ["vscode-webview", "svelte"],
+    "module": "esnext",
+    "target": "esnext",
+    // "verbatimModuleSyntax": true
+  },
+  "include": ["./**/*"],
+  "exclude": ["node_modules"],
+}

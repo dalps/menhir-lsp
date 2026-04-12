@@ -1,0 +1,26 @@
+body,
+button {
+  font-family: "Cascadia Code", "Courier New", Courier, monospace;
+}
+
+:root {
+  --range-button-bg: var(--vscode-input-background);
+  --range-button-bg-hover: var(--vscode-list-hoverBackground);
+  --range-button-text: var(--vscode-input-foreground);
+  --delimiter-text: #777;
+  --terminal-text: #2175d8;
+  --key-text: orange;
+}
+
+.delimiter {
+  color: var(--delimiter-text);
+}
+
+button {
+  appearance: none;
+  outline: none;
+
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+}

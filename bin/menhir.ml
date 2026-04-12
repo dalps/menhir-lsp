@@ -81,6 +81,89 @@ let debug_ast (state : state) : string =
   v#visit_partial_grammar () state.grammar |> PPrint.ToBuffer.pretty 0.8 80 buf;
   Buffer.contents buf
 
+let yojson_of_ast (grammar : partial_grammar) : Json.t =
+  let open Json in
+  let string s = `String s in
+  let with_label :
+      'env 'a. string -> ('env -> 'a -> Json.t) -> 'env -> 'a -> Json.t =
+   fun label v env x -> `Assoc [ ("type", `String label); ("value", v env x) ]
+  in
+  let v =
+    object
+      inherit [_] ast_reduce as super
+      method zero : t = `List []
+
+      method plus (o1 : t) (o2 : t) =
+        match (o1, o2) with
+        | `List o1, `List o2 -> `List (o1 @ o2)
+        | `List o1, o2 -> `List (o1 @ [ o2 ])
+        | o1, `List o2 -> `List (o1 :: o2)
+        | _, _ -> `List [ o1; o2 ]
+
+      method! visit_located =
+        fun visit_v env loc ->
+          let range = Range.of_lexical_positions loc.p |> Range.yojson_of_t in
+          let start, end_ =
+            CCPair.map_same (fun (pos : Lexing.position) -> pos.pos_cnum) loc.p
+          in
+          let value = visit_v env loc.v in
+          let _comments =
+            loc.comment
+            |> O.map
+               @@ List.map (fun { text; _ } ->
+                   `Assoc [ ("text", `String text) ])
+            |> O.get_or_nil
+          in
+          `Assoc
+            [
+              ("range", range);
+              ("rawRange", `List [ `Int start; `Int end_ ]);
+              ("value", value);
+            ]
+
+      method! visit_terminal _ = string
+      method! visit_nonterminal _ = string
+      method! visit_symbol _ = string
+      method! visit_identifier _ = string
+
+      method! visit_parameterized_rule v =
+        with_label "rule" (super#visit_parameterized_rule v)
+
+      method! visit_parameterized_branch =
+        with_label "production_group" super#visit_parameterized_branch
+
+      method! visit_early_production =
+        with_label "production" super#visit_early_production
+
+      method! visit_early_producer =
+        with_label "producer" super#visit_early_producer
+
+      method! visit_parameter = with_label "parameter" super#visit_parameter
+
+      method! visit_symbol_expression =
+        with_label "symbol_expression" super#visit_symbol_expression
+
+      method! visit_choice_expression =
+        with_label "choice_expression" super#visit_choice_expression
+
+      method! visit_branch = with_label "branch" super#visit_branch
+
+      method! visit_raw_seq_expression =
+        with_label "seq_expression" super#visit_raw_seq_expression
+
+      method! visit_raw_action = with_label "action" super#visit_raw_action
+      method! visit_action = with_label "action" super#visit_action
+
+      method! visit_declaration =
+        with_label "declaration" super#visit_declaration
+
+      method! visit_alias = with_label "alias" super#visit_alias
+      method! visit_ocamltype = with_label "ocamltype" super#visit_ocamltype
+      method! visit_attribute = with_label "attribute" super#visit_attribute
+    end
+  in
+  v#visit_partial_grammar () grammar
+
 let rec string_of_params : parameter -> string = function
   | ParamVar p -> p.v
   | ParamApp (p, ps) ->
@@ -469,10 +552,11 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         | _ -> None)
       grammar.pg_declarations
   in
-  let _postlude =
-    grammar.pg_postlude
-    >|= (fun { p; _ } -> Range.of_lexical_positions p)
-    |> to_list
+  let postlude_completions () =
+    let* postlude =
+      grammar.pg_postlude >|= fun { p; _ } -> Range.of_lexical_positions p
+    in
+    if_ (fun _ -> pos_inside postlude) @@ merlin_compls ()
   in
   let word_range =
     let+ { p; _ } = word in
@@ -519,8 +603,8 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
     @ standard_lib_completions
     @ Keywords.declarations ?range:word_range ()
   in
-  declaration_completions () <|> action_completions <|> grammar_completions
-  |> get_or ~default:[]
+  declaration_completions () <|> action_completions <|> postlude_completions
+  <|> grammar_completions |> get_or_nil
 
 let prepare_rename (state : state) ~(pos : Position.t) : Range.t option =
   let open O in
@@ -609,6 +693,8 @@ let code_actions (state : state) ~uri ~(range : Range.t) : CodeActionResult.t =
 let selection_range ({ grammar; _ } as _state : state)
     ~(positions : Position.t list) ~(notify_back : notify_back) :
     SelectionRange.t list =
+  let json = yojson_of_ast grammar in
+  log_info ~notify_back "%s" @@ Json.pretty_to_string json;
   let open L in
   let@* i, pos = positions in
   let parent_ref = ref @@ None in
