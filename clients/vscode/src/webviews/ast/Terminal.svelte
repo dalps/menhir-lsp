@@ -6,6 +6,6 @@
 
 <style>
   span {
-    color: #2175d8;
+    color: var(--terminal-text);
   }
 </style>

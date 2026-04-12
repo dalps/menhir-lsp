@@ -32,6 +32,6 @@
   }
 
   .key {
-    color: orange;
+    color: var(--key-text);
   }
 </style>

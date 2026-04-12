@@ -92,15 +92,15 @@
     border: none;
     border-radius: 2px;
 
-    background-color: #333;
-    color: #aaa;
+    background-color: var(--range-button-bg);
+    color: var(--range-button-text);
 
     :hover {
       text-decoration: underline;
     }
 
     &:hover {
-      background-color: #444;
+      background-color: var(--range-button-bg-hover);
     }
   }
 

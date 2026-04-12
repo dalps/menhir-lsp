@@ -135,6 +135,15 @@ export class ASTPanel implements vscode.Disposable {
       null,
       this._disposables,
     );
+
+    // Refresh the webview on context changes
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      if (event.document.uri !== this._editor?.document.uri) {
+        return;
+      }
+
+      this._update();
+    });
   }
 
   private async _update() {

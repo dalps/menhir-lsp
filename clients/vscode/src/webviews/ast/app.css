@@ -3,22 +3,17 @@ button {
   font-family: "Cascadia Code", "Courier New", Courier, monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --range-button-bg: #333;
-    --range-button-text: #ccc;
-  }
-}
-
-@media (prefers-color-scheme: light) {
-  :root {
-    --range-button-bg: #ccc;
-    --range-button-text: #333;
-  }
+:root {
+  --range-button-bg: var(--vscode-input-background);
+  --range-button-bg-hover: var(--vscode-list-hoverBackground);
+  --range-button-text: var(--vscode-input-foreground);
+  --delimiter-text: #777;
+  --terminal-text: #2175d8;
+  --key-text: orange;
 }
 
 .delimiter {
-  color: #777;
+  color: var(--delimiter-text);
 }
 
 button {

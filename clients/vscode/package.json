@@ -63,6 +63,7 @@
 			},
 			{
 				"title": "Menhir: Reveal AST node under cursor",
+				"enablement": "never",
 				"command": "menhir-lsp-client.revealAstNode"
 			},
 			{
