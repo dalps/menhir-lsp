@@ -552,10 +552,11 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         | _ -> None)
       grammar.pg_declarations
   in
-  let _postlude =
-    grammar.pg_postlude
-    >|= (fun { p; _ } -> Range.of_lexical_positions p)
-    |> to_list
+  let postlude_completions () =
+    let* postlude =
+      grammar.pg_postlude >|= fun { p; _ } -> Range.of_lexical_positions p
+    in
+    if_ (fun _ -> pos_inside postlude) @@ merlin_compls ()
   in
   let word_range =
     let+ { p; _ } = word in
@@ -602,8 +603,8 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
     @ standard_lib_completions
     @ Keywords.declarations ?range:word_range ()
   in
-  declaration_completions () <|> action_completions <|> grammar_completions
-  |> get_or ~default:[]
+  declaration_completions () <|> action_completions <|> postlude_completions
+  <|> grammar_completions |> get_or_nil
 
 let prepare_rename (state : state) ~(pos : Position.t) : Range.t option =
   let open O in
