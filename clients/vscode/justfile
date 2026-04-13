@@ -8,6 +8,9 @@ default: build
 build:
     esbuild {{ entrypoints }} {{ common_opts }} --sourcemap
 
+build-webviews:
+    node src/webviews/build.ts
+
 # [working-directory: '..']
 # install:
 #     dune install --build-info

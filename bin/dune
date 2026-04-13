@@ -5,6 +5,7 @@
   (pps lwt_ppx))
  (package menhir-lsp)
  (libraries
+  yojson
   dune-build-info
   merlin-lib.kernel
   merlin-lib.query_commands

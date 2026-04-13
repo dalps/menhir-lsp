@@ -22,6 +22,16 @@
 		"onLanguage:ocaml.ocamllex"
 	],
 	"contributes": {
+		"colors": [
+			{
+				"id": "menhirlsp.astExplorer.highlightColor",
+				"defaults": {
+					"light": "#0000ff33",
+					"dark": "#9393ff66"
+				},
+				"description": "The background color of the source code contained in the highlighted AST node."
+			}
+		],
 		"languages": [
 			{
 				"id": "ocaml.menhir",
@@ -40,12 +50,21 @@
 		],
 		"commands": [
 			{
-				"title": "Menhir: Show Menhir Language Server Output",
+				"title": "Menhir: Show Language Server output",
 				"command": "menhir-lsp-client.showOutput"
 			},
 			{
 				"title": "Menhir: Restart Language Server",
 				"command": "menhir-lsp-client.restartServer"
+			},
+			{
+				"title": "Menhir: Show AST view",
+				"command": "menhir-lsp-client.astView"
+			},
+			{
+				"title": "Menhir: Reveal AST node under cursor",
+				"enablement": "never",
+				"command": "menhir-lsp-client.revealAstNode"
 			},
 			{
 				"title": "Menhir: prompt for an alias",
@@ -67,6 +86,12 @@
 		"@types/vscode": "^1.73.0",
 		"@vscode/test-electron": "^2.5.2",
 		"mocha": "^11.7.5",
+		"@types/vscode-webview": "^1.57.5",
+		"esbuild": "^0.28.0",
+		"esbuild-svelte": "^0.9.4",
+		"svelte-preprocess": "^6.0.3",
+		"typescript": "^5.9.3",
+		"svelte": "^5.55.1",
 		"vscode-test": "^1.6.1"
 	},
 	"dependencies": {

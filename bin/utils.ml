@@ -1,5 +1,6 @@
 module M = MenhirSyntax
 module MR = MenhirSyntax.Range
+module Json = Yojson.Safe
 include Menhir_lsp_lib.Utils
 include Menhir_lsp_lib.Dune_helpers
 

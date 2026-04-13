@@ -77,7 +77,6 @@ class formatter =
         (self#with_located self#visit_regexp regexp)
 
     method! visit_entry _ { name; shortest; args; clauses } =
-      let barspace = bar ^^ space in
       prefix 2 1
         (flow space
         @@ [
@@ -88,11 +87,10 @@ class formatter =
                ((fun v -> if v then "shortest" else "parse") >> text)
                shortest;
            ])
-      @@ align barspace
-      ^^ separate_map (hardline ^^ barspace) (self#visit_case ()) clauses
+      @@ separate_map hardline (self#with_located (self#visit_case ())) clauses
 
-    method visit_case _ (regexp, action) =
-      nest 2 @@ group
+    method! visit_case _ (regexp, action) =
+      bar ^-^ nest 2 @@ group
       @@ self#with_located self#visit_regexp regexp
       ^/^ self#visit_action () action
 

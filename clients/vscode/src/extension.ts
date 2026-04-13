@@ -2,20 +2,22 @@ import { exec } from "child_process";
 import * as vscode from "vscode";
 
 import {
-  LanguageClient,
-  LanguageClientOptions,
-  ServerOptions,
-  TransportKind,
-  ClientCapabilities,
-  RenameRequest,
-  WorkspaceEdit,
-  Range,
-  DocumentUri,
+    CancellationToken,
+    DocumentUri,
+    ExecuteCommandParams,
+    LanguageClient,
+    LanguageClientOptions,
+    Range,
+    ServerOptions,
+    TransportKind
 } from "vscode-languageclient/node";
+import { ASTPanel, getWebviewOptions } from "./astPanel";
 
 let client: LanguageClient;
 
 const serverName = "menhir-lsp";
+const clientName = "menhir-lsp-client";
+const commandName = (name: string) => `${clientName}.${name}`;
 
 export function activate(context: vscode.ExtensionContext) {
   const _extId = context.extension.packageJSON.name;
@@ -115,10 +117,32 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand(commandName("astView"), () => {
+      ASTPanel.createOrShow(context.extensionUri);
+    }),
+
+    vscode.commands.registerCommand(commandName("revealAstNode"), () => {
+      ASTPanel.revealNodeUnderCursor(context.extensionUri);
+    }),
+  );
+
+  vscode.window.registerWebviewPanelSerializer(ASTPanel.viewType, {
+    async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: unknown) {
+      const editor = vscode.window.activeTextEditor;
+
+      if (!editor) return;
+
+      panel.webview.options = getWebviewOptions(context.extensionUri);
+
+      ASTPanel.revive(panel, editor, context.extensionUri);
+    },
+  });
+
   // vscode.window.showInformationMessage("Starting Menhir Client...");
 }
 
-const liftRange = (r: Range): vscode.Range => {
+export const liftRange = (r: Range): vscode.Range => {
   let { start, end } = r;
 
   return new vscode.Range(
@@ -132,4 +156,14 @@ export function deactivate(): Thenable<void> | undefined {
     return undefined;
   }
   return client.stop();
+}
+
+export async function getAst(uri: vscode.Uri) {
+  console.log(`Requesting AST of document: ${uri}`);
+
+  return await client.sendRequest(
+    "workspace/executeCommand",
+    { command: "getAst", arguments: [uri.toString()] } as ExecuteCommandParams,
+    CancellationToken.None,
+  );
 }
