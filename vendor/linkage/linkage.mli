@@ -10,6 +10,8 @@ type error =
 | Not_a_linkage_plugin
 | Wrong_plugin_type of plugin
 
+val string_of_error : error -> string
+
 (** Loads a plugin given a filename.
 
     If the filename ends in '.cma' or '.cmo', it will be changed

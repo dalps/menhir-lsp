@@ -67,6 +67,10 @@
 				"command": "menhir-lsp-client.revealAstNode"
 			},
 			{
+				"title": "Menhir: How many terminals?",
+				"command": "menhir-lsp-client.howManyTerms"
+			},
+			{
 				"title": "Menhir: prompt for an alias",
 				"enablement": "never",
 				"command": "menhir-lsp-client.promptAlias"

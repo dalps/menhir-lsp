@@ -5,6 +5,7 @@
   (pps lwt_ppx))
  (package menhir-lsp)
  (libraries
+  menhirLib
   yojson
   dune-build-info
   merlin-lib.kernel
@@ -18,4 +19,5 @@
   ordering
   re
   stdune
-  menhir_lsp_lib))
+  menhir_lsp_lib
+  menhirdebug_lib))

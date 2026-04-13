@@ -7,5 +7,5 @@
 
 (library
  (name menhirdebug_lib)
- (libraries menhirLib menhirSdk linkage)
+ (libraries menhirLib menhirSdk linkage menhir_lsp_lib)
  (modules plugin))

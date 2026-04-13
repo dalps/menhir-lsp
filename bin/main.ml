@@ -116,7 +116,7 @@ class lsp_server =
         `DocumentSymbol syms
 
     method! config_definition = Some (`Bool true)
-    method! config_list_commands = [ "getAst" ]
+    method! config_list_commands = [ "getAst"; "getTerminalCount" ]
 
     method! config_modify_capabilities (default : ServerCapabilities.t) =
       {
@@ -201,21 +201,28 @@ class lsp_server =
         (command : string) (args : Yojson.Safe.t list option) : Json.t Lwt.t =
       Lwt.return
       @@
+      let s_uri, uri =
+        match args with
+        | Some [ `String uri ] -> (uri, Uri.of_string uri)
+        | _ ->
+            prerr_endline "Failed to read uri argument";
+            failwith "bad arguments: getAst"
+      in
       match command with
       | "getAst" ->
-          let uri =
-            match args with
-            | Some [ `String uri ] ->
-                log_info ~notify_back "Client requested AST of %s" uri;
-                Uri.of_string uri
-            | _ ->
-                prerr_endline "Failed to read uri argument";
-                failwith "bad arguments: getAst"
-          in
+          log_info ~notify_back "Client requested AST of %s" s_uri;
           self#_dispatch uri ~notify_back
             ~mly_handler:(fun state -> Mly.yojson_of_ast state.grammar)
             ~mll_handler:(fun state -> Mll.yojson_of_ast state.grammar)
           |> O.get_or ~default:`Null
+      | "getTerminalCount" ->
+          let open R in
+          fold ~error:(fun e -> `String e) ~ok:(fun x -> `Int x)
+          @@
+          let* p = fetch_build_dir ~ext:".cmxs" uri in
+          log_info ~notify_back "Client terminal count of %s" p;
+          let* c = Menhirdebug_lib.Plugin.get_terminal_count p in
+          Ok c
       | _ -> `Null
 
     method private _on_req_document_formatting ~notify_back

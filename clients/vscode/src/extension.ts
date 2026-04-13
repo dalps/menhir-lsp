@@ -2,14 +2,14 @@ import { exec } from "child_process";
 import * as vscode from "vscode";
 
 import {
-    CancellationToken,
-    DocumentUri,
-    ExecuteCommandParams,
-    LanguageClient,
-    LanguageClientOptions,
-    Range,
-    ServerOptions,
-    TransportKind
+  CancellationToken,
+  DocumentUri,
+  ExecuteCommandParams,
+  LanguageClient,
+  LanguageClientOptions,
+  Range,
+  ServerOptions,
+  TransportKind,
 } from "vscode-languageclient/node";
 import { ASTPanel, getWebviewOptions } from "./astPanel";
 
@@ -139,6 +139,17 @@ export function activate(context: vscode.ExtensionContext) {
     },
   });
 
+  context.subscriptions.push(
+    vscode.commands.registerTextEditorCommand(
+      commandName("howManyTerms"),
+      (textEditor) => {
+        const { uri } = textEditor.document;
+
+        getTerminalCount(uri);
+      },
+    ),
+  );
+
   // vscode.window.showInformationMessage("Starting Menhir Client...");
 }
 
@@ -166,4 +177,21 @@ export async function getAst(uri: vscode.Uri) {
     { command: "getAst", arguments: [uri.toString()] } as ExecuteCommandParams,
     CancellationToken.None,
   );
+}
+
+export async function getTerminalCount(uri: vscode.Uri) {
+  const c: number | string = await client.sendRequest(
+    "workspace/executeCommand",
+    {
+      command: "getTerminalCount",
+      arguments: [uri.toString()],
+    } as ExecuteCommandParams,
+    CancellationToken.None,
+  );
+
+  if (typeof c === "number") {
+    vscode.window.showInformationMessage(`The grammar has ${c} terminals.`);
+  } else {
+    vscode.window.showErrorMessage(c);
+  }
 }

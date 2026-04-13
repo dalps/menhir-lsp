@@ -37,18 +37,19 @@ let load s =
    exception printer will do a better job *)
 exception Error of string * error
 
+let string_of_error = function
+  | Dynlink_error e -> Dynlink.error_message e
+  | Not_a_linkage_plugin -> "Not a Linkage plugin"
+  | Wrong_plugin_type p ->
+     "Wrong plugin type " ^
+       Obj.Extension_constructor.(name (of_val p))
+    (* Obj.(extension_name (extension_constructor p)) *)
+
 let raise_error r =
   let err = match r with
     | Ok p ->
        Wrong_plugin_type p
     | Error e ->
        e in
-  let text = match err with
-    | Dynlink_error e -> Dynlink.error_message e
-    | Not_a_linkage_plugin -> "Not a Linkage plugin"
-    | Wrong_plugin_type p ->
-       "Wrong plugin type " ^
-         Obj.Extension_constructor.(name (of_val p))
-      (* Obj.(extension_name (extension_constructor p)) *)
-      in
+  let text = string_of_error err in
   raise (Error (text, err))
