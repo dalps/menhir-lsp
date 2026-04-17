@@ -4,7 +4,11 @@ open MenhirSyntax
 open Syntax
 module Range = Utils.Range
 
-type zone = OCaml | Declaration | Rule | Action
+type zone =
+  | OCaml
+  | Declaration
+  | Rule of symbol located list
+  | Action of (symbol located * parameter located option) list
 
 module Ivl_map = Interval_map.Make (struct
   include Position
@@ -238,21 +242,25 @@ let process_symbols : partial_grammar -> symbol located list =
 
 let load_state_from_partial_grammar (grammar : partial_grammar) =
   let symbols = process_symbols grammar in
-  let add : 'a. zone -> 'a located -> zone Ivl_map.t -> zone Ivl_map.t =
+  let map_ref = ref Ivl_map.empty in
+  let add_interval : 'a. zone -> Ivl.t -> unit =
+   fun (zone : zone) (ivl : Ivl.t) -> map_ref := Ivl_map.add ivl zone !map_ref
+  in
+  let add_located : 'a. zone -> 'a located -> unit =
    fun (zone : zone) (located : _ located) ->
     let rng = Range.of_lexical_positions located.p in
     let ivl = Ivl.create (Included rng.start) (Included rng.end_) in
-    Ivl_map.add ivl zone
+    add_interval zone ivl
   in
-  let map_ref = ref Ivl_map.empty in
-  let add zone loc = map_ref := add zone loc !map_ref in
   (* Don't refactor the explicit parameter, it keeps these polymorphic! *)
-  let ocaml_zone loc = add OCaml loc in
-  let decls_zone loc = add Declaration loc in
-  let rules_zone loc = add Rule loc in
-  let action_zone loc = add Action loc in
+  let ocaml_zone loc = add_located OCaml loc in
+  let decls_zone loc = add_located Declaration loc in
+  let rules_zone ?(params = []) loc = add_located (Rule params) loc in
+  let branch_vars_ref : _ list ref = ref [] in
+  let add_branch_var var = branch_vars_ref := var :: !branch_vars_ref in
+  let action_zone loc = add_located (Action !branch_vars_ref) loc in
   let v =
-    object
+    object (self)
       inherit [_] ast_iter as super
       (* inherit [_] ast_reduce as super
         method zero = Ivl_map.empty
@@ -275,10 +283,45 @@ let load_state_from_partial_grammar (grammar : partial_grammar) =
           pg_declarations |> List.iter decls_zone;
           pg_rules
           |> List.iter (function
-            | Old loc -> rules_zone loc
-            | New loc -> rules_zone loc);
-          pg_postlude |> Option.iter ocaml_zone;
+            | Old loc ->
+                rules_zone ~params:(loc.v.pr_nt :: loc.v.pr_parameters) loc
+            | New loc ->
+                rules_zone ~params:(loc.v.pr_nt :: loc.v.pr_parameters) loc);
+          pg_postlude
+          |> Option.iter (fun loc ->
+              let rng = Range.of_lexical_positions loc.p in
+              let ivl =
+                Ivl.create (Included rng.start) Ivl_map.Bound.Unbounded
+              in
+              add_interval OCaml ivl);
           super#visit_partial_grammar () grammar
+
+      (* -- Collecting producers in the old syntax -- *)
+      method! visit_old_rule =
+        fun _ { pr_branches; _ } ->
+          List.iter
+            (fun b ->
+              branch_vars_ref := [];
+              self#visit_parameterized_branch () b.v)
+            pr_branches
+
+      method! visit_early_producer =
+        fun _ (id, par, _) ->
+          id |> O.iter (fun id -> add_branch_var (id, Some par))
+
+      (* -- Collecting producers in the new syntax -- *)
+
+      method! visit_choice_expression =
+        fun _ (EChoice branches) ->
+          List.iter
+            (fun b ->
+              branch_vars_ref := [];
+              self#visit_branch () b.v)
+            branches
+
+      method! visit_SemPatVar _ loc = add_branch_var (loc, None)
+      method! visit_XAPointFree _ = O.iter ocaml_zone
+      method! visit_XATraditional = self#visit_action
     end
   in
   v#visit_main () grammar;
@@ -588,43 +631,21 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
     ~(word : word option) ~(pos : Position.t) ~(uri : uri) (state : state) :
     CompletionItem.t list =
   let open O in
-  get_or_nil
+  let range = O.map (fun Utils.{ p; _ } -> p) word in
+  let grammar_completions () =
+    default_completions ?range state
+    @ standard_lib_completions
+    @ Keywords.declarations ?range ()
+  in
+  get_lazy grammar_completions
   @@
-  (* let range =
-    let+ { p; _ } = word in
-    p
-  in *)
-  let+ { p = rng; _ } = word in
+  let* { p = rng; _ } = word in
   let query = Ivl.create (Included rng.start) (Included rng.end_) in
   let merlin_compls () =
     (let* word = word in
      get_merlin_compls ~notify_back ~uri ~pos word)
-    |> get_or ~default:[]
+    |> get_or_nil
   in
-  (* If we are inside a semantic action we shall suggest bound variables, position keywords and OCaml symbols *)
-  let _action_completions branch =
-    Keywords.position_keywords ~range:rng ()
-    @ (let open L in
-       let* { v = producers, _, _; _ } = branch.pb_productions in
-       let* { v = binder, par, _; _ } = producers in
-       (* We only suggest the explicitly named producers. *)
-       match binder with
-       | None -> [] (* hide $1, $2... corresponding to anonymous parameters *)
-       | Some { v = binder; _ } ->
-           [
-             CompletionItem.create ~kind:Variable
-               ~detail:(string_of_params par.v) ~label:binder
-               ~textEdit:(`TextEdit TextEdit.{ newText = binder; range = rng })
-               ();
-           ])
-    @ merlin_compls ()
-  in
-  let _grammar_completions () =
-    default_completions ~range:rng state
-    @ standard_lib_completions
-    @ Keywords.declarations ~range:rng ()
-  in
-
   let string_of_ivl ({ low; high } : Ivl.t) =
     let open Ivl_map.Bound in
     let string_of_v = Position.show in
@@ -643,22 +664,48 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
     spr "%s, %s" (String.concat "" a) (String.concat "" b)
   in
   let res = Ivl_map.query_interval_list query state.intervals in
-  log_info ~notify_back "interval query for %s produced %d results"
+  log_info ~notify_back "[query_interval_list] for %s produced %d results"
     (string_of_ivl query)
   @@ L.length res;
-  res
-  |> List.iter (fun (ivl, zones) ->
-      zones
-      |> List.iter (fun zone ->
-          let z =
-            match zone with
-            | OCaml -> "ocaml"
-            | Declaration -> "decl"
-            | Rule -> "rule"
-            | Action -> "action"
-          in
-          log_info ~notify_back "%s --> %s" (string_of_ivl ivl) z));
-  []
+  let string_of_zone = function
+    | OCaml -> "ocaml"
+    | Declaration -> "decl"
+    | Rule params ->
+        spr "rule (params: %s)"
+          (params |> List.map Located.value |> String.concat ", ")
+    | Action _ -> "action"
+  in
+  log_info ~notify_back "[query_interval] innermost zone:";
+  let res = Ivl_map.query_interval ~order:Desc query state.intervals in
+  let* (ivl, zones), gen = Ivl_map.Gen.next res in
+  let+ innermost_zone = L.head_opt zones in
+  log_info ~notify_back "%s --> %s" (string_of_ivl ivl)
+    (string_of_zone innermost_zone);
+  match innermost_zone with
+  | OCaml -> merlin_compls ()
+  | Declaration -> grammar_completions ()
+  | Rule params ->
+      grammar_completions ()
+      @ List.map
+          (fun { v = parameter; _ } ->
+            CompletionItem.create ~kind:Variable ~label:parameter
+              ~documentation:(`String "(rule parameter)")
+              ~textEdit:
+                (`TextEdit TextEdit.{ newText = parameter; range = rng })
+              ())
+          params
+  | Action binders ->
+      (* Fetch the branch-local variables from the parent zone, which should be a branch. *)
+      List.map
+        (fun ({ v = name; _ }, opt) ->
+          CompletionItem.create ~kind:Variable ~label:name
+            ~documentation:(`String "(previously bound in this branch)")
+            ?detail:(opt >|= (Located.value >> string_of_params))
+            ~textEdit:(`TextEdit TextEdit.{ newText = name; range = rng })
+            ())
+        binders
+      @ merlin_compls ()
+      @ Keywords.position_keywords ~range:rng ()
 
 let prepare_rename (state : state) ~(pos : Position.t) : Range.t option =
   let open O in
