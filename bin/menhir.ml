@@ -10,14 +10,6 @@ type zone =
   | Rule of symbol located list
   | Action of (symbol located * parameter located option) list
 
-module Ivl_map = Interval_map.Make (struct
-  include Position
-
-  let compare p1 p2 = compare p1 p2 |> Ordering.to_int
-end)
-
-module Ivl = Ivl_map.Interval
-
 type token = {
   ocamltype : ocamltype option;
   terminal : terminal;
