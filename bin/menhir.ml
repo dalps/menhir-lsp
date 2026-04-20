@@ -72,6 +72,12 @@ let debug_ast (state : state) : string =
       method! visit_raw_seq_expression =
         with_label "seq_expression" super#visit_raw_seq_expression
 
+      method! visit_XAPointFree =
+        with_label "XAPointFree" super#visit_XAPointFree
+
+      method! visit_XATraditional =
+        with_label "XATraditional" super#visit_XATraditional
+
       method! visit_terminal _ = string
       method! visit_nonterminal _ = string
       method! visit_symbol _ = string
@@ -250,7 +256,11 @@ let load_state_from_partial_grammar (grammar : partial_grammar) =
   let rules_zone ?(params = []) loc = add_located (Rule params) loc in
   let branch_vars_ref : _ list ref = ref [] in
   let add_branch_var var = branch_vars_ref := var :: !branch_vars_ref in
-  let action_zone loc = add_located (Action !branch_vars_ref) loc in
+  let action_zone loc =
+    let start, end_ = loc.p in
+    let ivl = Ivl.create (Excluded start.pos_cnum) (Excluded end_.pos_cnum) in
+    add_interval (Action !branch_vars_ref) ivl
+  in
   let v =
     object (self)
       inherit [_] ast_iter as super
@@ -312,8 +322,11 @@ let load_state_from_partial_grammar (grammar : partial_grammar) =
             branches
 
       method! visit_SemPatVar _ loc = add_branch_var (loc, None)
-      method! visit_XAPointFree _ = O.iter ocaml_zone
-      method! visit_XATraditional = self#visit_action
+
+      method! visit_seq_expression _ =
+        function
+        | { v = EAction _; p } as loc -> action_zone loc
+        | se -> super#visit_seq_expression () se
     end
   in
   v#visit_main () grammar;

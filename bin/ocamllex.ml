@@ -161,7 +161,10 @@ let load_state_from_contents (_filename : string) (contents : string) :
 
   let regexp_zone loc = add_located (RegexpDefinition !named_regexp_ref) loc in
   let action_zone loc =
-    add_located (Action (!current_rule_ref @ !case_vars_ref)) loc
+    let start, end_ = loc.p in
+    (* Don't count the braces in *)
+    let ivl = Ivl.create (Excluded start.pos_cnum) (Excluded end_.pos_cnum) in
+    add_interval (Action (!current_rule_ref @ !case_vars_ref)) ivl
   in
   let v =
     object (self)
@@ -188,14 +191,15 @@ let load_state_from_contents (_filename : string) (contents : string) :
           named_regexp_ref := nr.name :: !named_regexp_ref;
           super#visit_named_regexp () nr
 
-      method! visit_entry =
+      (* No need to add the rule's name and params manually, they are included in merlin completions *)
+      (* method! visit_entry =
         fun _ entry ->
           current_rule_ref := entry.name :: entry.args;
           L.iter
             (fun loc ->
               case_zone loc;
               self#visit_case () loc.v)
-            entry.clauses
+            entry.clauses *)
 
       method! visit_action _ = action_zone
 
@@ -418,12 +422,16 @@ let completions
   (* Inside actions we shall suggest `lexbuf`, the variables bound with `as` in the current clause, the lexer entrypoints, and OCaml symbols *)
   let action_completions binders =
     let open L in
+    (* Merlin alread reports the rule's args... *)
     (* (let+ arg = rule.args in
-     CompletionItem.create ~kind:Value ~label:arg.v ()) *)
+    CompletionItem.create ~kind:Value ~label:arg.v ()) *)
+
+    (* ...but not the lexer rules themselves. *)
     (let+ { v = entry; _ } = grammar.entrypoints in
      CompletionItem.create ~kind:Function ~label:entry.name.v ())
     @ (let+ binder = binders in
-       CompletionItem.create ~kind:Value ~label:binder.v ())
+       CompletionItem.create ~kind:Value ~label:binder.v
+         ~documentation:(`String "(previously captured in this case)") ())
     @ compile_completions ~kind:Value
         [
           ( "lexbuf",
