@@ -141,8 +141,8 @@ let load_state_from_contents (_filename : string) (contents : string) :
   in
   let add_located : 'a. zone -> 'a located -> unit =
    fun (zone : zone) (located : _ located) ->
-    let rng = Range.of_lexical_positions located.p in
-    let ivl = Ivl.create (Included rng.start) (Included rng.end_) in
+    let start, end_ = located.p in
+    let ivl = Ivl.create (Included start.pos_cnum) (Included end_.pos_cnum) in
     add_interval zone ivl
   in
   let ocaml_zone loc = add_located OCaml loc in
@@ -413,8 +413,8 @@ let completions
   in
   get_lazy lexer_completions
   @@
-  let* { p = rng; _ } = word in
-  let query = Ivl.create (Included rng.start) (Included rng.end_) in
+  let* { offset; _ } = word in
+  let query = Ivl.create (Included offset) (Included offset) in
   (* Inside actions we shall suggest `lexbuf`, the variables bound with `as` in the current clause, the lexer entrypoints, and OCaml symbols *)
   let action_completions binders =
     let open L in

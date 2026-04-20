@@ -3,11 +3,7 @@ module MR = MenhirSyntax.Range
 module Json = Yojson.Safe
 include Menhir_lsp_lib.Utils
 
-module Ivl_map = Interval_map.Make (struct
-  include Position
-
-  let compare p1 p2 = compare p1 p2 |> Ordering.to_int
-end)
+module Ivl_map = Interval_map.Make (Int)
 
 module Ivl = Ivl_map.Interval
 

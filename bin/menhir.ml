@@ -240,8 +240,8 @@ let load_state_from_partial_grammar (grammar : partial_grammar) =
   in
   let add_located : 'a. zone -> 'a located -> unit =
    fun (zone : zone) (located : _ located) ->
-    let rng = Range.of_lexical_positions located.p in
-    let ivl = Ivl.create (Included rng.start) (Included rng.end_) in
+    let start, end_ = located.p in
+    let ivl = Ivl.create (Included start.pos_cnum) (Included end_.pos_cnum) in
     add_interval zone ivl
   in
   (* Don't refactor the explicit parameter, it keeps these polymorphic! *)
@@ -281,9 +281,9 @@ let load_state_from_partial_grammar (grammar : partial_grammar) =
                 rules_zone ~params:(loc.v.pr_nt :: loc.v.pr_parameters) loc);
           pg_postlude
           |> Option.iter (fun loc ->
-              let rng = Range.of_lexical_positions loc.p in
+              let start, _ = loc.p in
               let ivl =
-                Ivl.create (Included rng.start) Ivl_map.Bound.Unbounded
+                Ivl.create (Included start.pos_cnum) Ivl_map.Bound.Unbounded
               in
               add_interval OCaml ivl);
           super#visit_partial_grammar () grammar
@@ -631,8 +631,8 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
   in
   get_lazy grammar_completions
   @@
-  let* { p = rng; _ } = word in
-  let query = Ivl.create (Included rng.start) (Included rng.end_) in
+  let* { p = rng; offset; _ } = word in
+  let query = Ivl.create (Included offset) (Included offset) in
   let merlin_compls () =
     (let* word = word in
      get_merlin_compls ~notify_back ~uri ~pos word)
@@ -640,7 +640,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
   in
   let string_of_ivl ({ low; high } : Ivl.t) =
     let open Ivl_map.Bound in
-    let string_of_v = Position.show in
+    let string_of_v = string_of_int in
     let a =
       match low with
       | Included v -> [ "["; string_of_v v ]
