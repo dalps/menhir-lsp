@@ -612,7 +612,7 @@ let expression :=
 //     { e }
 
 raw_seq_expression:
-|                    e1 = symbol_expression e2 = continuation
+| e1 = symbol_expression e2 = continuation
     { locate' (startp e1, $endpos) @@ ECons (SemPatWildcard, e1, e2) }
 | p1 = located(pattern) EQUAL e1 = symbol_expression e2 = continuation
     { locate' (startp p1, $endpos) @@ ECons (p1.v, e1, e2) }

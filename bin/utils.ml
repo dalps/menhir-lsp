@@ -3,6 +3,10 @@ module MR = MenhirSyntax.Range
 module Json = Yojson.Safe
 include Menhir_lsp_lib.Utils
 
+module Ivl_map = Interval_map.Make (Int)
+
+module Ivl = Ivl_map.Interval
+
 let server_name = "menhir-lsp"
 
 let compile_completions ?(range : Range.t option) ~(kind : CompletionItemKind.t)

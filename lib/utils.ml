@@ -56,7 +56,7 @@ module TD = Text_document
 
 type notify_back = Linol_lwt.Jsonrpc2.notify_back
 type uri = Lsp.Types.DocumentUri.t
-type word = { v : string; p : Range.t; td : Text_document.t }
+type word = { v : string; p : Range.t; offset : int; td : Text_document.t }
 
 let pr = Pr.printf
 let spr = Pr.sprintf

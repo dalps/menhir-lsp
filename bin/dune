@@ -18,4 +18,5 @@
   ordering
   re
   stdune
+  interval-map
   menhir_lsp_lib))

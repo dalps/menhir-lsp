@@ -2,6 +2,12 @@ open OcamllexSyntax
 open Utils
 open Syntax
 
+type zone =
+  | OCaml
+  | RegexpDefinition of string located list
+  | Case
+  | Action of string located list
+
 type state = {
   grammar : lexer_definition;
   symbols : string located list;
@@ -9,6 +15,7 @@ type state = {
     [ `Declared of named_regexp located
     | `Anonymous of regular_expression_syntax located ]
     list;
+  intervals : zone Ivl_map.t;
 }
 
 let yojson_of_ast (grammar : lexer_definition) : Json.t =
@@ -128,7 +135,84 @@ let load_state_from_contents (_filename : string) (contents : string) :
         let+ { v = re, _; _ } = entry.clauses in
         `Anonymous re)
   in
-  { grammar; symbols; regexps }
+  let map_ref = ref Ivl_map.empty in
+  let add_interval : 'a. zone -> Ivl.t -> unit =
+   fun (zone : zone) (ivl : Ivl.t) -> map_ref := Ivl_map.add ivl zone !map_ref
+  in
+  let add_located : 'a. zone -> 'a located -> unit =
+   fun (zone : zone) (located : _ located) ->
+    let start, end_ = located.p in
+    let ivl = Ivl.create (Included start.pos_cnum) (Included end_.pos_cnum) in
+    add_interval zone ivl
+  in
+  let ocaml_zone loc = add_located OCaml loc in
+  let case_zone loc = add_located Case loc in
+
+  (* Stores the named regexp defined insofar into the declaration zone. *)
+  let named_regexp_ref : string located list ref = ref [] in
+
+  (* Stores the name and arguments of the currently visited entry. *)
+  let current_rule_ref : string located list ref = ref [] in
+
+  (* Stores the names bound in the currently visited entry case. *)
+  let case_vars_ref : _ list ref = ref [] in
+
+  let add_case_var var = case_vars_ref := var :: !case_vars_ref in
+
+  let regexp_zone loc = add_located (RegexpDefinition !named_regexp_ref) loc in
+  let action_zone loc =
+    let start, end_ = loc.p in
+    (* Don't count the braces in *)
+    let ivl = Ivl.create (Excluded start.pos_cnum) (Excluded end_.pos_cnum) in
+    add_interval (Action (!current_rule_ref @ !case_vars_ref)) ivl
+  in
+  let v =
+    object (self)
+      inherit [_] ast_iter as super
+
+      method! visit_lexer_definition =
+        fun _ ld ->
+          O.iter ocaml_zone ld.header;
+          L.iter
+            (fun loc ->
+              regexp_zone loc;
+              self#visit_named_regexp () loc.v)
+            ld.named_regexps;
+          L.iter
+            (fun loc ->
+              case_zone loc;
+              self#visit_entry () loc.v)
+            ld.entrypoints;
+          O.iter ocaml_zone ld.refill_handler;
+          O.iter ocaml_zone ld.trailer
+
+      method! visit_named_regexp =
+        fun _ nr ->
+          named_regexp_ref := nr.name :: !named_regexp_ref;
+          super#visit_named_regexp () nr
+
+      (* No need to add the rule's name and params manually, they are included in merlin completions *)
+      (* method! visit_entry =
+        fun _ entry ->
+          current_rule_ref := entry.name :: entry.args;
+          L.iter
+            (fun loc ->
+              case_zone loc;
+              self#visit_case () loc.v)
+            entry.clauses *)
+
+      method! visit_action _ = action_zone
+
+      method! visit_case =
+        fun _ case ->
+          case_vars_ref := [];
+          super#visit_case () case
+
+      method! visit_As = fun _ _regexp binder -> add_case_var binder
+    end
+  in
+  v#visit_main () grammar;
+  { grammar; symbols; regexps; intervals = !map_ref }
 
 let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
   L.(
@@ -314,62 +398,68 @@ and …|};
     ]
 
 let completions
-    ({ grammar = { header; trailer; refill_handler; _ } as grammar; _ } : state)
-    ~(notify_back : Linol_lwt.Jsonrpc2.notify_back) ~(word : word option)
-    ~(pos : Position.t) ~(uri : uri) : CompletionItem.t list =
+    ({ grammar = { header; trailer; refill_handler; _ } as grammar; _ } as state :
+      state) ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
+    ~(word : word option) ~(pos : Position.t) ~(uri : uri) :
+    CompletionItem.t list =
   let open O in
-  let pos_inside = Position.is_inside pos in
   let merlin_compls () =
     (let* word = word in
      get_merlin_compls ~notify_back ~uri ~pos word)
     |> get_or_nil
   in
-  let region_completions (oregion : string located option) () =
-    let* range = oregion >|= (Located.position >> Range.of_lexical_positions) in
-    if_ (fun _ -> pos_inside range) (merlin_compls ())
-  in
-  (* Inside actions we shall suggest `lexbuf`, the variables bound with `as` in the current clause, the lexer entrypoints, and OCaml symbols *)
-  let open L in
-  let action_completions () =
-    let*? { v = rule; _ } = grammar.entrypoints in
-    let*? { v = regexp, action; _ } = rule.clauses in
-    let range = Range.of_lexical_positions action.p in
-    O.if_
-      (fun _ -> pos_inside range)
-      ((let+ arg = rule.args in
-        CompletionItem.create ~kind:Value ~label:arg.v ())
-      @ (let+ { v = entry; _ } = grammar.entrypoints in
-         CompletionItem.create ~kind:Function ~label:entry.name.v ())
-      @ (let+ binder = regexp_bindings regexp.v in
-         CompletionItem.create ~kind:Value ~label:binder.v ())
-      @ compile_completions ~kind:Value
-          [
-            ( "lexbuf",
-              None,
-              None,
-              [
-                md_fenced "Lexing.lexbuf";
-                "The current lexer buffer.";
-                "Can be used in conjunction with the operations on lexer \
-                 buffers provided by the `Lexing` standard library module.";
-                manual_ref "ss:ocamllex-actions";
-              ] );
-          ]
-      @ merlin_compls ())
-  in
-  let lexer_completions =
+  let lexer_completions () =
     regex_operator_completions @ keyword_completions
-    @
-    let+ ({ v = { name; _ }; _ } : named_regexp located) =
-      grammar.named_regexps
-    in
-    (* let _range = Range.of_lexical_positions p in *)
-    CompletionItem.create ~kind:Property ~label:name.v ()
+    @ L.map
+        (fun ({ v = { name; _ }; _ } : named_regexp located) ->
+          CompletionItem.create ~kind:Property ~label:name.v ())
+        grammar.named_regexps
   in
-  region_completions header ()
-  <|> region_completions refill_handler
-  <|> region_completions trailer <|> action_completions
-  |> get_or ~default:lexer_completions
+  get_lazy lexer_completions
+  @@
+  let* { offset; _ } = word in
+  let query = Ivl.create (Included offset) (Included offset) in
+  (* Inside actions we shall suggest `lexbuf`, the variables bound with `as` in the current clause, the lexer entrypoints, and OCaml symbols *)
+  let action_completions binders =
+    let open L in
+    (* Merlin alread reports the rule's args... *)
+    (* (let+ arg = rule.args in
+    CompletionItem.create ~kind:Value ~label:arg.v ()) *)
+
+    (* ...but not the lexer rules themselves. *)
+    (let+ { v = entry; _ } = grammar.entrypoints in
+     CompletionItem.create ~kind:Function ~label:entry.name.v ())
+    @ (let+ binder = binders in
+       CompletionItem.create ~kind:Value ~label:binder.v
+         ~documentation:(`String "(previously captured in this case)") ())
+    @ compile_completions ~kind:Value
+        [
+          ( "lexbuf",
+            None,
+            None,
+            [
+              md_fenced "Lexing.lexbuf";
+              "The current lexer buffer.";
+              "Can be used in conjunction with the operations on lexer buffers \
+               provided by the `Lexing` standard library module.";
+              manual_ref "ss:ocamllex-actions";
+            ] );
+        ]
+    @ merlin_compls ()
+  in
+  let res = Ivl_map.query_interval ~order:Desc query state.intervals in
+  let* (ivl, zones), gen = Ivl_map.Gen.next res in
+  let+ innermost_zone = L.head_opt zones in
+  match innermost_zone with
+  | OCaml -> merlin_compls ()
+  | RegexpDefinition defs ->
+      regex_operator_completions @ keyword_completions
+      @ L.map
+          (fun (name : string located) ->
+            CompletionItem.create ~kind:Property ~label:name.v ())
+          defs
+  | Case -> lexer_completions ()
+  | Action binders -> action_completions binders
 
 let print_symbols ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
     (state : state) =

@@ -56,7 +56,7 @@ class lsp_server =
         let word = String.sub prefix (start_ofs + 1) length in
         log_info ~notify_back "Word under cursor: |%s|, range: %s, length: %d"
           word (Range.show range) length;
-        Some { v = word; p = range; td }
+        Some { v = word; p = range; offset = ofs; td }
 
     method private _dispatch : type r.
         uri ->
