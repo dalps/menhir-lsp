@@ -64,6 +64,7 @@
    (>= "3.20.2"))
   ("menhir"
    (>= "20250912"))
+  interval-map
   menhirSdk
   menhirLib
   ("re"
