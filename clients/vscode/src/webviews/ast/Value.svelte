@@ -10,7 +10,7 @@
 {#if typeof value === "string"}
   <Terminal {value} />
 {:else if value.length >= 0}
-  <Array elements={value} />
+  <Array expanded elements={value} />
 {:else if value.range !== undefined}
   <Located {...value} />
 {:else}

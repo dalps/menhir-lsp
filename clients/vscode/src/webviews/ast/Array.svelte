@@ -7,7 +7,7 @@
     elements: any[];
   }
 
-  let { expanded = $bindable(false), elements }: Props = $props();
+  let { expanded = $bindable(true), elements }: Props = $props();
 
   function toggle() {
     expanded = !expanded;
