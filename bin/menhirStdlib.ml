@@ -281,8 +281,8 @@ x = X
     { xs @ ys }
 |}
 
-(* A dictionary mapping grammar rules to their docstrings.
-  Extracted from front/standard.mly with the help of GitHub Copilot.
+(** A dictionary mapping grammar rules to their docstrings.
+  Extracted from front/standard.mly with the help of GitHub Copilot. (IMPORTANT: this is the first, only AND LAST instance of AI use in the whole project. Sorry for feeding the beast. The other docstrings have been carefully extracted from the official docs by copy & paste, regexp search and multiline editing.)
 *)
 let menhir_standard_library_doc = CCHashtbl.of_list [
   ("endrule", "`endrule(X)` is the same as `X`.\n\nThis allows placing an anonymous subrule in the middle of a rule.");

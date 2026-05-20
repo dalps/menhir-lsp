@@ -1,11 +1,11 @@
 open Utils
 module C = Lsp.Types.CompletionItem
 
+let manual_ref section =
+  spr "[Manual](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec%s)"
+    section
+
 let declarations ?(range : Range.t option) () =
-  let manual_ref sec =
-    spr "[Manual](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec%s)"
-      sec
-  in
   let assoc_decl_doc =
     {|assigns both a priority level and an associativity status to the symbols `uid_1`, ..., `uid_n`.
 

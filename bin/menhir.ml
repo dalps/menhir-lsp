@@ -2,6 +2,8 @@ open Utils
 open M.Located
 open MenhirSyntax
 open Syntax
+open MenhirDocs
+open MenhirStdlib
 module Range = Utils.Range
 
 type zone =
@@ -360,7 +362,7 @@ let load_state_from_contents (file_name : string) (file_contents : string) :
   |> map load_state_from_partial_grammar
 
 let standard_lib =
-  Standard.menhir_standard_library_grammar |> R.get_exn
+  menhir_standard_library_grammar |> R.get_exn
   |> load_state_from_partial_grammar
 
 let default_completions ?range:(orange : Range.t option)
@@ -423,7 +425,7 @@ let default_completions ?range:(orange : Range.t option)
     comp ()
 
 let standard_lib_completions =
-  default_completions standard_lib ~docs:Standard.menhir_standard_library_doc
+  default_completions standard_lib ~docs:menhir_standard_library_doc
 
 let document_symbols ({ grammar = { pg_rules; _ }; tokens; _ } : state) :
     DocumentSymbol.t list =
@@ -491,9 +493,7 @@ let hover (state : state) ~(pos : Position.t) : Hover.t option =
   let open O in
   let* rng, sym = symbol_at_position state pos in
   let+ contents, range =
-    (let+ stdlib_doc =
-       Hashtbl.find_opt Standard.menhir_standard_library_doc sym.v
-     in
+    (let+ stdlib_doc = Hashtbl.find_opt menhir_standard_library_doc sym.v in
      (stdlib_doc, rng))
     <+> L.find_map
           (fun ({ v = t; _ } : token located) ->
@@ -639,8 +639,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
   let range = O.map (fun Utils.{ p; _ } -> p) word in
   let grammar_completions () =
     default_completions ?range state
-    @ standard_lib_completions
-    @ Keywords.declarations ?range ()
+    @ standard_lib_completions @ declarations ?range ()
   in
   get_lazy grammar_completions
   @@
@@ -710,7 +709,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
             ())
         binders
       @ merlin_compls ()
-      @ Keywords.position_keywords ~range:rng ()
+      @ position_keywords ~range:rng ()
 
 let prepare_rename (state : state) ~(pos : Position.t) : Range.t option =
   let open O in
