@@ -253,3 +253,24 @@ let compare_relpos (r1 : relpos) (r2 : relpos) =
   let compare (r1 : t) (r2 : t) =
     CCOrd.int (abs r1.distance.line) (abs r2.distance.line)
 end *)
+
+let find_prefix text ofs =
+  (* Don't look back beyond 500 chars. *)
+  let max_reach = min ofs 500 in
+  (* The subtext to search, [max_reach] long. *)
+  let sub = String.sub text (ofs - max_reach) max_reach in
+  (* The start index of the prefix. *)
+  let start_ofs =
+    try
+      Re.Str.(
+        search_backward
+          (* This should include all trigger characters. *)
+          (regexp {|[^a-zA-Z0-9_$%.]|})
+          sub max_reach)
+      + 1
+    with Not_found -> 0 (* empty *)
+  in
+  let length = max_reach - start_ofs in
+  let prefix = String.sub sub start_ofs length in
+
+  (start_ofs, length, prefix)

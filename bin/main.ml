@@ -1,4 +1,5 @@
 open Utils
+open Menhir_lsp_lib
 module Mll = Ocamllex
 module Mly = Menhir
 
@@ -31,29 +32,11 @@ class lsp_server =
         let* td = self#get_text_document ~uri in
         let text = Text_document.text td in
         let ofs = Text_document.absolute_position td pos in
-        (* Limit the search to the previous 500 chars. *)
-        let max_reach = min ofs 500 in
-        let prefix = String.sub text (ofs - max_reach) max_reach in
-        (* log_info ~notify_back "Search prefix at offset %d: %s, max reach: %d"
-          ofs prefix max_reach; *)
-        (* The offset of the character right before what we want to complete. *)
-        let start_ofs =
-          try
-            Re.Str.(
-              search_backward
-                (* This should include all trigger characters. *)
-                (regexp {|[^a-zA-Z0-9_$%.]|})
-                prefix max_reach)
-          with _ ->
-            (* log_info ~notify_back "Couldn't find start_ofs, defaulting to -1"; *)
-            -1
-        in
-        let length = max_reach - (start_ofs + 1) in
+        let start_ofs, length, word = Utils.find_prefix text ofs in
         let start_pos =
           Position.create ~line:pos.line ~character:(pos.character - length)
         in
         let range = Range.create ~start:start_pos ~end_:pos in
-        let word = String.sub prefix (start_ofs + 1) length in
         log_info ~notify_back "Word under cursor: |%s|, range: %s, length: %d"
           word (Range.show range) length;
         Some { v = word; p = range; offset = ofs; td }

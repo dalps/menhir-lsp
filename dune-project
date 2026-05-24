@@ -43,7 +43,10 @@
    (>= "20230830"))
   dune-build-info
   (ocamlformat-rpc-lib
-   (>= "0.23.0")))
+   (>= "0.23.0"))
+  (alcotest :with-test)
+  (interval-map
+   (>= "0.2.1")))
  (tags
   ("lsp" "menhir" "ocamllex")))
 
@@ -67,6 +70,7 @@
   interval-map
   menhirSdk
   menhirLib
+  (alcotest :with-test)
   ("re"
    (>= "1.14.0"))
   visitors))
