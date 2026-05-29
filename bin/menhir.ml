@@ -827,6 +827,7 @@ let selection_range ({ grammar; _ } as _state : state)
   |> O.to_list
 
 let format (state : state) ~(doc : Text_document.t)
-    ~options:(_ : FormattingOptions.t) : TextEdit.t list =
-  let newText = Menhirformat_lib.Menhir.main ~doc ~ast:state.grammar in
+    ~(options : FormattingOptions.t) : TextEdit.t list =
+  let config = Menhirformat_lib.Utils.Config.{ tabsize = options.tabSize } in
+  let newText = Menhirformat_lib.Menhir.main ~config ~doc ~ast:state.grammar in
   [ TextEdit.create ~newText ~range:Range.(whole_document doc) ]

@@ -1,5 +1,12 @@
 include Menhir_lsp_lib.Utils
 
+module Config = struct
+  type t = { tabsize : int }
+  (** Represents common formatting options. *)
+
+  let make ~tabsize : t = { tabsize }
+end
+
 module PPrint = struct
   include PPrint
 

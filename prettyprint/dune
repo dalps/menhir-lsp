@@ -4,20 +4,18 @@
  (package menhirformat)
  (libraries
   ANSITerminal
+  cmdliner
   menhirSyntax
   ocamllexSyntax
   ocamlformat-rpc-lib
   menhir_lsp_lib
   menhirformat_lib)
- (modules main))
+ (modules main)
+ (flags -w +27))
 
 (library
  (name menhirformat_lib)
- (libraries
-  menhirSyntax
-  ocamllexSyntax
-  ocamlformat-rpc-lib
-  menhir_lsp_lib)
+ (libraries menhirSyntax ocamllexSyntax ocamlformat-rpc-lib menhir_lsp_lib)
  (modules utils comment_location comments ocamlformat_client ocamllex menhir))
 
 (ocamllex comments)

@@ -11,7 +11,8 @@ include Comment_location.Make (struct
   (* let get_comments = Lexer.get_comments *)
 end)
 
-class formatter =
+class formatter (config : Config.t) =
+  let Config.{ tabsize } = config in
   let open Syntax in
   object (self)
     inherit [_] ast_reduce as super
@@ -47,7 +48,9 @@ class formatter =
                 formatted
             | Error _ -> v
           in
-          surround 2 1 lbrace (v |> String.trim |> arbitrary_string) rbrace)
+          surround tabsize 1 lbrace
+            (v |> String.trim |> arbitrary_string)
+            rbrace)
 
     method! visit_lexer_definition _ lexer_definition =
       let { header; entrypoints; trailer; refill_handler; named_regexps } =
@@ -72,16 +75,16 @@ class formatter =
       //// optional (self#visit_action ()) trailer
 
     method! visit_named_regexp _ { name; regexp } =
-      prefix 2 1
+      prefix tabsize 1
         (text "let" ^-^ self#with_located text name ^-^ text "=")
         (self#with_located self#visit_regexp regexp)
 
     method! visit_entry _ { name; shortest; args; clauses } =
-      prefix 2 1
+      prefix tabsize 1
         (flow space
         @@ [
              self#with_located text name;
-             nest 2 @@ flow_map (break 1) (self#with_located text) args;
+             nest tabsize @@ flow_map (break 1) (self#with_located text) args;
              equals;
              self#with_located
                ((fun v -> if v then "shortest" else "parse") >> text)
@@ -90,7 +93,7 @@ class formatter =
       @@ separate_map hardline (self#with_located (self#visit_case ())) clauses
 
     method! visit_case _ (regexp, action) =
-      bar ^-^ nest 2 @@ group
+      bar ^-^ nest tabsize @@ group
       @@ self#with_located self#visit_regexp regexp
       ^/^ self#visit_action () action
 
@@ -159,7 +162,7 @@ class formatter =
   end
 
 (* This should really go in comment_location, but I couldn't figure out how to generalize it over the endo visitor :/ *)
-let main ~ast ~doc =
+let main ~config ~ast ~doc =
   let buf = Buffer.create 80 in
   let bag_of_comments = Lexer.get_comments () |> init_bag in
   let attach_vtor =
@@ -169,6 +172,6 @@ let main ~ast ~doc =
     end
   in
   attach_comments ast (attach_vtor#visit_main ()) ~bag_of_comments ~doc
-  |> (new formatter)#visit_main ()
+  |> (new formatter config)#visit_main ()
   |> PPrint.ToBuffer.pretty 0.8 80 buf;
   Buffer.contents buf
