@@ -245,11 +245,35 @@ class formatter (config : Config.t) =
       code |> Ocamlformat_client.format |> R.get_or ~default:code |> String.trim
       |> arbitrary_string
 
-    method! visit_action _ expr =
+    method! visit_action _ action =
+      let module StringMap = Map.Make (String) in
+      let posvars =
+        Keyword.KeywordSet.fold
+          (fun (Keyword.Position (text, _, _, _) as k) acc ->
+            StringMap.add (Keyword.kposvar k) text acc)
+          action.keywords StringMap.empty
+      in
+
       surround tabsize 1 lbrace
-        (match expr with
-        | IL.ETextual located -> self#with_located self#visit_ocaml located
-        | _ -> text "")
+        (match action.expr with
+        | IL.ETextual located ->
+            self#with_located
+              (fun code ->
+                code |> Ocamlformat_client.format |> R.get_or ~default:code
+                |> String.trim
+                   (* 1. Recover ocamlyacc-style binders ($0, $1, ...)
+                  We simply replace _i with $i where i is a number in [0-9].
+                  This is a safe operation if we assume the user is a sane person who doesn't name her OCaml constants _0, _1 and the like. *)
+                |> Re.Str.(global_replace (regexp "\\b_\\([0-9]\\)\\b") "$\\1")
+                |>
+                (* 2. Recover Menhir keywords ($startpos, $endpos, ...) *)
+                StringMap.fold
+                  (fun var original_text ->
+                    CCString.replace ~which:`All ~sub:var ~by:original_text)
+                  posvars
+                |> arbitrary_string)
+              located
+        | _ -> text "menhirformat: unrecognized syntax")
         rbrace
 
     method! visit_prec_annotation _ =

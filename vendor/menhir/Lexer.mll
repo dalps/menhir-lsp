@@ -163,7 +163,8 @@ let dollar range i : monster =
 
 (* The position-keyword monster. The most horrible of all. *)
 
-let position range
+(* [menhir-lsp] The keyword text is given too. *)
+let position text range
   (where : string)
   (flavor : string)
   (i : string option) (x : string option)
@@ -229,7 +230,7 @@ let position range
         ()
   in
   let keyword =
-    Some (Position (subject, where, flavor))
+    Some (Position (text, subject, where, flavor))
   and oid =
     None
   in
@@ -283,6 +284,7 @@ let fragment pos1 pos2 =
 
 (* Create a semantic action. *)
 
+(* [menhir-lsp] All this does basically is replace '$' and parentheses with underscores. (cf. local transforms above) *)
 let transform ofs1 content monsters : string =
   match monsters with
   | [] ->
@@ -297,7 +299,7 @@ let transform ofs1 content monsters : string =
 let priority =
   ref 0
 
-let _make_action pos1 pos2 monsters dollars producers =
+let make_action pos1 pos2 monsters dollars producers =
   (* Check that the monsters are well-formed. *)
   List.iter (fun monster -> monster.check dollars producers) monsters;
   (* Gather all of the identifiers that the semantic action may use to refer
@@ -310,6 +312,11 @@ let _make_action pos1 pos2 monsters dollars producers =
   (* Read the specified chunk of the file. *)
   let content = InputFile.chunk (pos1, pos2) in
   (* Transform the monsters, if there are any. *)
+  (* [menhir-lsp] Problem: menhirformat relies on ocamlformat to format semantic actions.
+  ocamlformat does not speak Menhir keywords. So the monsters must be transformed.
+
+  The output of menhirformat must be Menhir valid code though. So you should hang on to the monsters
+  and reverse their transformation after ocamlformat has done its magic. Bloody. *)
   let ofs1 = pos1.pos_cnum in
   let content = transform ofs1 content monsters in
   (* Construct a fragment. *)
@@ -318,18 +325,6 @@ let _make_action pos1 pos2 monsters dollars producers =
   (* let fragment = Located.parenthesize fragment in *) (* [menhir-lsp] Don't. *)
   (* Build a semantic action. *)
   Action.make !priority ids keywords (IL.ETextual fragment)
-
-let menhir_lsp_make_action pos1 pos2 monsters =
-  let content = InputFile.chunk (pos1, pos2) in
-  (* Transform the monsters, if there are any. *)
-  let ofs1 = pos1.pos_cnum in
-  let content = transform ofs1 content monsters in
-  (* Construct a fragment. *)
-  let fragment = locate (Range.make (pos1, pos2)) content in
-  (* Add parentheses to delimit the semantic action. *)
-  (* let fragment = Located.parenthesize fragment in *) (* [menhir-lsp] Don't. *)
-  (* Build a semantic action. *)
-  IL.ETextual fragment
 
 (* ------------------------------------------------------------------------ *)
 
@@ -608,7 +603,7 @@ rule main = parse
       let openingrange = Range.current lexbuf in
       let startpos = lexeme_end_p lexbuf in
       let closingpos, monsters = action false openingrange [] lexbuf in
-      ACTION (menhir_lsp_make_action startpos closingpos monsters)
+      ACTION (make_action startpos closingpos monsters)
         (* Partial application: [dollars] and [producers] are supplied by the
            parser once they are available. *)
     }
@@ -705,7 +700,7 @@ and action percent openingrange monsters = parse
       let monster = dollar (Range.current lexbuf) i in
       action percent openingrange (monster :: monsters) lexbuf }
 | poskeyword
-    { let monster = position (Range.current lexbuf) where flavor i x in
+    { let monster = position (Lexing.lexeme lexbuf) (Range.current lexbuf) where flavor i x in
       action percent openingrange (monster :: monsters) lexbuf }
 | previouserror
     { error lexbuf "$previouserror is no longer supported." }
@@ -748,7 +743,7 @@ and parentheses openingrange monsters = parse
       let monster = dollar (Range.current lexbuf) i in
       parentheses openingrange (monster :: monsters) lexbuf }
 | poskeyword
-    { let monster = position (Range.current lexbuf) where flavor i x in
+    { let monster = position (Lexing.lexeme lexbuf) (Range.current lexbuf) where flavor i x in
       parentheses openingrange (monster :: monsters) lexbuf }
 | previouserror
     { error lexbuf "$previouserror is no longer supported." }

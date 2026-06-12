@@ -279,8 +279,8 @@ let load_state_from_partial_grammar (grammar : partial_grammar) =
       method! visit_Declared _ = ocaml_zone
       method! visit_DParameter _ = ocaml_zone
 
-      method! visit_action _ =
-        function ETextual loc -> action_zone loc | _ -> ()
+      method! visit_action _ { expr; _ } =
+        match expr with ETextual loc -> action_zone loc | _ -> ()
 
       method! visit_partial_grammar =
         fun _ ({ pg_declarations; pg_rules; pg_postlude; _ } as grammar) ->

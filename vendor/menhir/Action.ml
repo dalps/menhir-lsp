@@ -77,7 +77,7 @@ let[@inline] keywords action =
   action.keywords
 
 let has_beforeend action =
-  KeywordSet.mem (Position (Before, WhereEnd, FlavorPosition)) action.keywords
+  KeywordSet.mem (Position ("", Before, WhereEnd, FlavorPosition)) action.keywords
 
 let posvars action =
   KeywordSet.fold (fun keyword accu ->
@@ -170,7 +170,7 @@ let[@inline] restrict_semvar xs { semvar; posvar } =
 
 let rename_keyword f (phi : subst ref) keyword : keyword =
   match keyword with
-  | Position (subject, where, flavor) ->
+  | Position (text, subject, where, flavor) ->
       let subject', where' =
         match f (subject, where) with
         | Some (subject', where') ->
@@ -178,7 +178,7 @@ let rename_keyword f (phi : subst ref) keyword : keyword =
         | None ->
             apply_subject !phi subject, where
       in
-      let keyword' = Position (subject', where', flavor) in
+      let keyword' = Position (text, subject', where', flavor) in
       phi := extend_posvar (kposvar keyword) (kposvar keyword') !phi;
       keyword'
 
