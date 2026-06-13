@@ -1,13 +1,13 @@
 open Menhirformat_lib
 open Utils
-module M = MenhirSyntax
+module Mly = MenhirSyntax
 module MF = Menhir
 
 let config : Config.t = { tabsize = 2 }
 
-let format_str text : unit =
+let helper text : unit =
   text
-  |> M.Main.load_grammar_from_contents 0 ""
+  |> MenhirSyntax.Main.load_grammar_from_contents 0 ""
   |> Result.fold
        ~ok:(fun partial_grammar ->
          MF.main ~config ~ast:partial_grammar
@@ -26,7 +26,7 @@ let format_str text : unit =
   |> print_endline
 
 let%expect_test "It can handle the new syntax" =
-  format_str
+  helper
     {|%token FOO
 %token BAR
 %token BAZ
@@ -53,7 +53,7 @@ let expr := expr; BAR; expr; <Bar> | FOO; <Foo>
     |}]
 
 let%expect_test "It preserves $ and position keywords in semantic actions" =
-  format_str
+  helper
     {|%token FOO
 
 %start <int, Lexing.position> main
@@ -64,7 +64,8 @@ main: FOO { ($1, $loc($1)) }
 
 rule_S: FOO; list(FOO) { ($2, $symbolstartpos) }
 |};
-  [%expect {|
+  [%expect
+    {|
     %token FOO
 
     %start <int, Lexing.position> main
