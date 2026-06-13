@@ -2,6 +2,7 @@ open Utils
 open Menhir_lsp_lib
 module Mll = Ocamllex
 module Mly = Menhir
+module MF = Menhirformat_lib
 
 (* Based on Linol's Lwt template: https://github.com/c-cube/linol/blob/main/example/template-lwt/main.ml *)
 class lsp_server =
@@ -179,7 +180,7 @@ class lsp_server =
             self#_on_req_document_formatting ~notify_back ~r
         | _ -> Lwt.fail_with "Unhandled request type"
 
-    (* Wasted a lot of time thinking this request was not handled natively by Linol*)
+    (* Wasted a lot of time thinking this request was not handled natively by Linol *)
     method! on_req_execute_command ~notify_back ~id:_ ~workDoneToken:_
         (command : string) (args : Yojson.Safe.t list option) : Json.t Lwt.t =
       Lwt.return
@@ -210,8 +211,34 @@ class lsp_server =
       @@
       let open O in
       let* doc = self#get_text_document ~uri in
-      self#_dispatch uri ~notify_back ~mll_handler:(Mll.format ~doc ~options)
-        ~mly_handler:(Mly.format ~doc ~options)
+      let config = MF.Utils.Config.{ tabsize = options.tabSize } in
+      let filename = doc |> Text_document.documentUri |> Uri.to_path in
+      let format _ ~parse ~format =
+        match parse (Text_document.text doc) with
+        | Ok ast ->
+            let newText = format ~config ~ast ~doc in
+            [ TextEdit.create ~newText ~range:Range.(whole_document doc) ]
+        | Error (msg, range) ->
+            let message =
+              spr "menhirformat: ignoring \"%s\" (syntax error) %s %s" filename
+                (OcamllexSyntax.Range.show range)
+                msg
+            in
+            notify_back#send_log_msg ~type_:Warning message |> ignore;
+            notify_back#send_notification
+              (ShowMessage { message; type_ = Warning })
+            |> ignore;
+            (* todo: maybe returning None in this case is more semantically correct. Check the spec. *)
+            []
+      in
+      self#_dispatch uri ~notify_back
+        ~mll_handler:
+          (format ~parse:OcamllexSyntax.Main.parse_string
+             ~format:MF.Ocamllex.main)
+        ~mly_handler:
+          (format
+             ~parse:(MenhirSyntax.Main.load_grammar_from_contents 0 filename)
+             ~format:MF.Menhir.main)
 
     method private _on_req_references =
       fun ~notify_back ~id:_ ~uri ~pos : Location.t list option Lwt.t ->
