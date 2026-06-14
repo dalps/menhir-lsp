@@ -19,9 +19,10 @@ end)
     method plus = ( ^^ )
   end *)
 
-class formatter (config : Config.t) =
-  let Config.{ tabsize } = config in
+class formatter ({ tabsize; _ } as cfg : Config.t) =
   let open Syntax in
+  let tabsize = max 2 tabsize in
+  let barspace = bar ^^ blank 1 in
   object (self)
     inherit [_] ast_reduce as super
     method zero : document = empty
@@ -205,9 +206,11 @@ class formatter (config : Config.t) =
         ^-^ self#visit_loctext pr_nt
         ^^ self#visit_rule_args pr_parameters
         ^^ colon)
-        ^^ nest tabsize @@ hardline
-        ^^ self#visit_old_rule_branches pr_branches
-        ^/^ self#visit_attributes () pr_attributes
+        ^^ (fun doc -> if cfg.indentOnce then nest tabsize doc else doc)
+             (hardline
+             ^^ (if cfg.noLeadingBar then blank 2 else barspace)
+             ^^ self#visit_old_rule_branches pr_branches
+             ^/^ self#visit_attributes () pr_attributes)
 
     method private visit_rule_args =
       surround_separate_map tabsize 0 empty lparen
@@ -215,23 +218,22 @@ class formatter (config : Config.t) =
         rparen self#visit_loctext
 
     method private visit_old_rule_branches branches =
-      separate_map hardline
+      separate_map (hardline ^^ barspace)
         (self#with_located (fun branch ->
              self#visit_parameterized_branch () branch))
         branches
 
     method! visit_early_production =
       fun _ (producers, prec_annotation, _) ->
-        bar
-        ^-^ flow_map (break 1)
-              (self#with_located (self#visit_early_producer ()))
-              producers
+        flow_map (break 1)
+          (self#with_located (self#visit_early_producer ()))
+          producers
         ^/^ self#visit_prec_annotation () prec_annotation
 
     method! visit_parameterized_branch =
       fun _ { pb_productions; pb_action; pb_prec_annotation; pb_attributes } ->
         nest tabsize @@ group
-        @@ separate_map hardline
+        @@ separate_map (hardline ^^ barspace)
              (self#with_located (self#visit_early_production ()))
              pb_productions
         ^/^ separate (break 1)

@@ -1,16 +1,21 @@
 include Menhir_lsp_lib.Utils
 
 module Config = struct
-  type t = { tabsize : int }
+  type t = { tabsize : int; noLeadingBar : bool; indentOnce : bool }
   (** Represents common formatting options. *)
 
-  let make ~tabsize : t = { tabsize }
+  let default_config : t =
+    { tabsize = 2; noLeadingBar = false; indentOnce = false }
+
+  let make ~tabsize ~noLeadingBar ~indentOnce : t =
+    { tabsize; noLeadingBar; indentOnce }
 end
 
 module PPrint = struct
   include PPrint
 
   let text = string
+  let escaped = String.escaped >> arbitrary_string
 
   let between sep d1 d2 =
     match (is_empty d1, is_empty d2) with
@@ -57,3 +62,10 @@ module PPrint = struct
   let barspace = text "| "
   let enclose l x r = enclose l r x
 end
+
+let doc_of_string ?(input_file = "") text : TD.t =
+  TD.make ~position_encoding:`UTF8
+    {
+      textDocument =
+        { languageId = ""; text; uri = Uri.of_path input_file; version = 0 };
+    }

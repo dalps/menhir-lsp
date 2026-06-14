@@ -11,8 +11,7 @@ include Comment_location.Make (struct
   (* let get_comments = Lexer.get_comments *)
 end)
 
-class formatter (config : Config.t) =
-  let Config.{ tabsize } = config in
+class formatter ({ tabsize; _ } as cfg : Config.t) =
   let open Syntax in
   object (self)
     inherit [_] ast_reduce as super
@@ -78,7 +77,7 @@ class formatter (config : Config.t) =
         (self#with_located self#visit_regexp regexp)
 
     method! visit_entry _ { name; shortest; args; clauses } =
-      prefix tabsize 1
+      (if cfg.indentOnce then prefix tabsize 1 else ( ^/^ ))
         (flow space
         @@ [
              self#with_located text name;

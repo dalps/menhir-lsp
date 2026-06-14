@@ -211,7 +211,7 @@ class lsp_server =
       @@
       let open O in
       let* doc = self#get_text_document ~uri in
-      let config = MF.Utils.Config.{ tabsize = options.tabSize } in
+      let config = MF.Utils.Config.{ default_config with tabsize = options.tabSize } in
       let filename = doc |> Text_document.documentUri |> Uri.to_path in
       let format _ ~parse ~format =
         match parse (Text_document.text doc) with

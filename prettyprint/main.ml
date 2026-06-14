@@ -21,21 +21,28 @@ let tabsize =
   let doc = "Whitespace unit for indentation" in
   Arg.(value & opt int 2 & info [ "t"; "tabsize" ] ~docv:"COLS" ~doc)
 
+let noLeadingBar =
+  let doc = "Omit the optional leading bar `|` in the first case of a rule." in
+  Arg.(value & flag & info [ "noLeadingBar" ] ~doc)
+
+let indentOnce =
+  let doc =
+    "Add a level of indentation to the cases of a rule or (default) keep them \
+     flush with the start of the definition."
+  in
+  Arg.(value & flag & info [ "indentOnce" ] ~doc)
+
 let input_file =
-  let doc = "The file to format, whose name must end with the `.mly' or `.mll' file extension." in
+  let doc =
+    "The file to format, whose name must end with the `.mly' or `.mll' file \
+     extension."
+  in
   Arg.(value & pos 0 file "" & info [] ~docv:"FILE" ~doc)
 
-let main ~tabsize (input_file : string) =
+let main ~config (input_file : string) =
   let open R in
   let text = read_file_contents input_file in
-  let doc =
-    TD.make ~position_encoding:`UTF8
-      {
-        textDocument =
-          { languageId = ""; text; uri = Uri.of_path input_file; version = 0 };
-      }
-  in
-  let config = Config.make ~tabsize in
+  let doc = doc_of_string ~input_file text in
   match Filename.extension input_file with
   | ".mly" -> (
       match MenhirSyntax.Main.load_grammar_from_file input_file with
@@ -55,7 +62,11 @@ let cmd =
   Cmd.v
     (Cmd.info "menhirformat" ~version
        ~doc:"A formatter for Ocamllex and Menhir specifications.")
-  @@ let+ input_file = input_file and+ tabsize = tabsize in
-     main ~tabsize input_file
+  @@ let+ input_file = input_file
+     and+ tabsize = tabsize
+     and+ indentOnce = indentOnce
+     and+ noLeadingBar = noLeadingBar in
+     let config = Config.make ~tabsize ~indentOnce ~noLeadingBar in
+     main ~config input_file
 
 let () = if !Sys.interactive then () else exit (Cmd.eval cmd)
