@@ -45,7 +45,7 @@ type subject =
    values or to position information. *)
 
 type keyword =
-  | Position of string * subject * where * flavor
+  | Position of string Located.located * subject * where * flavor
 
 (* ------------------------------------------------------------------------- *)
 (* These auxiliary functions help map a [Position] keyword to the

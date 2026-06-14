@@ -21,6 +21,8 @@ type t = {
   (**The free variables that this semantic action can use in order to
      refer to a semantic value. *)
 
+  keyword_lst  : keyword list; (* [menhir-lsp] We keep also the keywords in a list as it helps the formatter process them in the same order they are scanned. *)
+
   keywords  : KeywordSet.t;
   (**The set of keywords that appear in this semantic action. These keywords
      can be thought of as free variables that refer to positions. They must
@@ -40,8 +42,9 @@ type t = {
 (* Construction. *)
 
 let make priority semvars keywords expr =
+  let keyword_lst = keywords in
   let keywords = KeywordSet.of_list keywords in
-  { expr; semvars; keywords; priority }
+  { expr; semvars; keyword_lst; keywords; priority }
 
 (* -------------------------------------------------------------------------- *)
 
@@ -52,7 +55,7 @@ let compose x a1 a2 =
   and semvars   = StringSet.(union a1.semvars (remove x a2.semvars))
   and keywords  = KeywordSet.union a1.keywords a2.keywords
   and priority  = max a1.priority a2.priority in
-  { expr; semvars; keywords; priority }
+  { expr; semvars; keyword_lst = []; keywords; priority }
 
 (* Building [let p = x in a]. *)
 
@@ -61,7 +64,7 @@ let bind bvp p x a =
   and semvars   = StringSet.(add x (diff a.semvars (of_list bvp)))
   and keywords  = a.keywords
   and priority  = a.priority in
-  { expr; semvars; keywords; priority }
+  { expr; semvars; keyword_lst = []; keywords; priority }
 
 (* -------------------------------------------------------------------------- *)
 
@@ -77,7 +80,7 @@ let[@inline] keywords action =
   action.keywords
 
 let has_beforeend action =
-  KeywordSet.mem (Position ("", Before, WhereEnd, FlavorPosition)) action.keywords
+  KeywordSet.mem (Position ({ p = Range.dummy; v = ""; comment = None }, Before, WhereEnd, FlavorPosition)) action.keywords
 
 let posvars action =
   KeywordSet.fold (fun keyword accu ->
@@ -101,7 +104,7 @@ let define keyword keywords f action =
   and semvars   = action.semvars
   and keywords  = KeywordSet.(union keywords (remove keyword action.keywords))
   and priority  = action.priority in
-  { expr; semvars; keywords; priority }
+  { expr; semvars; keyword_lst = []; keywords; priority }
 
 (* -------------------------------------------------------------------------- *)
 

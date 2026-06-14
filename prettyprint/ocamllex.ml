@@ -43,9 +43,7 @@ class formatter (config : Config.t) =
       self#with_located (fun v ->
           let v =
             match Ocamlformat_client.format (String.trim v) with
-            | Ok formatted ->
-                Printf.eprintf "[ocf] '%s' --> '%s'\n\n" v formatted;
-                formatted
+            | Ok formatted -> formatted
             | Error _ -> v
           in
           surround tabsize 1 lbrace

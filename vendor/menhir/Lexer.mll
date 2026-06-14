@@ -230,7 +230,7 @@ let position text range
         ()
   in
   let keyword =
-    Some (Position (text, subject, where, flavor))
+    Some (Position (locate range text, subject, where, flavor))
   and oid =
     None
   in

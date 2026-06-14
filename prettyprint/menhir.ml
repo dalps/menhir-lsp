@@ -246,14 +246,6 @@ class formatter (config : Config.t) =
       |> arbitrary_string
 
     method! visit_action _ action =
-      let module StringMap = Map.Make (String) in
-      let posvars =
-        Keyword.KeywordSet.fold
-          (fun (Keyword.Position (text, _, _, _) as k) acc ->
-            StringMap.add (Keyword.kposvar k) text acc)
-          action.keywords StringMap.empty
-      in
-
       surround tabsize 1 lbrace
         (match action.expr with
         | IL.ETextual located ->
@@ -266,11 +258,14 @@ class formatter (config : Config.t) =
                   This is a safe operation if we assume the user is a sane person who doesn't name her OCaml constants _0, _1 and the like. *)
                 |> Re.Str.(global_replace (regexp "\\b_\\([0-9]\\)\\b") "$\\1")
                 |>
-                (* 2. Recover Menhir keywords ($startpos, $endpos, ...) *)
-                StringMap.fold
-                  (fun var original_text ->
-                    CCString.replace ~which:`All ~sub:var ~by:original_text)
-                  posvars
+                (* 2. Recover Menhir keywords ($startpos, $endpos, ...).
+                We fold the list of keywords from the right to follow the order in which they were scanned, and replace the leftmost occurrence for each one (i.e. ~which:`Left). *)
+                List.fold_right
+                  (fun (Keyword.Position (text, _, _, _) as k) ->
+                    CCString.replace ~which:`Left ~sub:(Keyword.kposvar k)
+                      ~by:text.v)
+                  action.keyword_lst
+                (* [action.keyword_lst] holds the keywords in the order they are scanned, reversed. *)
                 |> arbitrary_string)
               located
         | _ -> text "menhirformat: unrecognized syntax")

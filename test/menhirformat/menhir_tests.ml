@@ -22,7 +22,7 @@ let helper text : unit =
                       version = 0;
                     };
                 }))
-       ~error:(fun _ -> "parser error")
+       ~error:(fun (msg, range) -> spr "%s at %s" msg (Mly.Range.show range))
   |> print_endline
 
 let%expect_test "It can handle the new syntax" =
@@ -62,10 +62,18 @@ let%expect_test "It preserves $ and position keywords in semantic actions" =
 
 main: FOO { ($1, $loc($1)) }
 
-rule_S: FOO; list(FOO) { ($2, $symbolstartpos) }
+rule_S: FOO; k = list(FOO) { ($loc(k),  $endpos(k), $sloc, $startpos(k)) }
+
+declaration:
+| h = HEADER /* lexically delimited by %{ ... %} */
+    { locate' $loc @@ DCode h |> singleton }
+| k = priority_keyword ss = clist(symbol)
+    {
+      let _ = $loc, $sloc in
+      let prec = ParserAux.new_precedence_level $loc(k) in
+      locate' $loc(k) @@ DTokenProperties (ss, k, prec) |> singleton }
 |};
-  [%expect
-    {|
+  [%expect {|
     %token FOO
 
     %start <int, Lexing.position> main
@@ -76,5 +84,15 @@ rule_S: FOO; list(FOO) { ($2, $symbolstartpos) }
       | FOO { $1, $loc($1) }
 
     rule_S:
-      | FOO list(FOO) { $2, $symbolstartpos }
+      | FOO k = list(FOO) { $loc(k), $endpos(k), $sloc, $startpos(k) }
+
+    declaration:
+      | h = HEADER /* lexically delimited by %{ ... %} */
+        { locate' $loc @@ DCode h |> singleton }
+      | k = priority_keyword ss = clist(symbol)
+        {
+          let _ = ($loc, $sloc) in
+          let prec = ParserAux.new_precedence_level $loc(k) in
+          locate' $loc(k) @@ DTokenProperties (ss, k, prec) |> singleton
+        }
     |}]
