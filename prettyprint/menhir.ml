@@ -87,12 +87,12 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
     method! visit_DTokenProperties =
       fun _ located associativity _precedence_level ->
         super#visit_associativity () associativity
-        ^-^ separate_map (break 1) self#visit_loctext located
+        ^-^ flow_map (break 1) self#visit_loctext located
 
     method! visit_DOnErrorReduce =
       fun _ parameters _on_error_reduce_level ->
         text "%on_error_reduce"
-        ^-^ separate_map (break 1)
+        ^-^ flow_map (break 1)
               (self#with_located @@ self#visit_parameter ())
               parameters
 
@@ -176,6 +176,7 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
             self#with_located (self#visit_identifier ()) ident ^-^ equals)
           ident
         ^-^ self#visit_parameter_loc () param
+        ^^ if_ ~then_:semi cfg.semiAfterProducer
         ^-^ self#visit_attributes () attrs
 
     method! visit_producer =

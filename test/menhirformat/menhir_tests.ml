@@ -61,10 +61,8 @@ let%expect_test "It can format the traditional syntax" =
 
     %type <int> expr
 
-    %left PLUS
-    MINUS /* lowest precedence */
-    %left TIMES
-    DIV /* medium precedence */
+    %left PLUS MINUS /* lowest precedence */
+    %left TIMES DIV /* medium precedence */
     %nonassoc UMINUS /* highest precedence */
 
     %%
@@ -82,10 +80,9 @@ let%expect_test "It can format the traditional syntax" =
     | MINUS e = expr %prec UMINUS { -e }
     |}]
 
-let%expect_test "The [noLeadingBar] option works" =
-  helper ~config:{ default_config with noLeadingBar = true } calc_demo;
-  [%expect
-    {|
+let%expect_test "The [separateProducers] option works" =
+  helper ~config:{ default_config with semiAfterProducer = true } calc_demo;
+  [%expect {|
     %token <int> INT
     %token PLUS MINUS TIMES DIV
     %token LPAREN RPAREN
@@ -95,25 +92,23 @@ let%expect_test "The [noLeadingBar] option works" =
 
     %type <int> expr
 
-    %left PLUS
-    MINUS /* lowest precedence */
-    %left TIMES
-    DIV /* medium precedence */
+    %left PLUS MINUS /* lowest precedence */
+    %left TIMES DIV /* medium precedence */
     %nonassoc UMINUS /* highest precedence */
 
     %%
 
     main:
-      e = expr EOL { e }
+    | e = expr; EOL; { e }
 
     expr:
-      i = INT { i }
-    | LPAREN e = expr RPAREN { e }
-    | e1 = expr PLUS e2 = expr { e1 + e2 }
-    | e1 = expr MINUS e2 = expr { e1 - e2 }
-    | e1 = expr TIMES e2 = expr { e1 * e2 }
-    | e1 = expr DIV e2 = expr { e1 / e2 }
-    | MINUS e = expr %prec UMINUS { -e }
+    | i = INT; { i }
+    | LPAREN; e = expr; RPAREN; { e }
+    | e1 = expr; PLUS; e2 = expr; { e1 + e2 }
+    | e1 = expr; MINUS; e2 = expr; { e1 - e2 }
+    | e1 = expr; TIMES; e2 = expr; { e1 * e2 }
+    | e1 = expr; DIV; e2 = expr; { e1 / e2 }
+    | MINUS; e = expr; %prec UMINUS { -e }
     |}]
 
 let%expect_test "The [indentOnce] option works" =
@@ -131,10 +126,8 @@ let%expect_test "The [indentOnce] option works" =
 
     %type <int> expr
 
-    %left PLUS
-    MINUS /* lowest precedence */
-    %left TIMES
-    DIV /* medium precedence */
+    %left PLUS MINUS /* lowest precedence */
+    %left TIMES DIV /* medium precedence */
     %nonassoc UMINUS /* highest precedence */
 
     %%

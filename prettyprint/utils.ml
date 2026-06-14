@@ -1,14 +1,17 @@
 include Menhir_lsp_lib.Utils
 
 module Config = struct
-  type t = { tabsize : int; noLeadingBar : bool; indentOnce : bool }
-  (** Represents common formatting options. *)
+  type t = {
+    tabsize : int; [@default 2]
+    noLeadingBar : bool; [@default false]
+    indentOnce : bool; [@default false]
+    semiAfterProducer : bool; [@default false]
+    breakLongRegexps : bool; [@default true]
+  }
+  [@@deriving make]
+  (** Represents the formatting options to customize the output. *)
 
-  let default_config : t =
-    { tabsize = 2; noLeadingBar = false; indentOnce = false }
-
-  let make ~tabsize ~noLeadingBar ~indentOnce : t =
-    { tabsize; noLeadingBar; indentOnce }
+  let default_config : t = make ()
 end
 
 module PPrint = struct

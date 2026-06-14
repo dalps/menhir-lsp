@@ -18,19 +18,26 @@ open Cmdliner
 open Cmdliner.Term.Syntax
 
 let tabsize =
-  let doc = "Whitespace unit for indentation" in
+  let doc = "Whitespace unit for indentation." in
   Arg.(value & opt int 2 & info [ "t"; "tabsize" ] ~docv:"COLS" ~doc)
 
 let noLeadingBar =
   let doc = "Omit the optional leading bar `|` in the first case of a rule." in
-  Arg.(value & flag & info [ "noLeadingBar" ] ~doc)
+  Arg.(value & flag & info [ "no-leading-bar" ] ~doc)
 
 let indentOnce =
   let doc =
     "Add a level of indentation to the cases of a rule or (default) keep them \
      flush with the start of the definition."
   in
-  Arg.(value & flag & info [ "indentOnce" ] ~doc)
+  Arg.(value & flag & info [ "indent-rule" ] ~doc)
+
+let semiAfterProducer =
+  let doc =
+    "Add a semicolon after every semicolon in traditional syntax Menhir rules (it is required \
+     in the new syntax)."
+  in
+  Arg.(value & flag & info [ "semi-after-producer" ] ~doc)
 
 let input_file =
   let doc =
@@ -65,8 +72,11 @@ let cmd =
   @@ let+ input_file = input_file
      and+ tabsize = tabsize
      and+ indentOnce = indentOnce
-     and+ noLeadingBar = noLeadingBar in
-     let config = Config.make ~tabsize ~indentOnce ~noLeadingBar in
+     and+ noLeadingBar = noLeadingBar
+     and+ semiAfterProducer = semiAfterProducer in
+     let config =
+       Config.make ~tabsize ~indentOnce ~noLeadingBar ~semiAfterProducer ()
+     in
      main ~config input_file
 
 let () = if !Sys.interactive then () else exit (Cmd.eval cmd)
