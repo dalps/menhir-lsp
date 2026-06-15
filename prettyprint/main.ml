@@ -34,10 +34,25 @@ let indentOnce =
 
 let semiAfterProducer =
   let doc =
-    "Add a semicolon after every semicolon in traditional syntax Menhir rules (it is required \
-     in the new syntax)."
+    "Add a semicolon after every semicolon in traditional syntax Menhir rules \
+     (it is required in the new syntax)."
   in
   Arg.(value & flag & info [ "semi-after-producer" ] ~doc)
+
+let breakLongRegexps =
+  let doc =
+    "Break long ocamllex regexps onto multiple lines when they don't fit in a \
+     single line. Breaking may happen only at concatenations or alternations \
+     outside groups."
+  in
+  Arg.(value & flag & info [ "break-long-regexps" ] ~doc)
+
+let breakRegexpsGroups =
+  let doc =
+    "Allow breaking to happen inside regexp groups. Effective only when \
+     $(b,--break-long-regexps) is set."
+  in
+  Arg.(value & flag & info [ "break-regexp-groups" ] ~doc)
 
 let input_file =
   let doc =
@@ -68,7 +83,7 @@ let main ~config (input_file : string) =
 let cmd =
   Cmd.v
     (Cmd.info "menhirformat" ~version
-       ~doc:"A formatter for Ocamllex and Menhir specifications.")
+       ~doc:"A formatter for Ocamllex .mll and Menhir .mly files.")
   @@ let+ input_file = input_file
      and+ tabsize = tabsize
      and+ indentOnce = indentOnce

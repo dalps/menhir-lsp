@@ -6,7 +6,8 @@ module Config = struct
     noLeadingBar : bool; [@default false]
     indentOnce : bool; [@default false]
     semiAfterProducer : bool; [@default false]
-    breakLongRegexps : bool; [@default true]
+    breakLongRegexps : bool; [@default false]
+    breakRegexpGroups : bool; [@default false]
   }
   [@@deriving make]
   (** Represents the formatting options to customize the output. *)
@@ -33,11 +34,11 @@ module PPrint = struct
   let ( <|> ) d e = if is_empty d then e else d
   let ( <!> ) d e = if is_empty d then empty else e
 
-  (** Prefix [sep] to [d] if [d] is nonempty. *)
-  let ( ^! ) sep d = d <!> sep ^^ d
+  (** [sep ^| d] prepends [sep] to [d] if [d] is nonempty. *)
+  let ( ^| ) sep d = d <!> sep ^^ d
 
-  (** Append [sep] to [d] if [d] is nonempty. *)
-  let ( !^ ) d sep = d <!> d ^^ sep
+  (** [d |^ sep] appends [sep] to [d] if [d] is nonempty. *)
+  let ( |^ ) d sep = d <!> d ^^ sep
 
   (** A smarter [separate_map] that doesn't insert [sep] if either side is
       empty. *)
@@ -57,10 +58,20 @@ module PPrint = struct
         let doc' = f doc in
         if i = 0 then doc'
         else if is_empty accu then doc'
-        else accu ^^ group (sep ^! doc'))
+        else accu ^^ group (sep ^| doc'))
+      empty docs
+
+  let flow_right_map sep f docs =
+    L.foldi
+      (fun accu i doc ->
+        let doc' = f doc in
+        if i = 0 then doc'
+        else if is_empty accu then doc'
+        else group (accu |^ sep) ^^ doc')
       empty docs
 
   let flow sep = flow_map sep (fun x -> x)
+  let flow_right sep = flow_right_map sep (fun x -> x)
   let if_ ?(else_ = empty) ~then_ b = if b then then_ else else_
   let barspace = text "| "
   let enclose l x r = enclose l r x
