@@ -3,14 +3,15 @@ include Menhir_lsp_lib.Utils
 module Config = struct
   type t = {
     tabsize : int; [@default 2]
+    maxWidth : int; [@default 80]
     noLeadingBar : bool; [@default false]
     indentOnce : bool; [@default false]
     semiAfterProducer : bool; [@default false]
     breakLongRegexps : bool; [@default false]
     breakRegexpGroups : bool; [@default false]
   }
-  [@@deriving make]
-  (** Represents the formatting options to customize the output. *)
+  [@@deriving make, yojson]
+  (** The formatting options to customize the output of [menhirformat]. *)
 
   let default_config : t = make ()
 end

@@ -4,6 +4,8 @@ module Mll = Ocamllex
 module Mly = Menhir
 module MF = Menhirformat_lib
 
+let formatter_config : MF.Utils.Config.t option ref = ref None
+
 (* Based on Linol's Lwt template: https://github.com/c-cube/linol/blob/main/example/template-lwt/main.ml *)
 class lsp_server =
   object (self)
@@ -116,8 +118,29 @@ class lsp_server =
 
     method! on_notification_unhandled ~notify_back =
       function
-      (* The code below is needed to sync the diagnostics with the current grammar's conflicts. *)
+      | ChangeConfiguration { settings } ->
+          (* This case keeps the menhirformat config of the server in sync with the client's.
+
+          Note: according to the LSP spec, this "push" model of configuration synchronization,
+          where the client notifies the server every time some setting is changed, is deprecated.
+
+          The server should instead pull the relevant section of the client's config through
+          a server request (e.g. inside the [documentFormatting] request handler).
+          See example in [on_notif_doc_did_open].
+          *)
+          Json.Util.(settings |> member "menhir" |> member "format")
+          |> MF.Utils.Config.of_yojson
+          |> ( function
+          | Ok cfg ->
+              formatter_config := Some cfg;
+              log_info ~notify_back "Updated formatter's settings: %s"
+                (Json.to_string settings)
+          | Error s ->
+              log_error ~notify_back
+                "Error while updating formatter's settings %s" s )
+          |> Lwt.return
       | DidChangeWatchedFiles params ->
+          (* This case syncs the diagnostics with the currently opened grammar's conflicts. *)
           let open R in
           let module P = Stdune.Path in
           let module F = Filename in
@@ -211,7 +234,11 @@ class lsp_server =
       @@
       let open O in
       let* doc = self#get_text_document ~uri in
-      let config = MF.Utils.Config.{ default_config with tabsize = options.tabSize } in
+      let config =
+        let open MF.Utils.Config in
+        let cfg = O.get_or ~default:default_config !formatter_config in
+        { cfg with tabsize = options.tabSize }
+      in
       let filename = doc |> Text_document.documentUri |> Uri.to_path in
       let format _ ~parse ~format =
         match parse (Text_document.text doc) with
@@ -339,6 +366,26 @@ class lsp_server =
       get_build_dir () |> ignore;
       find_merlin_config ~notify_back ~uri:d.uri |> ignore;
       log_info ~notify_back "Language id: %s" d.languageId;
+      let%lwt _ =
+        let error _ =
+          log_error ~notify_back "Error retrieving formatter settings";
+          Lwt.return ()
+        in
+        notify_back#send_request
+          (WorkspaceConfiguration
+             (ConfigurationParams.create
+                ~items:[ ConfigurationItem.create ~section:"menhir.format" () ]))
+          (function
+            | Ok (j :: _) -> (
+                log_info ~notify_back "Found formatter settings: %s "
+                  (Json.to_string j);
+                match Menhirformat_lib.Utils.Config.of_yojson j with
+                | Ok cfg ->
+                    formatter_config := Some cfg;
+                    Lwt.return ()
+                | Error _ -> error ())
+            | _ -> error ())
+      in
       self#_on_doc ~notify_back d.uri content
 
     (* Similarly, we also override the [on_notify_doc_did_change] method that will be called

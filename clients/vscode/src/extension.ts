@@ -38,6 +38,7 @@ export function activate(context: vscode.ExtensionContext) {
       { scheme: "file", language: "ocaml.ocamllex" },
     ],
     synchronize: {
+      configurationSection: ["menhir.format"],
       fileEvents: vscode.workspace.createFileSystemWatcher("**/*.conflicts"),
     },
   };

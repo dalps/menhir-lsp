@@ -21,6 +21,10 @@ let tabsize =
   let doc = "Whitespace unit for indentation." in
   Arg.(value & opt int 2 & info [ "t"; "tabsize" ] ~docv:"COLS" ~doc)
 
+let maxColumns =
+  let doc = "Maximum number of characters per line." in
+  Arg.(value & opt int 80 & info [ "w"; "width" ] ~docv:"COLS" ~doc)
+
 let noLeadingBar =
   let doc = "Omit the optional leading bar `|` in the first case of a rule." in
   Arg.(value & flag & info [ "no-leading-bar" ] ~doc)
@@ -34,8 +38,8 @@ let indentOnce =
 
 let semiAfterProducer =
   let doc =
-    "Add a semicolon after every semicolon in traditional syntax Menhir rules \
-     (it is required in the new syntax)."
+    "Terminate every producer with a semicolon in Menhir rules written in the \
+     traditional syntax."
   in
   Arg.(value & flag & info [ "semi-after-producer" ] ~doc)
 
@@ -88,9 +92,13 @@ let cmd =
      and+ tabsize = tabsize
      and+ indentOnce = indentOnce
      and+ noLeadingBar = noLeadingBar
+     and+ maxWidth = maxColumns
+     and+ breakLongRegexps = breakLongRegexps
+     and+ breakRegexpsGroups = breakRegexpsGroups
      and+ semiAfterProducer = semiAfterProducer in
      let config =
-       Config.make ~tabsize ~indentOnce ~noLeadingBar ~semiAfterProducer ()
+       Config.make ~tabsize ~indentOnce ~noLeadingBar ~semiAfterProducer
+         ~maxWidth ~breakLongRegexps ()
      in
      main ~config input_file
 

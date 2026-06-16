@@ -203,5 +203,5 @@ let main ~config ~ast ~doc =
   in
   attach_comments ast (attach_vtor#visit_main ()) ~bag_of_comments ~doc
   |> (new formatter config)#visit_main ()
-  |> PPrint.ToBuffer.pretty 0.8 80 buf;
+  |> PPrint.ToBuffer.pretty 0.8 config.Config.maxWidth buf;
   Buffer.contents buf
