@@ -71,7 +71,33 @@
 				"enablement": "never",
 				"command": "menhir-lsp-client.promptAlias"
 			}
-		]
+		],
+		"configuration": {
+			"type": "object",
+			"title": "Menhir LSP - Formatting options",
+			"properties": {
+				"menhir.format.maxWidth": {
+					"type": "integer",
+					"default": 80,
+					"description": "Maximum number of characters per line."
+				},
+				"menhir.format.indentOnce": {
+					"type": "boolean",
+					"default": false,
+					"description": "Add a level of indentation to the cases of a rule or (default) keep them flush with the start of the definition."
+				},
+				"menhir.format.noLeadingBar": {
+					"type": "boolean",
+					"default": false,
+					"description": "Omit the optional leading bar `|` in the first case of a rule."
+				},
+				"menhir.format.semiAfterProducer": {
+					"type": "boolean",
+					"default": false,
+					"description": "Terminate every producer with a semicolon in Menhir rules written in the traditional syntax."
+				}
+			}
+		}
 	},
 	"main": "./out/extension.js",
 	"scripts": {

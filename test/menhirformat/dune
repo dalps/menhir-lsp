@@ -1,0 +1,6 @@
+(library
+ (name menhirformat_test)
+ (inline_tests)
+ (libraries menhirformat_lib menhirSyntax ocamllexSyntax)
+ (preprocess
+  (pps ppx_expect)))

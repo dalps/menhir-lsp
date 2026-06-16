@@ -90,7 +90,7 @@ let last_bar = ref None
 %token <string Located.located Lazy.t>
   PERCENTPERCENT   "%%"
 
-%token <Syntax.action> (* [menhir-lsp] This was [raw_action] *)
+%token <Syntax.raw_action>
   ACTION           "{}"
 
 %token <Attribute.attribute>
@@ -366,11 +366,12 @@ production_group:
         in
         (* Distribute the semantic action and attributes onto every production.
            Also, check that every [$i] is within bounds. *)
-        (* let names = ParserAux.producer_names producers in
-        let pb_action = locate action.p @@ action.v !ParserAux.dollars names in *)
-        (* [menhir-lsp] we'dont distribute the actions across the productions anymore to highlight syntactic structure. *)
+        let producers, _, _ = List.hd productions |> Located.value in
+        let names = ParserAux.producer_names producers in
+        let pb_action = locate action.p @@ action.v !ParserAux.dollars names in
+        (* [menhir-lsp] we'dont distribute the actions across the productions anymore to highlight the syntactic structure. *)
       let pb_productions = productions in
-      let pb_action = action in
+      (* let pb_action = action in *)
       (* [menhir-lsp] The group starts at start position of its first production,
         which is always a leading bar except for the first group's first production. *)
       let startpos = match productions with
@@ -676,7 +677,7 @@ action_expression:
 
 action:
   action = ACTION
-    { XATraditional action }
+    { XATraditional (action `DollarsDisallowed [||]) }
 | action = ANGLED
     { match ParserAux.validate_pointfree_action action with
       | os ->

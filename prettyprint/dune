@@ -4,20 +4,25 @@
  (package menhirformat)
  (libraries
   ANSITerminal
+  cmdliner
   menhirSyntax
   ocamllexSyntax
   ocamlformat-rpc-lib
   menhir_lsp_lib
   menhirformat_lib)
- (modules main))
+ (modules main)
+ (flags -w +27))
 
 (library
  (name menhirformat_lib)
+ (preprocess
+  (pps ppx_deriving.make ppx_deriving_yojson))
  (libraries
   menhirSyntax
   ocamllexSyntax
   ocamlformat-rpc-lib
-  menhir_lsp_lib)
+  menhir_lsp_lib
+  ppx_deriving_yojson.runtime)
  (modules utils comment_location comments ocamlformat_client ocamllex menhir))
 
 (ocamllex comments)

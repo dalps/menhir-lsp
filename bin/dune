@@ -19,4 +19,5 @@
   re
   stdune
   interval-map
-  menhir_lsp_lib))
+  menhir_lsp_lib)
+ (flags -w -27))

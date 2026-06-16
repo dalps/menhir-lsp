@@ -215,7 +215,8 @@ rule main = parse
     { string_buffer#reset_string_buffer ();
       let startp = Lexing.lexeme_start_p lexbuf in
       let endp = handle_lexical_error string Pattern lexbuf in
-      Tstring (Located.locate (startp, endp) (string_buffer#get_stored_string ())) } (* [menhir-lsp] located. *)
+      let content = string_buffer#get_stored_string () |> String.escaped in
+      Tstring (Located.locate (startp, endp) content) } (* [menhir-lsp] located. *)
 (* note: ''' is a valid character literal (by contrast with the compiler) *)
   | "'" [^ '\\'] "'"
     { Tchar(Char.code(Lexing.lexeme_char lexbuf 1)) }
@@ -392,8 +393,9 @@ and action stk = parse
       | _ -> raise_lexical_error lexbuf "Unmatched } in action" }
   | '"'
     { string_buffer#reset_string_buffer ();
-      handle_lexical_error string Action lexbuf |> ignore;
-      action_buffer#store_string @@ spr "\"%s\"" (string_buffer#get_stored_string ());
+      let _ = handle_lexical_error string Action lexbuf in
+      let content = string_buffer#get_stored_string () |> String.escaped in 
+      action_buffer#store_string @@ spr "\"%s\"" content;
       string_buffer#reset_string_buffer ();
       action stk lexbuf }
   | '{' ('%' '%'? extattrident blank*)? (lowercase* as delim) "|"

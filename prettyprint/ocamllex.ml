@@ -11,7 +11,10 @@ include Comment_location.Make (struct
   (* let get_comments = Lexer.get_comments *)
 end)
 
-class formatter =
+let group_lvl = ref 0
+let in_case = ref false
+
+class formatter ({ tabsize; _ } as cfg : Config.t) =
   let open Syntax in
   object (self)
     inherit [_] ast_reduce as super
@@ -42,12 +45,12 @@ class formatter =
       self#with_located (fun v ->
           let v =
             match Ocamlformat_client.format (String.trim v) with
-            | Ok formatted ->
-                Printf.eprintf "[ocf] '%s' --> '%s'\n\n" v formatted;
-                formatted
+            | Ok formatted -> formatted
             | Error _ -> v
           in
-          surround 2 1 lbrace (v |> String.trim |> arbitrary_string) rbrace)
+          surround tabsize 1 lbrace
+            (v |> String.trim |> arbitrary_string)
+            rbrace)
 
     method! visit_lexer_definition _ lexer_definition =
       let { header; entrypoints; trailer; refill_handler; named_regexps } =
@@ -72,27 +75,38 @@ class formatter =
       //// optional (self#visit_action ()) trailer
 
     method! visit_named_regexp _ { name; regexp } =
-      prefix 2 1
+      prefix tabsize 1
         (text "let" ^-^ self#with_located text name ^-^ text "=")
         (self#with_located self#visit_regexp regexp)
 
     method! visit_entry _ { name; shortest; args; clauses } =
-      prefix 2 1
-        (flow space
-        @@ [
-             self#with_located text name;
-             nest 2 @@ flow_map (break 1) (self#with_located text) args;
-             equals;
-             self#with_located
-               ((fun v -> if v then "shortest" else "parse") >> text)
-               shortest;
-           ])
-      @@ separate_map hardline (self#with_located (self#visit_case ())) clauses
+      flow (blank 1)
+      @@ [
+           self#with_located text name;
+           nest tabsize @@ flow_map (break 1) (self#with_located text) args;
+           equals;
+           prefix
+             (if cfg.indentOnce then tabsize else 0)
+             1
+             (self#with_located
+                ((fun v -> if v then "shortest" else "parse") >> text)
+                shortest)
+           @@ separate_mapi (break 1)
+                (fun i loc ->
+                  ifflat empty
+                    (if_ ~then_:(blank 2) ~else_:barspace
+                       (i = 0 && cfg.noLeadingBar))
+                  ^^ self#with_located (self#visit_case ()) loc)
+                clauses;
+         ]
 
     method! visit_case _ (regexp, action) =
-      bar ^-^ nest 2 @@ group
-      @@ self#with_located self#visit_regexp regexp
-      ^/^ self#visit_action () action
+      prefix tabsize 1
+        (in_case := true;
+         let doc = self#with_located self#visit_regexp regexp in
+         in_case := false;
+         doc)
+        (self#visit_action () action)
 
     method! visit_Wildcard _ = self#with_located (fun _ -> text "_")
     method! visit_EOF _ = self#with_located (fun _ -> text "eof")
@@ -104,17 +118,30 @@ class formatter =
     method! visit_String _ = self#with_located (text >> dquotes)
     method! visit_Ref _ = self#with_located text
 
-    (* todo: let the user decide whether to break the regexp onto multiple lines
-    if it doesn't fit in one (by default, we only break alternations) *)
     method! visit_Seq _ re1 re2 =
-      self#with_located self#visit_regexp re1
-      ^-^ self#with_located self#visit_regexp re2
+      let cond =
+        cfg.breakLongRegexps && (cfg.breakRegexpGroups || !group_lvl = 0)
+      in
+      if_
+        ~then_:
+          (* (self#with_located self#visit_regexp re1
+          ^^ group (break 1 ^| self#with_located self#visit_regexp re2)) *)
+          (* (group (self#with_located self#visit_regexp re1 |^ break 1)
+          ^^ self#with_located self#visit_regexp re2) *)
+          (self#with_located self#visit_regexp re1
+          |^ group (nest tabsize (break 1))
+             ^| self#with_located self#visit_regexp re2)
+        ~else_:
+          (self#with_located self#visit_regexp re1
+          ^-^ self#with_located self#visit_regexp re2)
+        cond
 
     method! visit_Alt _ re1 re2 =
-      group @@ align
-      @@ self#with_located self#visit_regexp re1
-      ^/^ bar
-      ^-^ self#with_located self#visit_regexp re2
+      (* Arrange the alternatives in a box only inside groups or in [let] definitions *)
+      (if (not !in_case) || !group_lvl <> 0 then align else fun x -> x)
+      @@ (self#with_located self#visit_regexp re1
+         |^ group (break 1 ^^ barspace)
+            ^| self#with_located self#visit_regexp re2)
 
     method! visit_CharSetDifference _ re1 re2 =
       group @@ align
@@ -134,7 +161,13 @@ class formatter =
     method! visit_Group _ =
       self#with_located (function
         | Group re -> self#visit_Group () re (* already grouped *)
-        | re -> enclose lparen (self#visit_regexp re) rparen)
+        | re ->
+            enclose lparen
+              (incr group_lvl;
+               let doc = self#visit_regexp re in
+               decr group_lvl;
+               doc)
+              rparen)
 
     method! visit_As _ re ident =
       (* To get a better idea of what is being captured, we could surround alternation and sequences with parens. *)
@@ -159,7 +192,7 @@ class formatter =
   end
 
 (* This should really go in comment_location, but I couldn't figure out how to generalize it over the endo visitor :/ *)
-let main ~ast ~doc =
+let main ~config ~ast ~doc =
   let buf = Buffer.create 80 in
   let bag_of_comments = Lexer.get_comments () |> init_bag in
   let attach_vtor =
@@ -169,6 +202,6 @@ let main ~ast ~doc =
     end
   in
   attach_comments ast (attach_vtor#visit_main ()) ~bag_of_comments ~doc
-  |> (new formatter)#visit_main ()
-  |> PPrint.ToBuffer.pretty 0.8 80 buf;
+  |> (new formatter config)#visit_main ()
+  |> PPrint.ToBuffer.pretty 0.8 config.Config.maxWidth buf;
   Buffer.contents buf

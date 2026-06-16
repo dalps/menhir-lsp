@@ -80,7 +80,7 @@ and identifier = string
 and filename = string
 (**A file name. *)
 
-and action = (IL.expr[@opaque])
+and action = (Action.t[@opaque])
 (**A semantic action. *)
 (* [menhir-lsp] was (Action.t[@opaque]) *)
 

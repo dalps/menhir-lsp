@@ -19,8 +19,10 @@ end)
     method plus = ( ^^ )
   end *)
 
-class formatter =
+class formatter ({ tabsize; _ } as cfg : Config.t) =
   let open Syntax in
+  let tabsize = max 2 tabsize in
+  let barspace = bar ^^ blank 1 in
   object (self)
     inherit [_] ast_reduce as super
     method zero : document = empty
@@ -85,12 +87,12 @@ class formatter =
     method! visit_DTokenProperties =
       fun _ located associativity _precedence_level ->
         super#visit_associativity () associativity
-        ^-^ separate_map (break 1) self#visit_loctext located
+        ^-^ flow_map (break 1) self#visit_loctext located
 
     method! visit_DOnErrorReduce =
       fun _ parameters _on_error_reduce_level ->
         text "%on_error_reduce"
-        ^-^ separate_map (break 1)
+        ^-^ flow_map (break 1)
               (self#with_located @@ self#visit_parameter ())
               parameters
 
@@ -100,18 +102,18 @@ class formatter =
 
     method! visit_DStart =
       fun _ ocamltype located ->
-        prefix 2 1 (text "%start")
+        prefix tabsize 1 (text "%start")
           (optional (self#visit_ocamltype ()) ocamltype
           ^-^ flow_map (break 1) self#visit_loctext located)
 
     method! visit_DCode =
       fun _ ->
         self#with_located (fun code ->
-            surround 2 1 (text "%{") (self#visit_ocaml code) (text "%}"))
+            surround tabsize 1 (text "%{") (self#visit_ocaml code) (text "%}"))
 
     method! visit_DType =
       fun _ ocamltype parameter ->
-        prefix 2 1 (text "%type")
+        prefix tabsize 1 (text "%type")
           (self#visit_ocamltype () ocamltype
           ^-^ flow_map (break 1)
                 (self#with_located @@ super#visit_parameter ())
@@ -128,13 +130,13 @@ class formatter =
       fun _ located parameters ->
         self#visit_loctext
           located (* ^^ align --- only if subtree is ParamAnon *)
-        ^^ surround 2 0 lparen
+        ^^ surround tabsize 0 lparen
              (separate_map (text ",") (self#visit_parameter_loc ()) parameters)
              rparen
 
     method! visit_DToken =
       fun _ ocamltype data ->
-        prefix 2 1 (text "%token")
+        prefix tabsize 1 (text "%token")
         @@ flow (break 1)
              [
                optional (self#visit_ocamltype ()) ocamltype;
@@ -151,7 +153,7 @@ class formatter =
 
     method! visit_ocamltype =
       fun _ ocamltype ->
-        surround 2 0 langle (super#visit_ocamltype () ocamltype) rangle
+        surround tabsize 0 langle (super#visit_ocamltype () ocamltype) rangle
 
     method! visit_Declared _ = self#with_located self#visit_ocaml
     method! visit_Inferred _ = self#visit_ocaml
@@ -174,6 +176,7 @@ class formatter =
             self#with_located (self#visit_identifier ()) ident ^-^ equals)
           ident
         ^-^ self#visit_parameter_loc () param
+        ^^ if_ ~then_:semi cfg.semiAfterProducer
         ^-^ self#visit_attributes () attrs
 
     method! visit_producer =
@@ -204,33 +207,34 @@ class formatter =
         ^-^ self#visit_loctext pr_nt
         ^^ self#visit_rule_args pr_parameters
         ^^ colon)
-        ^^ nest 2 @@ hardline
-        ^^ self#visit_old_rule_branches pr_branches
-        ^/^ self#visit_attributes () pr_attributes
+        ^^ (fun doc -> if cfg.indentOnce then nest tabsize doc else doc)
+             (hardline
+             ^^ (if cfg.noLeadingBar then blank 2 else barspace)
+             ^^ self#visit_old_rule_branches pr_branches
+             ^/^ self#visit_attributes () pr_attributes)
 
     method private visit_rule_args =
-      surround_separate_map 2 0 empty lparen
+      surround_separate_map tabsize 0 empty lparen
         (comma ^^ break 1)
         rparen self#visit_loctext
 
     method private visit_old_rule_branches branches =
-      separate_map hardline
+      separate_map (hardline ^^ barspace)
         (self#with_located (fun branch ->
              self#visit_parameterized_branch () branch))
         branches
 
     method! visit_early_production =
       fun _ (producers, prec_annotation, _) ->
-        bar
-        ^-^ flow_map (break 1)
-              (self#with_located (self#visit_early_producer ()))
-              producers
+        flow_map (break 1)
+          (self#with_located (self#visit_early_producer ()))
+          producers
         ^/^ self#visit_prec_annotation () prec_annotation
 
     method! visit_parameterized_branch =
       fun _ { pb_productions; pb_action; pb_prec_annotation; pb_attributes } ->
-        nest 2 @@ group
-        @@ separate_map hardline
+        nest tabsize @@ group
+        @@ separate_map (hardline ^^ barspace)
              (self#with_located (self#visit_early_production ()))
              pb_productions
         ^/^ separate (break 1)
@@ -244,11 +248,30 @@ class formatter =
       code |> Ocamlformat_client.format |> R.get_or ~default:code |> String.trim
       |> arbitrary_string
 
-    method! visit_action _ expr =
-      surround 2 1 lbrace
-        (match expr with
-        | IL.ETextual located -> self#with_located self#visit_ocaml located
-        | _ -> text "")
+    method! visit_action _ action =
+      surround tabsize 1 lbrace
+        (match action.expr with
+        | IL.ETextual located ->
+            self#with_located
+              (fun code ->
+                code |> Ocamlformat_client.format |> R.get_or ~default:code
+                |> String.trim
+                   (* 1. Recover ocamlyacc-style binders ($0, $1, ...)
+                  We simply replace _i with $i where i is a number in [0-9].
+                  This is a safe operation if we assume the user is a sane person who doesn't name her OCaml constants _0, _1 and the like. *)
+                |> Re.Str.(global_replace (regexp "\\b_\\([0-9]\\)\\b") "$\\1")
+                |>
+                (* 2. Recover Menhir keywords ($startpos, $endpos, ...).
+                We fold the list of keywords from the right to follow the order in which they were scanned, and replace the leftmost occurrence for each one (i.e. ~which:`Left). *)
+                List.fold_right
+                  (fun (Keyword.Position (text, _, _, _) as k) ->
+                    CCString.replace ~which:`Left ~sub:(Keyword.kposvar k)
+                      ~by:text.v)
+                  action.keyword_lst
+                (* [action.keyword_lst] holds the keywords in the order they are scanned, reversed. *)
+                |> arbitrary_string)
+              located
+        | _ -> text "menhirformat: unrecognized syntax")
         rbrace
 
     method! visit_prec_annotation _ =
@@ -269,7 +292,7 @@ class formatter =
         ^-^ text "let"
         ^-^ (self#visit_loctext pr_nt ^^ self#visit_rule_args pr_parameters)
         ^-^ if_ pr_inline ~then_:(text "==") ~else_:(text ":="))
-        ^^ nest 2
+        ^^ nest tabsize
              (hardline ^^ twice space
              ^^ self#visit_expression () pr_branches
              ^/^ self#visit_attributes () pr_attributes)
@@ -283,7 +306,7 @@ class formatter =
     method! visit_SemPatVar _ = self#visit_loctext
 
     method! visit_XAPointFree _ a =
-      surround 2 0 langle (optional self#visit_loctext a) rangle
+      surround tabsize 0 langle (optional self#visit_loctext a) rangle
 
     method! visit_XATraditional = self#visit_action
 
@@ -317,14 +340,14 @@ class formatter =
       ^^ (match list with
         | [] -> empty
         | _ :: _ ->
-            surround 2 0 lparen
+            surround tabsize 0 lparen
               (separate_map (text ", ") (self#visit_expression ()) list)
               rparen)
       ^/^ self#visit_attributes () attributes
   end
 
 (* This should really go in comment_location, but I couldn't figure out how to generalize it over the endo visitor :/ *)
-let main ~ast ~doc =
+let main ~config ~ast ~doc =
   let buf = Buffer.create 80 in
   let bag_of_comments = Lexer.get_comments () |> init_bag in
   let attach_vtor =
@@ -334,6 +357,6 @@ let main ~ast ~doc =
     end
   in
   attach_comments ast (attach_vtor#visit_main ()) ~bag_of_comments ~doc
-  |> (new formatter)#visit_main ()
-  |> PPrint.ToBuffer.pretty 0.8 80 buf;
+  |> (new formatter config)#visit_main ()
+  |> PPrint.ToBuffer.pretty 0.8 config.Config.maxWidth buf;
   Buffer.contents buf

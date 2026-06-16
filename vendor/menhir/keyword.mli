@@ -54,8 +54,9 @@ type subject =
 
 (**Keywords inside semantic actions. They allow access to semantic
    values or to position information. *)
-type keyword =
-  | Position of subject * where * flavor
+   type keyword =
+   | Position of string Located.located * subject * where * flavor
+(* [menhir-lsp] Added [string located] component that stores the original text (e.g. $loc) *)
 
 (**This maps a [Position] keyword to the name of the variable that the
    keyword is replaced with. *)

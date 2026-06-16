@@ -460,8 +460,3 @@ let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
       ()
   in
   Some [ `CodeAction extract_action ]
-
-let format (state : state) ~(doc : Text_document.t)
-    ~options:(_ : FormattingOptions.t) : TextEdit.t list =
-  let newText = Menhirformat_lib.Ocamllex.main ~doc ~ast:state.grammar in
-  [ TextEdit.create ~newText ~range:Range.(whole_document doc) ]
