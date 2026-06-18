@@ -11,6 +11,7 @@ type zone =
   | OCaml
   | Declaration
   | Rule of symbol located list
+  (* Carries a list of the variables bound by the branch(es) the action is tied to. *)
   | Action of (symbol located * parameter located option) list
 
 type token = {
@@ -28,6 +29,39 @@ type state = {
   symbols : string located list;
   intervals : zone Ivl_map.t;
 }
+
+let string_of_zone = function
+  | OCaml -> "ocaml"
+  | Declaration -> "decl"
+  | Rule params ->
+      spr "rule (params: %s)"
+        (params |> List.map Located.value |> String.concat ", ")
+  | Action _ -> "action"
+
+let query_position (state : state) offset : zone option =
+  let open O in
+  let query = Ivl.create (Included offset) (Included offset) in
+  let res = Ivl_map.query_interval ~order:Desc query state.intervals in
+  let* (ivl, zones), gen = Ivl_map.Gen.next res in
+  let+ innermost_zone = L.head_opt zones in
+  innermost_zone
+
+let string_of_ivl ({ low; high } : Ivl.t) =
+  let open Ivl_map.Bound in
+  let string_of_v = string_of_int in
+  let a =
+    match low with
+    | Included v -> [ "["; string_of_v v ]
+    | Excluded v -> [ "("; string_of_v v ]
+    | Unbounded -> [ "∞" ]
+  in
+  let b =
+    match high with
+    | Included v -> [ string_of_v v; "]" ]
+    | Excluded v -> [ string_of_v v; ")" ]
+    | Unbounded -> [ "∞" ]
+  in
+  spr "%s, %s" (String.concat "" a) (String.concat "" b)
 
 let get_cmly_file = fetch_build_dir ~ext:".cmly"
 let get_conflicts_file = fetch_build_dir ~ext:".conflicts"
@@ -187,9 +221,26 @@ let rec string_of_params : parameter -> string = function
         L.(ps >|= Located.iter string_of_params |> String.concat ", ")
   | ParamAnonymous _ -> ""
 
-let located_of_ppxloc
+let located_of_ppxloc ~(from : Lexing.position)
     ({ txt; loc = { loc_start; loc_end; _ } } : 'v Ppxlib.Loc.t) : 'v located =
-  Located.locate (loc_start, loc_end) txt
+  let debug_pos ({ pos_fname; pos_lnum; pos_bol; pos_cnum } : Lexing.position) =
+    spr "{lnum = %d; bol = %d; cnum = %d}" pos_lnum pos_bol pos_cnum
+  in
+  epr "loc_start: %s, loc_end: %s\n" (debug_pos loc_start) (debug_pos loc_end);
+  let ( + ) p1 p2 =
+    Lexing.
+      {
+        p2 with
+        pos_lnum = p1.pos_lnum + p2.pos_lnum - 1;
+        pos_bol =
+          (if p2.pos_lnum = 1 then (
+             assert (p2.pos_bol = 0);
+             p1.pos_bol)
+           else p1.pos_cnum + p2.pos_bol);
+        pos_cnum = p1.pos_cnum + p2.pos_cnum;
+      }
+  in
+  Located.locate (from + loc_start, from + loc_end) txt
 
 let process_symbols : partial_grammar -> symbol located list =
   let aliases : (string, string) Hashtbl.t = Hashtbl.create 99 in
@@ -204,13 +255,18 @@ let process_symbols : partial_grammar -> symbol located list =
           (* extract the free variables of this OCaml snippet *)
           match action.expr with
           | IL.ETextual text ->
+              epr "text of the action |%s|\n" text.v;
               let syms =
                 parse_ocaml_impl text.v |> OcamlSymbols.get_fvars
-                |> L.map located_of_ppxloc
+                |> L.map (located_of_ppxloc ~from:(fst text.p))
               in
               epr "ocaml symbols in action at %s: [%s]\n%!"
                 (text.p |> Range.of_lexical_positions |> Range.show)
-              @@ (syms |> List.map Located.value |> String.concat ", ");
+              @@ (syms
+                 |> List.map (fun s ->
+                     spr "%s%s" s.v
+                       (s.p |> Range.of_lexical_positions |> Range.show))
+                 |> String.concat ", ");
               syms
           | _ -> []
 
@@ -498,13 +554,20 @@ let document_symbols ({ grammar = { pg_rules; _ }; tokens; _ } : state) :
            v#visit_rule () rule)
         ())
 
-let symbol_at_position (state : state) (pos : Position.t) :
-    (Range.t * string located) option =
+let symbol_at_position ?(notify_back : notify_back option) (state : state)
+    (pos : Position.t) : (Range.t * string located) option =
   let open L in
   let*? (s : string located) = state.symbols in
   let rng = Range.of_lexical_positions s.p in
   let res = Position.is_inside pos rng in
-  if res then Some (rng, s) else None
+  if res then (
+    O.iter
+      (fun notify_back ->
+        log_info ~notify_back "found registered symbol %s\n" s.v)
+      notify_back;
+
+    Some (rng, s))
+  else None
 
 (** Produce hover information at a particular position. For:
     - token aliases, we display their full name;
@@ -617,17 +680,36 @@ let references (state : state) ~uri ~(pos : Position.t) : Location.t list =
         state.symbols))
   |> O.to_list |> L.flatten
 
-let definition (state : state) ~uri ~(pos : Position.t) : Locations.t =
+let definition ~(notify_back : notify_back) (state : state)
+    ~(doc : Text_document.t) ~(pos : Position.t) : Locations.t =
   let mk_location locs = `Location locs in
+  let offset = TD.absolute_position doc pos in
   let open O in
   mk_location @@ to_list
   @@
   (* Get the symbol under the cursor, if any. *)
-  let* sym_range, sym = symbol_at_position state pos in
-  (* log_info ~notify_back "[Definition] symbol under cursor: %s" sym.v; *)
+  let* sym_range, sym = symbol_at_position ~notify_back state pos in
+  log_info ~notify_back "[Definition] symbol under cursor: %s" sym.v;
   (* Search for the symbol in the terminals or in the nonterminals. *)
   let+ def =
     let open L in
+    (* It could also be a semantic binding (producer) inside a branch! *)
+    log_info ~notify_back "[Definition] Checking if we're inside an action...";
+    let open O in
+    let* zone = query_position state offset in
+    (match zone with
+      | Action lst ->
+          log_info ~notify_back
+            "[Definition] It looks like we're inside an action!";
+          L.find_map
+            (fun (binder, _param) ->
+              if_ (fun _ -> String.equal binder.v sym.v) binder)
+            lst
+      | _ ->
+          log_info ~notify_back
+            "[Definition] Nope, we're inside something else...";
+          None)
+    <|> fun () ->
     (let*? (t : token located) = state.tokens in
      O.if_
        (fun _ -> String.equal t.v.terminal sym.v || t.v.alias = Some sym.v)
@@ -648,9 +730,11 @@ let definition (state : state) ~uri ~(pos : Position.t) : Locations.t =
       L.find_opt (fun param -> String.equal param.v sym.v) pr_params
     else None
   in
-  (* log_info ~notify_back "[Definition] found definition at: %s"
-  @@ M.Range.show def.p; *)
-  Location.create ~range:(Range.of_lexical_positions def.p) ~uri
+  log_info ~notify_back "[Definition] found definition at: %s"
+  @@ M.Range.show def.p;
+  Location.create
+    ~range:(Range.of_lexical_positions def.p)
+    ~uri:(TD.documentUri doc)
 
 let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
     ~(word : word option) ~(pos : Position.t) ~(uri : uri) (state : state) :
@@ -669,23 +753,6 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
     (let* word = word in
      get_merlin_compls ~notify_back ~uri ~pos word)
     |> get_or_nil
-  in
-  let string_of_ivl ({ low; high } : Ivl.t) =
-    let open Ivl_map.Bound in
-    let string_of_v = string_of_int in
-    let a =
-      match low with
-      | Included v -> [ "["; string_of_v v ]
-      | Excluded v -> [ "("; string_of_v v ]
-      | Unbounded -> [ "∞" ]
-    in
-    let b =
-      match high with
-      | Included v -> [ string_of_v v; "]" ]
-      | Excluded v -> [ string_of_v v; ")" ]
-      | Unbounded -> [ "∞" ]
-    in
-    spr "%s, %s" (String.concat "" a) (String.concat "" b)
   in
   let res = Ivl_map.query_interval_list query state.intervals in
   log_info ~notify_back "[query_interval_list] for %s produced %d results"
