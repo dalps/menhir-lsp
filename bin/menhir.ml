@@ -1,4 +1,5 @@
 open Utils
+open Menhir_lsp_lib
 open M.Located
 open MenhirSyntax
 open Syntax
@@ -186,6 +187,10 @@ let rec string_of_params : parameter -> string = function
         L.(ps >|= Located.iter string_of_params |> String.concat ", ")
   | ParamAnonymous _ -> ""
 
+let located_of_ppxloc
+    ({ txt; loc = { loc_start; loc_end; _ } } : 'v Ppxlib.Loc.t) : 'v located =
+  Located.locate (loc_start, loc_end) txt
+
 let process_symbols : partial_grammar -> symbol located list =
   let aliases : (string, string) Hashtbl.t = Hashtbl.create 99 in
   let v =
@@ -193,6 +198,21 @@ let process_symbols : partial_grammar -> symbol located list =
       inherit [_] ast_reduce as super
       method zero : symbol located list = []
       method plus = ( @ )
+
+      method! visit_action =
+        fun _ action ->
+          (* extract the free variables of this OCaml snippet *)
+          match action.expr with
+          | IL.ETextual text ->
+              let syms =
+                parse_ocaml_impl text.v |> OcamlSymbols.get_fvars
+                |> L.map located_of_ppxloc
+              in
+              epr "ocaml symbols in action at %s: [%s]\n%!"
+                (text.p |> Range.of_lexical_positions |> Range.show)
+              @@ (syms |> List.map Located.value |> String.concat ", ");
+              syms
+          | _ -> []
 
       method! visit_DToken =
         fun _ _option ts ->

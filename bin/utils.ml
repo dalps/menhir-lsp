@@ -2,9 +2,7 @@ module M = MenhirSyntax
 module MR = MenhirSyntax.Range
 module Json = Yojson.Safe
 include Menhir_lsp_lib.Utils
-
 module Ivl_map = Interval_map.Make (Int)
-
 module Ivl = Ivl_map.Interval
 
 let server_name = "menhir-lsp"
@@ -176,3 +174,11 @@ let get_merlin_compls ~(notify_back : notify_back) ~(uri : uri)
       in
       log_info ~notify_back "# merlin completions: %d" (L.length compls);
       compls)
+
+let parse_ocaml_impl s =
+  let lexbuf = Lexing.from_string s in
+  Ppxlib.Parse.implementation lexbuf
+
+let parse_ocaml_type s =
+  let lexbuf = Lexing.from_string s in
+  Ppxlib.Parse.core_type lexbuf
