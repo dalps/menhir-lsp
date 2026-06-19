@@ -8,49 +8,37 @@ let get_fvars ast =
     object (self)
       inherit [Names.t * string loc list] T.fold as super
 
-      method! pattern ptn (env, names) =
-        (* It would be much easier if ppxlib provided dedicated visitors for each constructor and we could simply visit Ppat_var, where the information lies. Oh well :/ *)
-        let rec go env ptn =
-          match ptn.ppat_desc with
-          | Ppat_var name -> Names.add name.txt env
-          | Ppat_tuple ptns | Ppat_array ptns ->
-              L.fold_left (fun acc ptn -> Names.union acc (go env ptn)) env ptns
-          | Ppat_record (assoc, _) ->
-              L.fold_left
-                (fun acc (_name, ptn) -> Names.union acc (go env ptn))
-                env assoc
-          | Ppat_alias (ptn, name) -> Names.add name.txt (go env ptn)
-          | Ppat_or (p1, p2) -> Names.union (go env p1) (go env p2)
-          | Ppat_constraint (p, _)
-          | Ppat_variant (_, Some p)
-          | Ppat_construct (_, Some (_, p))
-          | Ppat_lazy p ->
-              go env p
-          | Ppat_type _ | Ppat_unpack _ | Ppat_exception _ | Ppat_extension _
-          | Ppat_open (_, _)
-          | Ppat_constant _ | Ppat_any
-          | Ppat_interval (_, _)
-          | _ ->
-              env
-        in
-        (go env ptn, names)
+      (* This object would be slightly less boilerplate-y if ppxlib provided dedicated visitors for each AST constructor, thus we could visit [Ppat_var] or [Pexp_record] directly. Oh well :/ *)
 
-      (* method! function_param_desc function_param_desc (bound, names) = _ *)
+      method! pattern_desc ptn ((env, names) as acc) =
+        match ptn with
+        | Ppat_var name -> (Names.add name.txt env, names)
+        | desc -> super#pattern_desc desc acc
 
-      (* method! letop letop (bound, names) =
-        let bound_by_let, _ = self#pattern letop.let_.pbop_pat (bound, names) in
-        let bound_by_ands =
-          List.fold_left
-            (fun acc bop ->
-              let bba, _ = self#pattern bop.pbop_pat (bound, names) in
-              Names.union bba acc)
-            bound_by_let letop.ands
-        in
-        self#expression letop.body (bound_by_ands, names) *)
+      method! value_binding vb =
+        (* The default implementation visits the pattern first, and we would shadow some of the names of the bound expression. However (TODO), if the binding is recursive, we should preserve the original order and let the shadowing occur. *)
+        self#expression vb.pvb_expr >> self#pattern vb.pvb_pat
+
+      method! binding_op bop =
+        self#expression bop.pbop_exp >> self#pattern bop.pbop_pat
+
+      method! expression_desc expr acc =
+        (* Some lids, such as unpunned record keys ({ k = v; _ }), should be excluded from the result. *)
+        match expr with
+        | Pexp_record (assoc, expr_with) ->
+            acc
+            |> self#list
+                 (fun (k, v) acc ->
+                   (* let acc = self#longident_loc k acc in *)
+                   self#expression v acc)
+                 assoc
+            |> self#option self#expression expr_with
+        | expr -> super#expression_desc expr acc
 
       method! longident_loc lid (env, names) =
         ( env,
-          if Names.mem (Longident.name lid.txt) env then names
+          let name = Longident.name lid.txt in
+          if Names.mem name env then names
           else Loc.map ~f:Longident.name lid :: names )
     end
   in

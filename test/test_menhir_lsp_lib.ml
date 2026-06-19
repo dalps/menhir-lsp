@@ -21,27 +21,50 @@ rule_A:
   check "should not find a prefix at the edges" 0 (0, 0, "")
 
 let test_free_variables () =
-  let input =
+  let vars input =
+    input |> Lexing.from_string |> Ppxlib.Parse.implementation
+    |> Menhir_lsp_lib.OcamlSymbols.get_fvars
+    |> L.map
+         (fun
+           ({ txt; loc = { loc_start = { pos_lnum; _ }; _ } } :
+             string Ppxlib.Loc.t)
+         ->
+           (* Discriminate many occurrences with the line number *)
+           (txt, pos_lnum))
+  in
+  let check_vars inp ~includes ~excludes =
+    let vars = vars inp in
+    List.iter (fun ((txt, _) as v) ->
+        check bool
+          (spr "List does include free variable: `%s`" txt)
+          (L.mem v vars) true)
+    @@ includes;
+    List.iter (fun ((txt, ln) as v) ->
+        check bool
+          (spr
+             "List does not include any local variable bound by let .. in: \
+              `%s` at line %d"
+             txt ln)
+          (L.mem v vars) false)
+    @@ excludes
+  in
+  check_vars
     {|let re, r = regexp in
       let res = { name; regexp = re } in
       Hashtbl.add named_regexps name.v @@ (locate $loc res, r);
       res|}
-  in
-  let vars =
-    input |> Lexing.from_string |> Ppxlib.Parse.implementation
-    |> Menhir_lsp_lib.OcamlSymbols.get_fvars |> L.map Ppxlib.Loc.txt
-  in
-  let check v =
-    check bool
-      (spr "List does not include any local variable bound by let .. in: `%s`" v)
-      (L.mem v vars) false
-  in
-  L.iter check [ "re"; "r"; "res" ]
+    ~includes:[ ("regexp", 1); ("name", 2) ]
+    ~excludes:[ ("regexp", 2); ("re", 2); ("r", 3); ("res", 3) ];
+  check_vars
+    {|let cls, cset = cls in
+    locate $loc @@ CharSet cls, Characters cset|}
+    ~includes:[ ("cls", 1) ]
+    ~excludes:[ ("cls", 2); ("cset", 2) ]
 
 let () =
   Alcotest.run "Menhir_lsp_lib"
     [
       ("Prefix search", [ test_case "find_prefix" `Quick test_find_prefix ]);
-      ( "Variables extraction",
+      ( "Free variable extraction",
         [ test_case "free_variables" `Quick test_free_variables ] );
     ]
