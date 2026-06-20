@@ -213,19 +213,8 @@ let process_symbols : partial_grammar -> symbol located list =
           (* extract the free variables of this OCaml snippet *)
           match action.expr with
           | IL.ETextual text ->
-              epr "text of the action |%s|\n" text.v;
-              let syms =
-                parse_ocaml_impl text.v |> OcamlSymbols.get_fvars
-                |> L.map (located_of_ppxloc ~from:(fst text.p))
-              in
-              epr "ocaml symbols in action at %s: [%s]\n%!"
-                (text.p |> Range.of_lexical_positions |> Range.show)
-              @@ (syms
-                 |> List.map (fun s ->
-                     spr "%s%s" s.v
-                       (s.p |> Range.of_lexical_positions |> Range.show))
-                 |> String.concat ", ");
-              syms
+              parse_ocaml_impl text.v |> OcamlSymbols.get_fvars
+              |> L.map (located_of_ppxloc ~from:(Located.startp text))
           | _ -> []
 
       method! visit_DToken =
@@ -714,7 +703,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
   in
   let res = Ivl_map.query_interval_list query state.intervals in
   log_info ~notify_back "[query_interval_list] for %s produced %d results"
-    (string_of_ivl query)
+    (show_interval query)
   @@ L.length res;
   let string_of_zone = function
     | OCaml -> "ocaml"
@@ -728,7 +717,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
   let res = Ivl_map.query_interval ~order:Desc query state.intervals in
   let* (ivl, zones), gen = Ivl_map.Gen.next res in
   let+ innermost_zone = L.head_opt zones in
-  log_info ~notify_back "%s --> %s" (string_of_ivl ivl)
+  log_info ~notify_back "%s --> %s" (show_interval ivl)
     (string_of_zone innermost_zone);
   match innermost_zone with
   | OCaml -> merlin_compls ()

@@ -201,19 +201,18 @@ let query_position (intervals : 'zone Ivl_map.t) offset : 'zone option =
   let+ innermost_zone = L.head_opt zones in
   innermost_zone
 
-let string_of_ivl ({ low; high } : Ivl.t) =
+let pp_interval out ({ low; high } : Ivl.t) =
   let open Ivl_map.Bound in
-  let string_of_v = string_of_int in
-  let a =
-    match low with
-    | Included v -> [ "["; string_of_v v ]
-    | Excluded v -> [ "("; string_of_v v ]
-    | Unbounded -> [ "∞" ]
+  let pp_low out = function
+    | Included v -> pf out "[%d" v
+    | Excluded v -> pf out "(%d" v
+    | Unbounded -> pf out "(∞"
   in
-  let b =
-    match high with
-    | Included v -> [ string_of_v v; "]" ]
-    | Excluded v -> [ string_of_v v; ")" ]
-    | Unbounded -> [ "∞" ]
+  let pp_high out = function
+    | Included v -> pf out "%d]" v
+    | Excluded v -> pf out "%d)" v
+    | Unbounded -> pf out "∞)"
   in
-  spr "%s, %s" (String.concat "" a) (String.concat "" b)
+  pf out "%a, %a" pp_low low pp_high high
+
+let show_interval = spr "%a" pp_interval
