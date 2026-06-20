@@ -221,26 +221,9 @@ let rec string_of_params : parameter -> string = function
         L.(ps >|= Located.iter string_of_params |> String.concat ", ")
   | ParamAnonymous _ -> ""
 
-let located_of_ppxloc ~(from : Lexing.position)
-    ({ txt; loc = { loc_start; loc_end; _ } } : 'v Ppxlib.Loc.t) : 'v located =
-  let debug_pos ({ pos_fname; pos_lnum; pos_bol; pos_cnum } : Lexing.position) =
-    spr "{lnum = %d; bol = %d; cnum = %d}" pos_lnum pos_bol pos_cnum
-  in
-  epr "loc_start: %s, loc_end: %s\n" (debug_pos loc_start) (debug_pos loc_end);
-  let ( + ) p1 p2 =
-    Lexing.
-      {
-        p2 with
-        pos_lnum = p1.pos_lnum + p2.pos_lnum - 1;
-        pos_bol =
-          (if p2.pos_lnum = 1 then (
-             assert (p2.pos_bol = 0);
-             p1.pos_bol)
-           else p1.pos_cnum + p2.pos_bol);
-        pos_cnum = p1.pos_cnum + p2.pos_cnum;
-      }
-  in
-  Located.locate (from + loc_start, from + loc_end) txt
+let located_of_ppxloc ~(from : Lexing.position) ({ txt; loc } : 'v Ppxlib.Loc.t)
+    : 'v located =
+  Located.locate (OcamlSymbols.range_of_ppxlocation ~from loc) txt
 
 let process_symbols : partial_grammar -> symbol located list =
   let aliases : (string, string) Hashtbl.t = Hashtbl.create 99 in
@@ -890,19 +873,42 @@ let selection_range ({ grammar; _ } as _state : state)
   let open L in
   let@* i, pos = positions in
   let parent_ref = ref @@ None in
+  let add_range range =
+    let add () =
+      parent_ref :=
+        O.some @@ SelectionRange.create ?parent:!parent_ref ~range ()
+    in
+    (* Add [range] only if it preserves the invariant. *)
+    match !parent_ref with
+    | None -> add ()
+    | Some parent when Range.contains parent.range range -> add ()
+    | Some parent ->
+        log_error ~notify_back "Skipping bad selection range: %s."
+          (Range.show range)
+  in
   (* This visitor descends the grammar's syntax tree nodes which contain pos, connecting them in a ladder of [SelectionRange]s. *)
   let v =
     object
       inherit [_] ast_iter
 
+      method! visit_action _ action =
+        match action.expr with
+        | IL.ETextual { p; v; _ } ->
+            parse_ocaml_impl v |> OcamlSymbols.get_ranges_for_pos pos (fst p)
+            |> fun l ->
+            log_info ~notify_back "range stack: %s"
+            @@ (List.map Range.show l |> String.concat " --> ");
+            l |> L.iter add_range
+        | _ -> ()
+
+      (* This would work out of the box if every default method would visit the location first and the contents after, but the result confirms that's not the case. *)
       method! visit_located =
         fun visit_a _env located ->
           let range = Range.of_lexical_positions located.p in
 
-          if Position.is_inside pos range then
-            parent_ref :=
-              O.some @@ SelectionRange.create ?parent:!parent_ref ~range ();
-          visit_a _env located.v
+          if Position.is_inside pos range then (
+            add_range range;
+            visit_a _env located.v)
     end
   in
   v#visit_partial_grammar () grammar;

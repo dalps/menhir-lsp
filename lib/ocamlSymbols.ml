@@ -3,7 +3,29 @@ open Utils
 module T = Ppxlib.Ast_traverse
 module Names = Set.Make (String)
 
-let get_fvars ast =
+let range_of_ppxlocation ~(from : Lexing.position)
+    ({ loc_start; loc_end; _ } : Ppxlib.Location.t) :
+    Lexing.(position * position) =
+  let debug_pos ({ pos_fname; pos_lnum; pos_bol; pos_cnum } : Lexing.position) =
+    spr "{lnum = %d; bol = %d; cnum = %d}" pos_lnum pos_bol pos_cnum
+  in
+  epr "loc_start: %s, loc_end: %s\n" (debug_pos loc_start) (debug_pos loc_end);
+  let ( + ) p1 p2 =
+    Lexing.
+      {
+        p2 with
+        pos_lnum = p1.pos_lnum + p2.pos_lnum - 1;
+        pos_bol =
+          (if p2.pos_lnum = 1 then (
+             assert (p2.pos_bol = 0);
+             p1.pos_bol)
+           else p1.pos_cnum + p2.pos_bol);
+        pos_cnum = p1.pos_cnum + p2.pos_cnum;
+      }
+  in
+  (from + loc_start, from + loc_end)
+
+let get_fvars ast : string loc list =
   let v =
     object (self)
       inherit [Names.t * string loc list] T.fold as super
@@ -43,3 +65,43 @@ let get_fvars ast =
     end
   in
   v#structure ast (Names.empty, []) |> snd
+
+(** Returns a top-down stack of ranges that contain [pos] for the given OCaml
+    [ast].
+
+    [from] is the start offset of the embedded action and is added to every
+    visited location.
+
+    This visitor relies on the assumption that the locatoin field of a node is
+    always visited after a syntax node's content. *)
+let get_ranges_for_pos pos from ast : Range.t list =
+  let v =
+    object
+      inherit [Range.t list] T.fold as super
+
+      (* [loc] just wraps leaves nodes, identifiers and labels, unlike our AST approach where we wrap every node with [located]. Hence, overriding this method is not very useful to us. *)
+      (* method! loc visit_a loc =
+        let range =
+          loc
+          |> located_of_ppxloc ~from:(fst action_text.p)
+          |> MenhirSyntax.Located.position
+          |> Range.of_lexical_positions
+        in
+        if Position.is_inside pos range then (
+          parent_ref :=
+            O.some
+            @@ SelectionRange.create ?parent:!parent_ref ~range ();
+          visit_a loc.txt) *)
+
+      method! location loc acc =
+        let range =
+          loc |> range_of_ppxlocation ~from |> Range.of_lexical_positions
+        in
+        epr "[ocaml ranges] checking %s" (Range.show range);
+        if Position.is_inside pos range then (
+          epr "[ocaml ranges] entering %s\n" (Range.show range);
+          range :: acc)
+        else acc
+    end
+  in
+  v#structure ast []
