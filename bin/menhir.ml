@@ -872,20 +872,8 @@ let selection_range ({ grammar; _ } as _state : state)
   log_info ~notify_back "%s" @@ Json.pretty_to_string json;
   let open L in
   let@* i, pos = positions in
-  let parent_ref = ref @@ None in
-  let add_range range =
-    let add () =
-      parent_ref :=
-        O.some @@ SelectionRange.create ?parent:!parent_ref ~range ()
-    in
-    (* Add [range] only if it preserves the invariant. *)
-    match !parent_ref with
-    | None -> add ()
-    | Some parent when Range.contains parent.range range -> add ()
-    | Some parent ->
-        log_error ~notify_back "Skipping bad selection range: %s."
-          (Range.show range)
-  in
+  let parent_ref = ref None in
+  let add_range = add_range ~parent_ref in
   (* This visitor descends the grammar's syntax tree nodes which contain pos, connecting them in a ladder of [SelectionRange]s. *)
   let v =
     object

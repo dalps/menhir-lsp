@@ -182,3 +182,13 @@ let parse_ocaml_impl s =
 let parse_ocaml_type s =
   let lexbuf = Lexing.from_string s in
   Ppxlib.Parse.core_type lexbuf
+
+let add_range ~parent_ref range =
+  let add () =
+    parent_ref := O.some @@ SelectionRange.create ?parent:!parent_ref ~range ()
+  in
+  (* Add [range] only if it preserves the invariant. *)
+  match !parent_ref with
+  | None -> add ()
+  | Some p when Range.contains p.range range -> add ()
+  | Some _ -> epr "Skipping bad selection range: %s." (Range.show range)

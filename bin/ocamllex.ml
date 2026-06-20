@@ -2,6 +2,7 @@ open OcamllexSyntax
 open OcamllexDocs
 open Utils
 open Syntax
+open Menhir_lsp_lib
 
 type zone =
   | OCaml
@@ -362,20 +363,30 @@ let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
     ~(notify_back : notify_back) : SelectionRange.t list =
   let open L in
   let@* i, pos = positions in
-  let parent_ref = ref @@ None in
+  let parent_ref = ref None in
+  let add_range = add_range ~parent_ref in
   (* This visitor descends the lexer's syntax tree nodes which contain pos, connecting them in a ladder of [SelectionRange]s. *)
   let v =
     object
       inherit [_] ast_iter
 
+      method! visit_action _ action =
+        log_info ~notify_back "[ranges] action at %s text |%s|"
+          (Range.show @@ Range.of_lexical_positions action.p) action.v;
+        parse_ocaml_impl action.v
+        |> OcamlSymbols.get_ranges_for_pos pos (fst action.p)
+        |> fun l ->
+        log_info ~notify_back "range stack: %s"
+        @@ (List.map Range.show l |> String.concat " --> ");
+        l |> L.iter add_range
+
       method! visit_located =
         fun visit_a _env located ->
           let range = Range.of_lexical_positions located.p in
 
-          if Position.is_inside pos range then
-            parent_ref :=
-              O.some @@ SelectionRange.create ?parent:!parent_ref ~range ();
-          visit_a _env located.v
+          if Position.is_inside pos range then (
+            add_range range;
+            visit_a _env located.v)
     end
   in
   v#visit_lexer_definition () grammar;

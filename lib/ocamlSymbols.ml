@@ -69,10 +69,10 @@ let get_fvars ast : string loc list =
 (** Returns a top-down stack of ranges that contain [pos] for the given OCaml
     [ast].
 
-    [from] is the start offset of the embedded action and is added to every
-    visited location.
+    [from] is the start position of the embedded action in the host document, it
+    is added to every visited location.
 
-    This visitor relies on the assumption that the locatoin field of a node is
+    This visitor relies on the assumption that the location field of a node is
     always visited after a syntax node's content. *)
 let get_ranges_for_pos pos from ast : Range.t list =
   let v =
