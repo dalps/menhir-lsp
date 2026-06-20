@@ -192,3 +192,28 @@ let add_range ~parent_ref range =
   | None -> add ()
   | Some p when Range.contains p.range range -> add ()
   | Some _ -> epr "Skipping bad selection range: %s." (Range.show range)
+
+let query_position (intervals : 'zone Ivl_map.t) offset : 'zone option =
+  let open O in
+  let query = Ivl.create (Included offset) (Included offset) in
+  let res = Ivl_map.query_interval ~order:Desc query intervals in
+  let* (ivl, zones), gen = Ivl_map.Gen.next res in
+  let+ innermost_zone = L.head_opt zones in
+  innermost_zone
+
+let string_of_ivl ({ low; high } : Ivl.t) =
+  let open Ivl_map.Bound in
+  let string_of_v = string_of_int in
+  let a =
+    match low with
+    | Included v -> [ "["; string_of_v v ]
+    | Excluded v -> [ "("; string_of_v v ]
+    | Unbounded -> [ "∞" ]
+  in
+  let b =
+    match high with
+    | Included v -> [ string_of_v v; "]" ]
+    | Excluded v -> [ string_of_v v; ")" ]
+    | Unbounded -> [ "∞" ]
+  in
+  spr "%s, %s" (String.concat "" a) (String.concat "" b)

@@ -38,31 +38,6 @@ let string_of_zone = function
         (params |> List.map Located.value |> String.concat ", ")
   | Action _ -> "action"
 
-let query_position (state : state) offset : zone option =
-  let open O in
-  let query = Ivl.create (Included offset) (Included offset) in
-  let res = Ivl_map.query_interval ~order:Desc query state.intervals in
-  let* (ivl, zones), gen = Ivl_map.Gen.next res in
-  let+ innermost_zone = L.head_opt zones in
-  innermost_zone
-
-let string_of_ivl ({ low; high } : Ivl.t) =
-  let open Ivl_map.Bound in
-  let string_of_v = string_of_int in
-  let a =
-    match low with
-    | Included v -> [ "["; string_of_v v ]
-    | Excluded v -> [ "("; string_of_v v ]
-    | Unbounded -> [ "∞" ]
-  in
-  let b =
-    match high with
-    | Included v -> [ string_of_v v; "]" ]
-    | Excluded v -> [ string_of_v v; ")" ]
-    | Unbounded -> [ "∞" ]
-  in
-  spr "%s, %s" (String.concat "" a) (String.concat "" b)
-
 let get_cmly_file = fetch_build_dir ~ext:".cmly"
 let get_conflicts_file = fetch_build_dir ~ext:".conflicts"
 
@@ -679,7 +654,7 @@ let definition ~(notify_back : notify_back) (state : state)
     (* It could also be a semantic binding (producer) inside a branch! *)
     log_info ~notify_back "[Definition] Checking if we're inside an action...";
     let open O in
-    let* zone = query_position state offset in
+    let* zone = query_position state.intervals offset in
     (match zone with
       | Action lst ->
           log_info ~notify_back

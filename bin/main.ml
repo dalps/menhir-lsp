@@ -294,8 +294,9 @@ class lsp_server =
         let* doc = self#get_text_document ~uri in
         log_info ~notify_back "Requested definition at pos %s"
           (Position.show pos);
-        self#_dispatch uri ~notify_back ~mly_handler:(Mly.definition ~notify_back  ~doc ~pos)
-          ~mll_handler:(Mll.definition ~uri ~pos)
+        self#_dispatch uri ~notify_back
+          ~mly_handler:(Mly.definition ~notify_back ~doc ~pos)
+          ~mll_handler:(Mll.definition ~notify_back ~doc ~pos)
 
     method! config_hover = Some (`Bool true)
 

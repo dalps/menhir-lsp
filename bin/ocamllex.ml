@@ -20,6 +20,10 @@ type state = {
   intervals : zone Ivl_map.t;
 }
 
+let located_of_ppxloc ~(from : Lexing.position) ({ txt; loc } : 'v Ppxlib.Loc.t)
+    : 'v located =
+  Located.locate (OcamlSymbols.range_of_ppxlocation ~from loc) txt
+
 let yojson_of_ast (grammar : lexer_definition) : Json.t =
   let open Json in
   let string s = `String s in
@@ -97,6 +101,19 @@ let process_symbols : lexer_definition -> string located list =
       method zero = []
       method plus = ( @ )
       method! visit_Ref = fun _ name -> [ name ]
+
+      method! visit_action _ action =
+        let syms =
+          parse_ocaml_impl action.v |> OcamlSymbols.get_fvars
+          |> L.map (located_of_ppxloc ~from:(fst action.p))
+        in
+        epr "ocaml symbols in action at %s: [%s]\n%!"
+          (action.p |> Range.of_lexical_positions |> Range.show)
+        @@ (syms
+           |> List.map (fun s ->
+               spr "%s%s" s.v (s.p |> Range.of_lexical_positions |> Range.show))
+           |> String.concat ", ");
+        syms
 
       method! visit_entry =
         fun _env entry ->
@@ -256,25 +273,39 @@ let references (state : state) ~uri ~(pos : Position.t) : Location.t list =
      state.symbols)
   |> O.to_list |> L.flatten
 
-let definition ({ grammar; _ } as state : state) ~uri ~(pos : Position.t) :
-    Locations.t =
+let definition ~(notify_back : notify_back)
+    ({ grammar; intervals; _ } as state : state) ~(doc : Text_document.t)
+    ~(pos : Position.t) : Locations.t =
   let open O in
-  ((* Get the symbol under the cursor, if any. *)
-   let* _sym_range, sym = symbol_at_position state pos in
-   (* Search for the symbol in the named regexps or in the lexer entries. *)
-   let+ def =
-     L.find_map
-       (fun { v = entry; _ } ->
-         if_ (fun _ -> String.equal entry.name.v sym.v) entry.name)
-       grammar.entrypoints
-     <+> L.find_map
-           (fun ({ v = { name; _ }; _ } : named_regexp located) ->
-             if_ (fun _ -> String.equal name.v sym.v) name)
-           grammar.named_regexps
-   in
-   Location.create ~range:(Range.of_lexical_positions def.p) ~uri)
-  |> O.to_list
-  |> fun locs -> `Location locs
+  let mk_location locs = `Location locs in
+  let offset = TD.absolute_position doc pos in
+  mk_location @@ to_list
+  @@
+  (* Get the symbol under the cursor, if any. *)
+  let* _sym_range, sym = symbol_at_position state pos in
+  (* Search for the symbol in the named regexps or in the lexer entries. *)
+  let+ def =
+    let open L in
+    let open O in
+    (match query_position state.intervals offset with
+      | Some (Action lst) -> (* todo: [lst] should also include values bound "remotely" by a named regexp *)
+          log_info ~notify_back
+            "[Definition] It looks like we're inside an action!";
+          let*? binder = lst in
+          if_ (fun _ -> String.equal binder.v sym.v) binder
+      | _ ->
+          log_info ~notify_back
+            "[Definition] Nope, we're inside something else...";
+          None)
+    <|> fun () ->
+    let*? { v = entry; _ } = grammar.entrypoints in
+    if_ (fun _ -> String.equal entry.name.v sym.v) entry.name <|> fun () ->
+    let*? { v = { name; _ }; _ } = grammar.named_regexps in
+    if_ (fun _ -> String.equal name.v sym.v) name
+  in
+  Location.create
+    ~range:(Range.of_lexical_positions def.p)
+    ~uri:(TD.documentUri doc)
 
 let completions
     ({ grammar = { header; trailer; refill_handler; _ } as grammar; _ } as state :
