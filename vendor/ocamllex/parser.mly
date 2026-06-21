@@ -22,7 +22,7 @@ open Located
 (* Auxiliaries for the parser. *)
 
 let raise exn =
-  Hashtbl.reset named_regexps;
+  (* Hashtbl.reset named_regexps; *) (* [menhir-lsp] we do this in the driver. *)
   Stdlib.raise exn
 
 let regexp_for_string s =
@@ -49,6 +49,7 @@ let rec as_cset = function
   | _ -> raise Cset.Bad
 
 let last_bar = ref None
+let current_bindings = ref []
 %}
 
 %token <string> Tident
@@ -84,7 +85,7 @@ lexer_definition:
             trailer;
             named_regexps = named_regexps_l
         } in
-        Hashtbl.reset named_regexps;
+        (* Hashtbl.reset named_regexps; *) (* [menhir-lsp] we do this in the driver. *)
         v } [@name lexer]
 
 header:
@@ -94,7 +95,8 @@ named_regexp:
     "let" name = located(Tident) "=" regexp = regexp 
     { let re, r = regexp in
       let res = { name; regexp = re } in 
-      Hashtbl.add named_regexps name.v @@ (locate $loc res, r);
+      Hashtbl.add named_regexps name.v @@ (locate $loc res, r, !current_bindings);
+      current_bindings := [];
       res } [@name named_regexp]
 
 refill_handler:
@@ -183,13 +185,14 @@ regexp:
           locate $loc (Group re), r } [@name regexp_group]
   | ide = located(Tident)
         { try
-            let _re, r = Hashtbl.find named_regexps ide.v in
+            let _re, r, bindings = Hashtbl.find named_regexps ide.v in
             locate ide.p @@ Ref ide, r
           with Not_found ->
             let msg = Printf.sprintf "Reference to unbound regexp name `%s'.\n" ide.v in
             raise (SyntaxError (locate ide.p msg)) } [@name regexp_reference]
   | re = regexp "as" ide = located(ident)
         { let re, r = re in
+          current_bindings := ide :: !current_bindings;
           locate $loc @@ As (re, ide), Bind (r, ide) } [@name regexp_binding]
 
 ident:

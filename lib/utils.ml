@@ -66,13 +66,13 @@ let ( >> ) = CCFun.( %> )
 let notify_back_ref : notify_back option ref = ref None
 
 let log ~(notify_back : notify_back) ~type_ =
-  Printf.ksprintf (fun s -> notify_back#send_log_msg ~type_ s |> ignore)
+  Format.kasprintf (fun s -> notify_back#send_log_msg ~type_ s |> ignore)
 
 let log_info ~(notify_back : notify_back) = log ~notify_back ~type_:Info
 let log_error ~(notify_back : notify_back) = log ~notify_back ~type_:Error
 
 let log' ~(notify_back : notify_back) ~type_ =
-  Printf.ksprintf (fun s -> notify_back#send_log_msg ~type_ s)
+  Format.kasprintf (fun s -> notify_back#send_log_msg ~type_ s)
 
 let log_info' ~(notify_back : notify_back) = log' ~notify_back ~type_:Info
 let log_error' ~(notify_back : notify_back) = log' ~notify_back ~type_:Error

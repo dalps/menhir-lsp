@@ -52,9 +52,11 @@ let decrement (pos : position) : position =
 let decrement ((startp, endp) : range) : range =
   make (decrement startp, endp)
 
+let pp = Menhir_lsp_lib.Utils.Range.pp_lexing
+
 let show =
-  (* [filename] is hopefully not empty. *)
-  Menhir_lsp_lib.Utils.(Range.of_lexical_positions >> Range.show)
+  (* [menhir-lsp] customized *)
+  Menhir_lsp_lib.Utils.Range.show_lexing
 
 let current lexbuf =
   (lexeme_start_p lexbuf, lexeme_end_p lexbuf)

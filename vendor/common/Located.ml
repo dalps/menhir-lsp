@@ -17,6 +17,7 @@ and comments = comment list option
 
 and comment = {text: string; relpos: Menhir_lsp_lib.Utils.relpos}
 
+let pp pp_v out t = Format.fprintf out "{p = %a; v = %a}" Range.pp t.p pp_v t.v
 
 let[@inline] locate ?comment p v =
   { p; v; comment }

@@ -81,7 +81,12 @@ let yojson_of_ast (grammar : lexer_definition) : Json.t =
   in
   v#visit_main () grammar
 
-let regexp_bindings =
+(** Return the list of semantic variables bound by the regular expression.
+
+    If the [resolve] flag is set then references to named regexps are resolved
+    recursively in the environment built by the parser. *)
+let regexp_bindings ?(resolve = false) :
+    regular_expression_syntax -> string located list =
   let v =
     object
       inherit [_] ast_reduce as super
@@ -90,6 +95,18 @@ let regexp_bindings =
 
       method! visit_As =
         fun _ re name -> name :: super#visit_regular_expression_syntax () re.v
+
+      method! visit_Ref _ located =
+        if resolve then (
+          let open O in
+          O.get_or_nil
+          @@
+          let+ nr, _, bindings = Hashtbl.find_opt named_regexps located.v in
+          epr "matched %s -> [%a]\n" located.v
+            Format.(pp_print_list (Located.pp pp_print_string))
+            bindings;
+          bindings @ super#visit_named_regexp () nr.v)
+        else []
     end
   in
   v#visit_regular_expression_syntax ()
@@ -172,8 +189,6 @@ let load_state_from_contents (_filename : string) (contents : string) :
   (* Stores the names bound in the currently visited entry case. *)
   let case_vars_ref : _ list ref = ref [] in
 
-  let add_case_var var = case_vars_ref := var :: !case_vars_ref in
-
   let regexp_zone loc = add_located (RegexpDefinition !named_regexp_ref) loc in
   let action_zone loc =
     let start, end_ = loc.p in
@@ -219,11 +234,9 @@ let load_state_from_contents (_filename : string) (contents : string) :
       method! visit_action _ = action_zone
 
       method! visit_case =
-        fun _ case ->
-          case_vars_ref := [];
+        fun _ ((regexp, _) as case) ->
+          case_vars_ref := regexp_bindings ~resolve:true regexp.v;
           super#visit_case () case
-
-      method! visit_As = fun _ _regexp binder -> add_case_var binder
     end
   in
   v#visit_main () grammar;
@@ -289,7 +302,6 @@ let definition ~(notify_back : notify_back)
     let open O in
     ( (match query_position state.intervals offset with
         | Some (Action lst) ->
-            (* todo: [lst] should also include values bound "remotely" by a named regexp *)
             log_info ~notify_back
               "[Definition] It looks like we're inside an action!";
             let*? binder = lst in
@@ -404,8 +416,8 @@ let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
       inherit [_] ast_iter
 
       method! visit_action _ action =
-        log_info ~notify_back "[ranges] action at %s text |%s|"
-          (Range.show @@ Range.of_lexical_positions action.p) action.v;
+        log_info ~notify_back "[ranges] action %a" (Located.pp CCString.pp)
+          action;
         parse_ocaml_impl action.v
         |> OcamlSymbols.get_ranges_for_pos pos (fst action.p)
         |> fun l ->
