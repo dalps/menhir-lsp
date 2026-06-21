@@ -100,20 +100,16 @@ let process_symbols : lexer_definition -> string located list =
       inherit [_] ast_reduce as super
       method zero = []
       method plus = ( @ )
+
+      method! visit_As =
+        fun _ _regexp name ->
+          name :: super#visit_regular_expression_syntax () _regexp.v
+
       method! visit_Ref = fun _ name -> [ name ]
 
       method! visit_action _ action =
-        let syms =
-          parse_ocaml_impl action.v |> OcamlSymbols.get_fvars
-          |> L.map (located_of_ppxloc ~from:(fst action.p))
-        in
-        epr "ocaml symbols in action at %s: [%s]\n%!"
-          (action.p |> Range.of_lexical_positions |> Range.show)
-        @@ (syms
-           |> List.map (fun s ->
-               spr "%s%s" s.v (s.p |> Range.of_lexical_positions |> Range.show))
-           |> String.concat ", ");
-        syms
+        parse_ocaml_impl action.v |> OcamlSymbols.get_fvars
+        |> L.map (located_of_ppxloc ~from:(fst action.p))
 
       method! visit_entry =
         fun _env entry ->
@@ -234,31 +230,35 @@ let load_state_from_contents (_filename : string) (contents : string) :
   { grammar; symbols; regexps; intervals = !map_ref }
 
 let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
-  L.(
-    let+ { v = entry; p; _ } = grammar.entrypoints in
+  let open L in
+  (let+ { v = entry; p; _ } = grammar.entrypoints in
+   let range = Range.of_lexical_positions p in
+   let selectionRange = range in
+   DocumentSymbol.create ~kind:Function ~name:entry.name.v ~range
+     ~selectionRange
+     ~children:
+       (entry.clauses
+       |> flat_map_i (fun _i { v = regexp, _; _ } ->
+           match regexp_bindings regexp.v with
+           | [] -> []
+           | binders ->
+               let+ binder = binders in
+               let range = Range.of_lexical_positions binder.p in
+               DocumentSymbol.create
+                 ~kind:Variable (* ~detail:(spr "case %d" i) *)
+                 ~name:binder.v ~range ~selectionRange:range ()))
+     ())
+  @ let+ { v = { name; regexp }; p; _ } = grammar.named_regexps in
     let range = Range.of_lexical_positions p in
-    let selectionRange = Range.of_lexical_positions p in
-    DocumentSymbol.create ~kind:Function ~name:entry.name.v ~range
-      ~selectionRange
-      ~children:
-        (entry.clauses
-        |> flat_map_i (fun _i { v = regexp, _; _ } ->
-            match regexp_bindings regexp.v with
-            | [] -> []
-            | binders ->
-                let+ binder = binders in
-                let range = Range.of_lexical_positions binder.p in
-                DocumentSymbol.create
-                  ~kind:Variable (* ~detail:(spr "case %d" i) *)
-                  ~name:binder.v ~range ~selectionRange:range ()))
-      ())
-  @ L.map
-      (fun ({ v = { name; _ }; p; _ } : named_regexp located) ->
-        let range = Range.of_lexical_positions p in
-        let selectionRange = Range.of_lexical_positions p in
-        DocumentSymbol.create ~kind:Property ~name:name.v ~range ~selectionRange
-          ())
-      grammar.named_regexps
+    let selectionRange = range in
+    let bindings =
+      regexp_bindings regexp.v >|= fun { p; v = name; comment } ->
+      let range = Range.of_lexical_positions p in
+      let selectionRange = range in
+      DocumentSymbol.create ~kind:Variable ~name ~range ~selectionRange ()
+    in
+    DocumentSymbol.create ~kind:Property ~name:name.v ~range ~selectionRange
+      ~children:bindings ()
 
 let diagnostics _ = []
 
@@ -287,19 +287,21 @@ let definition ~(notify_back : notify_back)
   let+ def =
     let open L in
     let open O in
-    (match query_position state.intervals offset with
-      | Some (Action lst) -> (* todo: [lst] should also include values bound "remotely" by a named regexp *)
-          log_info ~notify_back
-            "[Definition] It looks like we're inside an action!";
-          let*? binder = lst in
-          if_ (fun _ -> String.equal binder.v sym.v) binder
-      | _ ->
-          log_info ~notify_back
-            "[Definition] Nope, we're inside something else...";
-          None)
+    ( (match query_position state.intervals offset with
+        | Some (Action lst) ->
+            (* todo: [lst] should also include values bound "remotely" by a named regexp *)
+            log_info ~notify_back
+              "[Definition] It looks like we're inside an action!";
+            let*? binder = lst in
+            if_ (fun _ -> String.equal binder.v sym.v) binder
+        | _ ->
+            log_info ~notify_back
+              "[Definition] Nope, we're inside something else...";
+            None)
     <|> fun () ->
-    let*? { v = entry; _ } = grammar.entrypoints in
-    if_ (fun _ -> String.equal entry.name.v sym.v) entry.name <|> fun () ->
+      let*? { v = entry; _ } = grammar.entrypoints in
+      if_ (fun _ -> String.equal entry.name.v sym.v) entry.name )
+    <|> fun () ->
     let*? { v = { name; _ }; _ } = grammar.named_regexps in
     if_ (fun _ -> String.equal name.v sym.v) name
   in
