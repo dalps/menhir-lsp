@@ -65,17 +65,36 @@ let pf = Format.fprintf
 let ( >> ) = CCFun.( %> )
 let notify_back_ref : notify_back option ref = ref None
 
-let log ~(notify_back : notify_back) ~type_ =
-  Format.kasprintf (fun s -> notify_back#send_log_msg ~type_ s |> ignore)
+(** [log] will print use the caller's [notify_back] argument if provided, or
+    fall back to the optional value stored in the global variable
+    [notify_back_ref], or [Format.eprintf] as a final resort. *)
+let log ?(notify_back : notify_back option) ?(kind = MessageType.Info) s =
+  match (notify_back, !notify_back_ref) with
+  | None, None -> epr s
+  | None, Some notify_back | Some notify_back, _ ->
+      Format.kasprintf
+        (fun s -> notify_back#send_log_msg ~type_:kind s |> ignore)
+        s
 
-let log_info ~(notify_back : notify_back) = log ~notify_back ~type_:Info
-let log_error ~(notify_back : notify_back) = log ~notify_back ~type_:Error
+(** Identical to [log] but returns a unit promise. *)
+let log' ?(notify_back : notify_back option) ?(kind = MessageType.Info) s =
+  match (notify_back, !notify_back_ref) with
+  | None, None -> Format.kasprintf (fun s -> prerr_endline s |> Lwt.return) s
+  | None, Some notify_back | Some notify_back, _ ->
+      Format.kasprintf (fun s -> notify_back#send_log_msg ~type_:kind s) s
 
-let log' ~(notify_back : notify_back) ~type_ =
-  Format.kasprintf (fun s -> notify_back#send_log_msg ~type_ s)
+(** Logging helper that allows to specify a message source that will be
+    prepended to every log message.
 
-let log_info' ~(notify_back : notify_back) = log' ~notify_back ~type_:Info
-let log_error' ~(notify_back : notify_back) = log' ~notify_back ~type_:Error
+    Override with a concrete [src] argument like this:
+    [let log s = log_src "my_source" s in ..] *)
+let log_src ?notify_back ?kind src s =
+  Format.kasprintf (fun s -> log ?notify_back ?kind "[%s] %s" src s) s
+
+let log_info = log ~kind:Info
+let log_error = log ~kind:Error
+let log_info' = log' ~kind:Info
+let log_error' = log' ~kind:Error
 
 (** Adapted from
     https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/position.ml
@@ -300,3 +319,11 @@ module Lexing = struct
 
   let pp_position out = pp_position
 end
+
+let pp_option pp_v out (o : 'a option) =
+  Format.pp_print_option
+    ~none:(fun out _ -> pf out "None")
+    (fun out v -> pf out "Some (%a)" pp_v v)
+    out o
+
+let pp_string = Format.pp_print_string

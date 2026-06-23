@@ -30,6 +30,13 @@ type state = {
   intervals : zone Ivl_map.t;
 }
 
+let pp_state out state =
+  pf out "Parse summary:\n# symbols: %d, # tokens: %a" (L.length state.symbols)
+    (Format.pp_print_list
+       ~pp_sep:(fun out () -> pf out ", ")
+       (Located.pp (fun out tok -> pf out "%s" tok.terminal)))
+    state.tokens
+
 let string_of_zone = function
   | OCaml -> "ocaml"
   | Declaration -> "decl"

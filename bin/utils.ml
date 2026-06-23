@@ -216,3 +216,10 @@ let pp_interval out ({ low; high } : Ivl.t) =
   pf out "%a, %a" pp_low low pp_high high
 
 let show_interval = spr "%a" pp_interval
+
+let pp_uri out (uri : uri) =
+  pf out "%s{hash = %d; query = %a}" (Uri.to_path uri) (Uri.hash uri)
+    (pp_option pp_string) (Uri.query uri)
+
+let pp_short_uri out (uri : uri) = pf out "%s" (Uri.to_path uri)
+let pp_short_state = fun out _ -> pf out "<state>"

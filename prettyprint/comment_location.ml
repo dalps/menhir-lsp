@@ -1,7 +1,6 @@
 open Utils
 
 let debug = false
-let log_info s = Printf.ksprintf (fun s -> if debug then prerr_endline s) s
 
 (** This module is responsible for attaching comments to located syntax nodes
     over a generic syntax interface. Every lexed comment must be attached to a
