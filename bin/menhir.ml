@@ -283,7 +283,7 @@ let load_state_from_partial_grammar (grammar : partial_grammar) =
   let add_branch_var var = branch_vars_ref := var :: !branch_vars_ref in
   let action_zone loc =
     let start, end_ = loc.p in
-    let ivl = Ivl.create (Excluded start.pos_cnum) (Excluded end_.pos_cnum) in
+    let ivl = Ivl.create (Included start.pos_cnum) (Included end_.pos_cnum) in
     add_interval (Action !branch_vars_ref) ivl
   in
   let v =

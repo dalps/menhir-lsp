@@ -192,8 +192,7 @@ let load_state_from_contents (_filename : string) (contents : string) :
   let regexp_zone loc = add_located (RegexpDefinition !named_regexp_ref) loc in
   let action_zone loc =
     let start, end_ = loc.p in
-    (* Don't count the braces in *)
-    let ivl = Ivl.create (Excluded start.pos_cnum) (Excluded end_.pos_cnum) in
+    let ivl = Ivl.create (Included start.pos_cnum) (Included end_.pos_cnum) in
     add_interval (Action (!current_rule_ref @ !case_vars_ref)) ivl
   in
   let v =
