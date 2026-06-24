@@ -37,8 +37,16 @@ export const getDocUri = (p: string) => Uri.file(getDocPath(p));
 export async function setTestContent(content: string): Promise<boolean> {
   const all = new Range(
     doc.positionAt(0),
-    doc.positionAt(doc.getText().length)
+    doc.positionAt(doc.getText().length),
   );
 
   return editor.edit((eb) => eb.replace(all, content));
 }
+
+export const uriEqual = (u1: Uri, u2: Uri) => u1.path === u2.path;
+export const rangeEqual = (r1: Range, r2: Range) => r1.isEqual(r2);
+
+/** Helper to specify one-based editor positions consicely. */
+export const P = (l: number, c: number) => new Position(l - 1, c - 1);
+
+export const R = (p1: Position, p2: Position) => new Range(p1, p2);

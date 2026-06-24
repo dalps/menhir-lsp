@@ -5,7 +5,7 @@
     {
       "type": "extensionHost",
       "request": "launch",
-      "name": "Launch Menhir Client",
+      "name": "Menhir LSP - Launch Menhir Client",
       "runtimeExecutable": "${execPath}",
       "args": ["--extensionDevelopmentPath=${workspaceRoot}"],
       "outFiles": [
@@ -19,10 +19,14 @@
       }
     },
     {
-      "name": "Menhir Language Server E2E Test",
+      "name": "Menhir LSP - E2E Tests",
       "type": "extensionHost",
       "request": "launch",
       "runtimeExecutable": "${execPath}",
+      "preLaunchTask": {
+        "type": "npm",
+        "script": "build"
+      },
       "args": [
         "--extensionDevelopmentPath=${workspaceRoot}",
         "--extensionTestsPath=${workspaceRoot}/out/test/index",
