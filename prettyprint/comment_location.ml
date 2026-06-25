@@ -1,6 +1,7 @@
 open Utils
 
 let debug = false
+let log_src src s = Format.kasprintf (fun s -> if debug then log_src src "%s" s) s
 
 (** This module is responsible for attaching comments to located syntax nodes
     over a generic syntax interface. Every lexed comment must be attached to a
@@ -67,11 +68,14 @@ struct
   (** Check whether the section of [doc] delimited by [rng] contains only
       whitespace or comments. *)
   let only_comments ~doc ~allow_newlines rng : bool =
+    let log s = log_src "only_comments" s in
     try
       Utils.substring doc rng |> Option.get |> Lexing.from_string
       |> Comments.main allow_newlines;
       true
-    with _ -> false
+    with Failure reason ->
+      log "Failed in %a due to: %s" Range.pp rng reason;
+      false
 
   let init_bag = L.map Cmt.of_lexer_comment >> Bag.of_list >> ref
 
@@ -85,6 +89,7 @@ struct
       'a located ->
       'a located =
    fun ~bag_of_comments ~doc visit_v env located ->
+    let log s = log_src "visit_attach" s in
     let range_loc = Range.of_lexical_positions located.p in
     let parent_ref = ref (Some located) in
     let nearest_ref = ref located in
@@ -93,47 +98,46 @@ struct
     let ok_comments =
       !bag_of_comments
       |> Bag.filter_map (fun (Cmt cmt as c) ->
-          (* log_info "Seeing if comment %s can be directly attached to node: %s"
-            (Cmt.show c) (show_loc ~doc located); *)
+          log "Seeing if comment %s can be directly attached to node: %s"
+            (Cmt.show c) (show_loc ~doc located);
           let relpos = Range.compare_inclusion cmt.range range_loc in
           match relpos with
           | `Before dist
             when only_comments ~doc ~allow_newlines:`AllowNewlines
                    Range.(create ~start:cmt.range.end_ ~end_:range_loc.start) ->
-              (* log_info "* Yes, prepending."; *)
+              log "* Yes, prepending.";
               Some (Cmt { cmt with relpos = `Before dist })
           | `After dist
             when only_comments ~doc ~allow_newlines:`DisallowNewlines
                    Range.(create ~start:range_loc.end_ ~end_:cmt.range.start) ->
-              (* log_info "* Yes, appending."; *)
+              log "* Yes, appending.";
               Some (Cmt { cmt with relpos = `After dist })
           | `Contained ->
-              (* log_info
+              log
                 "* No, but it is contained in the node, so I'll remember this \
-                 node as its parent."; *)
+                 node as its parent.";
               Bag.replace_ref bag_of_comments c (Cmt.with_parent c parent_ref);
               None
           | _ ->
-              (* log_info "* No."; *)
               (match relpos with
               | (`After _dist | `Before _dist) as relpos -> (
-                  (* log_info "The distance to this node is %s."
-                    (Position.show dist); *)
+                  log "No. The distance to this node is %s."
+                    (Position.show _dist);
                   match cmt.nearest_loc with
                   | None ->
-                      (* log_info
+                      log
                         "The nearest_loc field was empty, so I'll make this \
-                         node the nearest."; *)
+                         node the nearest.";
                       Bag.replace_ref bag_of_comments c
                         (Cmt.with_nearest c (nearest_ref, relpos))
                   | Some (_, old_relpos)
                     when compare_relpos relpos old_relpos < 0 ->
-                      (* log_info
+                      log
                         "The node is closer than the old nearest with distance \
                          %s"
                         (Position.show
                            (match old_relpos with
-                           | `After dist | `Before dist -> dist)); *)
+                           | `After dist | `Before dist -> dist));
                       Bag.replace_ref bag_of_comments c
                         (Cmt.with_nearest c (nearest_ref, relpos))
                   | _ -> ())
@@ -191,6 +195,7 @@ struct
       are broken up into individual lines, after comments (line comments) are
       laid out on the same line separated by single spaces. *)
   let render_located k ({ comment; _ } as located) : PPrint.document =
+    let log s = log_src "render_located" s in
     let open PPrint in
     let before_comments, after_comments =
       O.map_or ~default:([], [])

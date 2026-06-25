@@ -6,13 +6,13 @@ rule main allow_newlines = parse
       | `AllowNewlines ->
           Lexing.new_line lexbuf;
           main allow_newlines lexbuf
-      | _ -> failwith "newline"
+      | _ -> failwith "forbidden newline"
     }
   | "#" [' ' '\t']* (['0'-'9']+) [' ' '\t']* ('"' ([^'\n' '\r' '"']*) '"')? [^'\n' '\r']* '\r'* '\n'
     { main allow_newlines lexbuf }
   | "(*" { comment 0 lexbuf; main allow_newlines lexbuf }
   | eof { () }
-  | _ { failwith "not a comment" }
+  | _ as c { failwith (Printf.sprintf "non-blank character '%c'" c) }
 
 and comment depth = parse
   | "(*" { comment (depth + 1) lexbuf }

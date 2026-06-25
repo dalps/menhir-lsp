@@ -4,13 +4,8 @@ open Config
 module Mly = MenhirSyntax
 module MF = Menhir
 
-let helper ?(config : Config.t = default_config) text : unit =
-  text
-  |> MenhirSyntax.Main.load_grammar_from_contents 0 ""
-  |> Result.fold
-       ~ok:(fun ast -> MF.main ~config ~ast ~doc:(doc_of_string text))
-       ~error:(fun (msg, range) -> spr "%s at %s" msg (Mly.Range.show range))
-  |> print_endline
+let format, helper =
+  get_test_helpers (Mly.Main.load_grammar_from_contents 0 "") MF.main
 
 let calc_demo =
   {|%token <int> INT
@@ -82,7 +77,8 @@ let%expect_test "It can format the traditional syntax" =
 
 let%expect_test "The [separateProducers] option works" =
   helper ~config:{ default_config with semiAfterProducer = true } calc_demo;
-  [%expect {|
+  [%expect
+    {|
     %token <int> INT
     %token PLUS MINUS TIMES DIV
     %token LPAREN RPAREN
@@ -217,3 +213,37 @@ declaration:
         locate' $loc(k) @@ DTokenProperties (ss, k, prec) |> singleton
       }
     |}]
+
+let%expect_test "Comments behave well around parser branches" =
+  helper
+    {|%token FUNCTIONBLOCK
+%start <unit> reserved_word
+
+%%
+
+reserved_word:
+  (* Keywords cannot be identifiers but it is nice to
+    let them parse as such to provide a better error *)
+  | FUNCTIONBLOCK { "functions", $loc, false }|};
+  [%expect]
+
+(* let%test "Formatting is idempotent" =
+  let input =
+    {|%{
+(* Takes a sized_basic_type and a list of sizes and repeatedly applies then
+   SArray constructor, taking sizes off the list *)
+let reducearray (sbt, l) =
+  List.fold_right l ~f:(fun z y -> SizedType.SArray (y, z)) ~init:sbt
+%}
+
+%token FUNCTIONBLOCK
+%start <unit> reserved_word
+
+%%
+
+reserved_word:
+  (* Keywords cannot be identifiers but it is nice to
+    let them parse as such to provide a better error *)
+  | FUNCTIONBLOCK { "functions", $loc, false }|}
+  in
+  input |> format |> format |> format |> format |> format = format input *)
