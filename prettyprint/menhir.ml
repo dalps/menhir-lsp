@@ -245,16 +245,22 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
               ]
 
     method private visit_ocaml (code : string) : document =
-      code |> Ocamlformat_client.format |> R.get_or ~default:code |> String.trim
-      |> arbitrary_string
+      align
+      @@
+      let log s = log_src "mly.visit_ocaml" s in
+      log "<-- |%s|" code;
+      let ocf_pass = Ocamlformat_client.main code in
+      log "--> |%s|" ocf_pass;
+      ocf_pass |> String.trim |> arbitrary_string
 
     method! visit_action _ action =
       surround tabsize 1 lbrace
         (match action.expr with
         | IL.ETextual located ->
+            (* todo: include braces in the range fed to self#with_located so comments are allowed to sit on top of actions *)
             self#with_located
               (fun code ->
-                code |> Ocamlformat_client.format |> R.get_or ~default:code
+                Ocamlformat_client.main code
                 |> String.trim
                    (* 1. Recover ocamlyacc-style binders ($0, $1, ...)
                   We simply replace _i with $i where i is a number in [0-9].

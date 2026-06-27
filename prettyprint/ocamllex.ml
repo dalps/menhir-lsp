@@ -42,15 +42,9 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
     (* --------------------------------------- *)
 
     method! visit_action _ =
-      self#with_located (fun v ->
-          let v =
-            match Ocamlformat_client.format (String.trim v) with
-            | Ok formatted -> formatted
-            | Error _ -> v
-          in
-          surround tabsize 1 lbrace
-            (v |> String.trim |> arbitrary_string)
-            rbrace)
+      self#with_located (fun code ->
+          Ocamlformat_client.main code |> String.trim |> arbitrary_string
+          |> fun v -> surround tabsize 1 lbrace v rbrace)
 
     method! visit_lexer_definition _ lexer_definition =
       let { header; entrypoints; trailer; refill_handler; named_regexps } =

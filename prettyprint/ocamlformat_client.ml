@@ -94,3 +94,18 @@ let halt () =
   close_client ();
   state := Uninitialized;
   return ()
+
+(** Helper that returns the original input should an error occur. *)
+let main code =
+  let log s = log_src "ocamlformat" s in
+  let format_args =
+    { empty_args with config = Some [ ("wrap-comments", "true") ] }
+  in
+  match format ~format_args code with
+  | Ok res -> res
+  | Error (`Msg msg) ->
+      log "failed to format: %s" msg;
+      code
+  | Error `No_process ->
+      log "no process";
+      code

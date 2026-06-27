@@ -227,7 +227,7 @@ reserved_word:
   | FUNCTIONBLOCK { "functions", $loc, false }|};
   [%expect]
 
-(* let%test "Formatting is idempotent" =
+let%test "Formatting of OCaml fragments is idempotent" =
   let input =
     {|%{
 (* Takes a sized_basic_type and a list of sizes and repeatedly applies then
@@ -236,14 +236,9 @@ let reducearray (sbt, l) =
   List.fold_right l ~f:(fun z y -> SizedType.SArray (y, z)) ~init:sbt
 %}
 
-%token FUNCTIONBLOCK
-%start <unit> reserved_word
-
 %%
-
-reserved_word:
-  (* Keywords cannot be identifiers but it is nice to
-    let them parse as such to provide a better error *)
-  | FUNCTIONBLOCK { "functions", $loc, false }|}
+|}
   in
-  input |> format |> format |> format |> format |> format = format input *)
+  String.equal
+    (input |> format |> format |> format |> format |> format)
+    (format input)

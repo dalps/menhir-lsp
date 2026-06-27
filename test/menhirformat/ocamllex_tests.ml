@@ -256,6 +256,32 @@ and token = parse
 |};
   [%expect]
 
+let%test "Formatting of OCaml fragments is idempotent" =
+  let input =
+    {|{
+  (* Takes a sized_basic_type and a list of sizes and repeatedly applies then
+     SArray constructor, taking sizes off the list *)
+  let reducearray (sbt, l) =
+    List.fold_right l ~f:(fun z y -> SizedType.SArray (y, z)) ~init:sbt
+}
+
+rule foo = parse
+| (* Program blocks *)
+"functions"
+  { (* A comment that says hi *)
+    lexer_logger "functions"; Parser.FUNCTIONBLOCK }
+| "foonctions"
+  { (* A comment that says hello *)
+    let pattern = () in
+    let pattern = () in
+    let pattern = () in ()
+  }
+|}
+  in
+  String.equal
+    (input |> format |> format |> format |> format |> format)
+    (format input)
+
 let%expect_test "Comments behave well around lexer cases" =
   helper
     {|rule foo = parse
