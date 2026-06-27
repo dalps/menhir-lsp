@@ -70,4 +70,6 @@ val bprint : Buffer.t -> ranges -> unit
    string via [show] and is terminated with a colon and a newline. *)
 val fprint : out_channel -> ranges -> unit
 
+(* [menhir-lsp] stuff *)
 val pp : Format.formatter -> range -> unit
+val parenthesize : range -> range

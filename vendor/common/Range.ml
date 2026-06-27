@@ -49,6 +49,13 @@ let decrement (pos : position) : position =
   let column = max 0 (column - 1) in
   { pos with pos_cnum = column }
 
+(* [menhir-lsp] we need this one too. *)
+let increment (pos : position) : position =
+  { pos with pos_cnum = pos.pos_cnum + 1 }
+
+let parenthesize ((startp, endp) : range) : range =
+    make (decrement startp, increment endp)
+
 let decrement ((startp, endp) : range) : range =
   make (decrement startp, endp)
 

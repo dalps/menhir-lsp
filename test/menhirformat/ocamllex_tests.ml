@@ -207,9 +207,8 @@ let%expect_test "Option [breakRegexpGroups] works" =
     | _ { comment depth lexbuf }
     |}]
 
-let%expect_test "Comments can be attached to actions" =
-  helper
-    {|{ open Calc  exception Error of string }
+let calc_lexer =
+  {|{ open Calc  exception Error of string }
 
 (* This rule looks for a single line, terminated with '\n' or eof.
    It returns a pair of an optional string (the line that was found)
@@ -253,7 +252,10 @@ and token = parse
            (Printf.sprintf "At offset %d: unexpected end of input.\n"
               (Lexing.lexeme_start lexbuf)))
     }
-|};
+|}
+
+let%expect_test "Comments can sit on top of action blocks" =
+  helper calc_lexer;
   [%expect]
 
 let%test "Formatting of OCaml fragments is idempotent" =

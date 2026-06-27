@@ -227,6 +227,23 @@ reserved_word:
   | FUNCTIONBLOCK { "functions", $loc, false }|};
   [%expect]
 
+let%expect_test "Comments can sit on top of action blocks" =
+  helper
+    {|%%
+
+declaration:
+| h = HEADER; /* lexically delimited by %{ ... %} */
+    { locate' $loc @@ DCode h |> singleton }
+| TOKEN; ty = option(ocamltype);
+    ts = clist(terminal_alias_attrs);
+    { locate' $loc @@ DToken (ty, ts) |> singleton } (* [menhir-lsp] Turned into a singleton. *)
+| START; t = option(ocamltype); nts = clist(nonterminal);
+    /* %start <ocamltype> foo is syntactic sugar for %start foo %type <ocamltype> foo */
+
+    (* [menhir-lsp] desugared. *)
+    { locate' $loc @@ DStart (t, nts) |> singleton }|};
+  [%expect]
+
 let%test "Formatting of OCaml fragments is idempotent" =
   let input =
     {|%{

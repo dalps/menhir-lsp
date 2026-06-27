@@ -191,7 +191,11 @@ let main ~config ~ast ~doc =
   let bag_of_comments = Lexer.get_comments () |> init_bag in
   let attach_vtor =
     object
-      inherit [_] Syntax.ast_endo
+      inherit [_] Syntax.ast_endo as super
+
+      method! visit_action _env loc =
+        loc |> Located.braces |> super#visit_action _env
+
       method! visit_located = visit_attach ~bag_of_comments ~doc
     end
   in

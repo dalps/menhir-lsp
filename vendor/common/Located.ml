@@ -37,6 +37,10 @@ let iter (f : 'a -> 'b) ({ v; _ } : 'a located) =
 let parenthesize { p; v; comment } =
   locate ?comment (Range.decrement p) ("(" ^ v ^ ")")
 
+(* [menhir-lsp] We need this for formatting actions. *)
+let braces { p; v; comment } =
+  locate ?comment (Range.parenthesize p) v (* ("{" ^ v ^ "}") *)
+
 let startp { p; _ } = Range.startp p
 
 let endp { p; _ } = Range.endp p
