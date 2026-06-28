@@ -135,9 +135,11 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
     method! visit_Alt _ re1 re2 =
       (* Arrange the alternatives in a box only inside groups or in [let] definitions *)
       (if (not !in_case) || !group_lvl <> 0 then align else fun x -> x)
-      @@ (self#with_located self#visit_regexp re1
-         |^ group (break 1 ^^ barspace)
-            ^| self#with_located self#visit_regexp re2)
+      @@ (group @@ self#with_located self#visit_regexp re1)
+      ^^ group
+           (break 1
+           ^^ self#with_located (fun re -> barspace ^^ self#visit_regexp re) re2
+           )
 
     method! visit_CharSetDifference _ re1 re2 =
       group @@ align
@@ -198,7 +200,7 @@ let main ~config ~ast ~doc =
       method! visit_action _env loc =
         loc |> Located.braces |> super#visit_action _env
 
-      method! visit_located = visit_attach ~bag_of_comments ~doc
+      method! visit_located env loc = visit_attach ~bag_of_comments ~before_whitelist:['|'] ~doc env loc
     end
   in
   attach_comments ast (attach_vtor#visit_main ()) ~bag_of_comments ~doc

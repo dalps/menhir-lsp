@@ -351,7 +351,7 @@ let main ~config ~ast ~doc =
   let attach_vtor =
     object
       inherit [_] Syntax.ast_endo
-      method! visit_located = visit_attach ~bag_of_comments ~doc
+      method! visit_located env loc = visit_attach ~bag_of_comments ~doc env loc
     end
   in
   attach_comments ast (attach_vtor#visit_main ()) ~bag_of_comments ~doc

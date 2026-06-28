@@ -69,11 +69,11 @@ struct
 
   (** Check whether the section of [doc] delimited by [rng] contains only
       whitespace or comments. *)
-  let only_comments ~doc ~allow_newlines rng : bool =
+  let only_comments ~doc ~whitelist rng : bool =
     let log s = log_src "only_comments" s in
     try
       Utils.substring doc rng |> Option.get |> Lexing.from_string
-      |> Comments.main allow_newlines;
+      |> Comments.main whitelist;
       true
     with Failure reason ->
       log "Failed in %a due to: %s" Range.pp rng reason;
@@ -81,16 +81,9 @@ struct
 
   let init_bag = L.map Cmt.of_lexer_comment >> Bag.of_list >> ref
 
-  (** Override the visit_located method of your endo object with this. *)
-  let visit_attach :
-      'env 'a.
-      bag_of_comments:Bag.t ref ->
-      doc:TD.t ->
-      ('env -> 'a -> 'a) ->
-      'env ->
-      'a located ->
-      'a located =
-   fun ~bag_of_comments ~doc visit_v env located ->
+  (** Override the [visit_located] method of your endo object with this. *)
+  let visit_attach ?(before_whitelist = []) ?(after_whitelist = [])
+      ~bag_of_comments ~doc visit_v env located =
     let log s = log_src "visit_attach" s in
     let range_loc = Range.of_lexical_positions located.p in
     let parent_ref = ref (Some located) in
@@ -105,12 +98,12 @@ struct
           let relpos = Range.compare_inclusion cmt.range range_loc in
           match relpos with
           | `Before dist
-            when only_comments ~doc ~allow_newlines:`AllowNewlines
+            when only_comments ~doc ~whitelist:('\n' :: before_whitelist)
                    Range.(create ~start:cmt.range.end_ ~end_:range_loc.start) ->
               log "* Yes, prepending.";
               Some (Cmt { cmt with relpos = `Before dist })
           | `After dist
-            when only_comments ~doc ~allow_newlines:`DisallowNewlines
+            when only_comments ~doc ~whitelist:after_whitelist
                    Range.(create ~start:range_loc.end_ ~end_:cmt.range.start) ->
               log "* Yes, appending.";
               Some (Cmt { cmt with relpos = `After dist })

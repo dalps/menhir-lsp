@@ -56,33 +56,35 @@ let%expect_test "Test breaking of alternations" =
   [%expect
     {|
     let green_series_item =
-      "Green" as series (("Bed" | "Bench" | "Chair" | "Counter" | "Desk"
-                          | "Dresser" | "Lamp" | "Pantry" | "Shell" | "Table" | "Wall Clock"
-                          | "Wardrobe") as item)
+      "Green" as series (("Bed" | "Bench" | "Chair" | "Counter"
+                          | "Desk" | "Dresser" | "Lamp" | "Pantry" | "Shell"
+                          | "Table" | "Wall Clock" | "Wardrobe") as item)
 
     let bedroom_item =
       ("Gorgeous" | "Sea-Anemone" | "Polka-Dot") as series ("Bed" as item)
-      | ("Card" | "Gorgeous" | "Jingle" | "Polka-Dot" | "Regal" | "Pear") as series ("Dresser" as item)
+      | ("Card" | "Gorgeous" | "Jingle" | "Polka-Dot" | "Regal"
+         | "Pear") as series ("Dresser" as item)
       | ("Regal" | "Full-Moon") as series ("Vanity" as item)
 
     rule scan_feng_shui_item = parse
-      | ("Alpinist" | "Blossoming" | "Dapper" | "Festivale" | "Festive-Tree"
-         | "Chevron" | "Green Lace-Up" | "Lime") as line (("Dress" | "Hat"
-                                                           | "Pants" | "Tank") as kind)
+      | ("Alpinist" | "Blossoming" | "Dapper" | "Festivale"
+         | "Festive-Tree" | "Chevron" | "Green Lace-Up" | "Lime") as line (("Dress"
+                                                                            | "Hat"
+                                                                            | "Pants"
+                                                                            | "Tank") as kind)
         { CLOTHING (line, typ) }
-      | green_series_item | ("Zodiac" as series) (("Goat" | "Snake" | "Tiger"
-                                                   | "Horse" | "Ox" | "Rabbit" | "Dragon") as item)
-      | ("Golden" as series) (("Bed" | "Bench" | "Chair" | "Clock" | "Closet"
-                               | "Dresser" | "Man" | "Screen" | "Table") as item)
+      | green_series_item
+      | ("Zodiac" as series) (("Goat" | "Snake" | "Tiger" | "Horse"
+                               | "Ox" | "Rabbit" | "Dragon") as item)
+      | ("Golden" as series) (("Bed" | "Bench" | "Chair" | "Clock"
+                               | "Closet" | "Dresser" | "Man" | "Screen" | "Table") as item)
         { FURNITURE (series, item) }
-      | ("Squat" as size) ("Nebuloid" as name) | (("Mega" | "Mini" | "Tall")? as size) (("Brewstoid"
-                                                                                         | "Buzzoid"
-                                                                                         | "Clankoid"
-                                                                                         | "Croakoid"
-                                                                                         | "Plinkoid"
-                                                                                         | "Quazoid"
-                                                                                         | "Sputnoid"
-                                                                                         | "Squelchoid") as name)
+      | ("Squat" as size) ("Nebuloid" as name)
+      | (("Mega" | "Mini" | "Tall")? as size) (("Brewstoid"
+                                                | "Buzzoid" | "Clankoid"
+                                                | "Croakoid" | "Plinkoid"
+                                                | "Quazoid" | "Sputnoid"
+                                                | "Squelchoid") as name)
         { GYROID (name, size) }
       | eof { EOF }
       | _ { failwith "not a feng shui item" }
@@ -354,8 +356,8 @@ let%expect_test "Comments can sit on top of rule cases, before the leading bar"
     |}]
 
 let%expect_test
-    "Gracefully fails on invalid OCaml code (`let = ref 0`, `$loc`) and skips the whole block."
-    =
+    "Gracefully fails on invalid OCaml code (`let = ref 0`, `$loc`) and skips \
+     the whole block." =
   {|{
     open Parser
         let = ref 0
@@ -373,7 +375,8 @@ let%expect_test
                      ("functions", $loc, false)
   }|}
   |> format |> format |> format |> format |> helper;
-  [%expect {|
+  [%expect
+    {|
     { open Parser
             let = ref 0 }
 
@@ -387,4 +390,32 @@ let%expect_test
                     let pattern =() in
                          ("functions", $loc, false)
       }
+    |}]
+
+let%expect_test "Comments can sit on top of regexp alternations (sibling cases)"
+    =
+  {|rule skip_char = parse
+  | '\\'? ('\013'* '\010') "'"
+     { incr_loc lexbuf 1 }
+  | [^ '\\' '\'' '\010' '\013'] "'" (* regular character *)
+(* one character and numeric escape sequences *)
+  | '\\' _ "'"
+  | '\\' ['0'-'9'] ['0'-'9'] ['0'-'9'] "'"
+  | '\\' 'o' ['0'-'7'] ['0'-'7'] ['0'-'7'] "'"
+  | '\\' 'x' ['0'-'9' 'a'-'f' 'A'-'F'] ['0'-'9' 'a'-'f' 'A'-'F'] "'"
+     { () }
+(* Perilous *)
+  | "" { () }|}
+  |> helper;
+  [%expect {|
+    rule skip_char = parse
+    | '\\'? ('\r'* '\n') "'" { incr_loc lexbuf 1 }
+    | [^'\\' '\'' '\n' '\r'] "'" (* regular character *)
+    (* one character and numeric escape sequences *)
+    | '\\' _ "'" | '\\' ['0'-'9'] ['0'-'9'] ['0'-'9'] "'"
+    | '\\' 'o' ['0'-'7'] ['0'-'7'] ['0'-'7'] "'"
+    | '\\' 'x' ['0'-'9' 'a'-'f' 'A'-'F'] ['0'-'9' 'a'-'f' 'A'-'F'] "'"
+      { () }
+    (* Perilous *)
+    | "" { () }
     |}]
