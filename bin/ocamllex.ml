@@ -20,6 +20,12 @@ type state = {
   intervals : zone Ivl_map.t;
 }
 
+let pp_state out (state : state) =
+  pf out "{symbols = %a}"
+    (Format.pp_print_list (fun out sym ->
+         pf out "%a" (Located.pp pp_string) sym))
+    state.symbols
+
 let located_of_ppxloc ~(from : Lexing.position) ({ txt; loc } : 'v Ppxlib.Loc.t)
     : 'v located =
   Located.locate (OcamlSymbols.range_of_ppxlocation ~from loc) txt
@@ -97,15 +103,12 @@ let regexp_bindings ?(resolve = false) :
         fun _ re name -> name :: super#visit_regular_expression_syntax () re.v
 
       method! visit_Ref _ located =
-        if resolve then (
+        if resolve then
           let open O in
           O.get_or_nil
           @@
           let+ nr, _, bindings = Hashtbl.find_opt named_regexps located.v in
-          epr "matched %s -> [%a]\n" located.v
-            Format.(pp_print_list (Located.pp pp_print_string))
-            bindings;
-          bindings @ super#visit_named_regexp () nr.v)
+          bindings @ super#visit_named_regexp () nr.v
         else []
     end
   in
@@ -284,6 +287,7 @@ let definition ~(notify_back : notify_back)
     ({ grammar; intervals; _ } as state : state) ~(doc : Text_document.t)
     ~(pos : Position.t) : Locations.t =
   let open O in
+  let log s = log_src ~debug:false ~notify_back "mll.definition" s in
   let mk_location locs = `Location locs in
   let offset = TD.absolute_position doc pos in
   mk_location @@ to_list
@@ -296,14 +300,9 @@ let definition ~(notify_back : notify_back)
     let open O in
     ( (match query_position state.intervals offset with
         | Some (Action (params, binders)) ->
-            log_info ~notify_back
-              "[Definition] It looks like we're inside an action!";
             let*? binder = params @ binders in
             if_ (fun _ -> String.equal binder.v sym.v) binder
-        | _ ->
-            log_info ~notify_back
-              "[Definition] Nope, we're inside something else...";
-            None)
+        | _ -> None)
     <|> fun () ->
       let*? { v = entry; _ } = grammar.entrypoints in
       if_ (fun _ -> String.equal entry.name.v sym.v) entry.name )
@@ -368,17 +367,6 @@ let completions
       (* We don't use _params because Merlin already completes the rule's name parameters. *)
       action_completions binders
 
-let print_symbols ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
-    (state : state) =
-  notify_back#send_log_msg ~type_:Info
-    (L.mapi
-       (fun i s ->
-         spr "%3d ) %20s at %20s" i s.v Range.(show @@ of_lexical_positions s.p))
-       state.symbols
-    |> CCString.concat "\n"
-    |> spr "\nLexer symbols:\n%s\n")
-  |> ignore
-
 let prepare_rename (state : state) ~(pos : Position.t) : Range.t option =
   let open O in
   let+ sym_range, _ = symbol_at_position state pos in
@@ -404,6 +392,7 @@ let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
     ~(notify_back : notify_back) : SelectionRange.t list =
   let open L in
   let@* i, pos = positions in
+  let log s = log_src ~debug:true "mll.selection_range" s in
   let parent_ref = ref None in
   let add_range = add_range ~parent_ref in
   (* This visitor descends the lexer's syntax tree nodes which contain pos, connecting them in a ladder of [SelectionRange]s. *)
@@ -412,14 +401,9 @@ let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
       inherit [_] ast_iter
 
       method! visit_action _ action =
-        log_info ~notify_back "[ranges] action %a" (Located.pp CCString.pp)
-          action;
         parse_ocaml_impl action.v
         |> OcamlSymbols.get_ranges_for_pos pos (fst action.p)
-        |> fun l ->
-        log_info ~notify_back "range stack: %s"
-        @@ (List.map Range.show l |> String.concat " --> ");
-        l |> L.iter add_range
+        |> L.iter add_range
 
       method! visit_located =
         fun visit_a _env located ->
@@ -433,8 +417,8 @@ let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
   v#visit_lexer_definition () grammar;
   O.(
     let+ res = !parent_ref in
-    log_info ~notify_back "Range for pos #%d %s: %s" i (Position.show pos)
-      (Range.show res.SelectionRange.range);
+    log "Range stack for position #%d %a: %a" i Position.pp pos
+      pp_selection_range res;
     res)
   |> O.to_list
 
@@ -443,6 +427,7 @@ let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
 let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
     ~(doc : Text_document.t) ~range:(rng : Range.t) : CodeActionResult.t =
   let module TD = Text_document in
+  let log s = log_src ~notify_back "mll.code_actions" s in
   let uri = TD.documentUri doc in
   let open L in
   let@*? _i, re = regexps in
@@ -472,8 +457,8 @@ let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
   let open O in
   let* extract_range = !node in
   let* local_text = substring doc extract_range in
-  log_info ~notify_back "Code action available for selection: %s %s" local_text
-    (Range.show extract_range);
+  log "Code action available for selection: %s %a" local_text Range.pp
+    extract_range;
 
   (* Where does the extracted regexp's new declaration go? *)
   let edit_pos : Position.t =
@@ -495,7 +480,7 @@ let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
   let new_name = "regexp_name" in
   let newText = spr "\nlet %s = %s\n" new_name local_text in
   let insert_range = Range.create ~start:edit_pos ~end_:edit_pos in
-  log_info ~notify_back "newText: %s" newText;
+  log "newText: %s" newText;
   let edits =
     [
       TextEdit.create ~newText ~range:insert_range;

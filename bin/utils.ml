@@ -191,7 +191,7 @@ let add_range ~parent_ref range =
   match !parent_ref with
   | None -> add ()
   | Some p when Range.contains p.range range -> add ()
-  | Some _ -> epr "Skipping bad selection range: %s." (Range.show range)
+  | Some _ -> epr "Skipping bad selection range: %a." Range.pp range
 
 let query_position (intervals : 'zone Ivl_map.t) offset : 'zone option =
   let open O in
@@ -223,3 +223,8 @@ let pp_uri out (uri : uri) =
 
 let pp_short_uri out (uri : uri) = pf out "%s" (Uri.to_path uri)
 let pp_short_state = fun out _ -> pf out "<state>"
+
+let rec pp_selection_range (out : Format.formatter) (sr : SelectionRange.t) =
+  pf out "%a%a" Range.pp sr.range
+    (Format.pp_print_option (fun out p -> pf out " --> %a" pp_selection_range p))
+    sr.parent

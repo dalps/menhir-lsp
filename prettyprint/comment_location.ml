@@ -2,9 +2,6 @@ open Utils
 
 let debug = false
 
-let log_src src s =
-  Format.kasprintf (fun s -> if debug then log_src src "%s" s) s
-
 (** This module is responsible for attaching comments to located syntax nodes
     over a generic syntax interface. Every lexed comment must be attached to a
     syntax node before formatting, so nodes can be moved around freely by the
@@ -51,7 +48,7 @@ struct
     let compare (Cmt c1) (Cmt c2) =
       Range.compare c1.range c2.range |> Ordering.to_int
 
-    let show (Cmt cmt) = spr "`%s`%s" cmt.text (Range.show cmt.range)
+    let show (Cmt cmt) = spr "`%s`%a" cmt.text Range.pp cmt.range
   end
 
   module Bag = struct
@@ -63,14 +60,14 @@ struct
 
   let show_loc ~doc loc =
     let range_loc = Range.of_lexical_positions loc.p in
-    spr "`%s`%s"
+    spr "`%s`%a"
       (Utils.substring doc range_loc |> O.get_string)
-      (Range.show range_loc)
+      Range.pp range_loc
 
   (** Check whether the section of [doc] delimited by [rng] contains only
       whitespace or comments. *)
   let only_comments ~doc ~whitelist rng : bool =
-    let log s = log_src "only_comments" s in
+    let log s = log_src ~debug "only_comments" s in
     try
       Utils.substring doc rng |> Option.get |> Lexing.from_string
       |> Comments.main whitelist;
@@ -84,7 +81,7 @@ struct
   (** Override the [visit_located] method of your endo object with this. *)
   let visit_attach ?(before_whitelist = []) ?(after_whitelist = [])
       ~bag_of_comments ~doc visit_v env located =
-    let log s = log_src "visit_attach" s in
+    let log s = log_src ~debug "visit_attach" s in
     let range_loc = Range.of_lexical_positions located.p in
     let parent_ref = ref (Some located) in
     let nearest_ref = ref located in
@@ -190,7 +187,7 @@ struct
       are broken up into individual lines, after comments (line comments) are
       laid out on the same line separated by single spaces. *)
   let render_located k ({ comment; _ } as located) : PPrint.document =
-    let log s = log_src "render_located" s in
+    let log s = log_src ~debug "render_located" s in
     let open PPrint in
     let before_comments, after_comments =
       O.map_or ~default:([], [])

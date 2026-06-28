@@ -6,7 +6,6 @@ module Names = Set.Make (String)
 let range_of_ppxlocation ~(from : Lexing.position)
     ({ loc_start; loc_end; _ } : Ppxlib.Location.t) :
     Lexing.(position * position) =
-  (* epr "loc_start: %a, loc_end: %a\n" pp_position loc_start pp_position loc_end; *)
   let ( + ) p1 p2 =
     Lexing.
       {
@@ -94,11 +93,7 @@ let get_ranges_for_pos pos from ast : Range.t list =
         let range =
           loc |> range_of_ppxlocation ~from |> Range.of_lexical_positions
         in
-        epr "[ocaml ranges] checking %s" (Range.show range);
-        if Position.is_inside pos range then (
-          epr "[ocaml ranges] entering %s\n" (Range.show range);
-          range :: acc)
-        else acc
+        if Position.is_inside pos range then range :: acc else acc
     end
   in
   v#structure ast []

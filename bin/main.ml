@@ -40,8 +40,8 @@ class lsp_server =
           Position.create ~line:pos.line ~character:(pos.character - length)
         in
         let range = Range.create ~start:start_pos ~end_:pos in
-        log_info ~notify_back "Word under cursor: |%s|, range: %s, length: %d"
-          word (Range.show range) length;
+        log_info ~notify_back "Word under cursor: |%s|, range: %a, length: %d"
+          word Range.pp range length;
         Some { v = word; p = range; offset = ofs; td }
 
     method private _dispatch : type r.

@@ -65,9 +65,10 @@ let pf = Format.fprintf
 let ( >> ) = CCFun.( %> )
 let notify_back_ref : notify_back option ref = ref None
 
-(** [log] prints to the output channel using the caller's [notify_back] argument if provided,
-    falling back to the optional value stored in the global variable
-    [notify_back_ref] or default [prerr_endline] if neither that is available. *)
+(** [log] prints to the first available output channel. It will use caller's
+    [notify_back] argument if provided, falling back to the optional value
+    stored in the global variable [notify_back_ref] and ultimately default to
+    [prerr_endline]. *)
 let log ?(notify_back : notify_back option) ?(kind = MessageType.Info) s =
   match (notify_back, !notify_back_ref) with
   | None, None -> Format.kasprintf prerr_endline s
@@ -87,9 +88,13 @@ let log' ?(notify_back : notify_back option) ?(kind = MessageType.Info) s =
     prepended to every log message.
 
     Override with a concrete [src] argument like this:
-    [let log s = log_src "my_source" s in ..] *)
-let log_src ?notify_back ?kind src s =
-  Format.kasprintf (fun s -> log ?notify_back ?kind "[%s] %s" src s) s
+    [let log s = log_src "my_source" s in ..].
+
+    Set the [debug] flag to false to mute the messages from this source. *)
+let log_src ?(debug = true) ?notify_back ?kind src s =
+  Format.kasprintf
+    (fun s -> if debug then log ?notify_back ?kind "[%s] %s" src s)
+    s
 
 let log_info = log ~kind:Info
 let log_error = log ~kind:Error

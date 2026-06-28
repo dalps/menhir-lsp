@@ -516,8 +516,7 @@ let symbol_at_position ?(notify_back : notify_back option) (state : state)
   let res = Position.is_inside pos rng in
   if res then (
     O.iter
-      (fun notify_back ->
-        log_info ~notify_back "found registered symbol %s\n" s.v)
+      (fun notify_back -> log ~notify_back "found registered symbol %s\n" s.v)
       notify_back;
 
     Some (rng, s))
@@ -554,7 +553,7 @@ let hover (state : state) ~(pos : Position.t) : Hover.t option =
 
 let diagnostics ~(notify_back : notify_back) ~(uri : uri) (_s : state) :
     Diagnostic.t list =
-  let log = log_info ~notify_back in
+  let log s = log_src ~notify_back "mly.diagnostics" s in
   let open R in
   get_or_nil
   @@
@@ -637,31 +636,30 @@ let references (state : state) ~uri ~(pos : Position.t) : Location.t list =
 let definition ~(notify_back : notify_back) (state : state)
     ~(doc : Text_document.t) ~(pos : Position.t) : Locations.t =
   let mk_location locs = `Location locs in
+  let log s = log_src ~notify_back ~debug:false "mly.definition" s in
   let offset = TD.absolute_position doc pos in
   let open O in
   mk_location @@ to_list
   @@
   (* Get the symbol under the cursor, if any. *)
   let* sym_range, sym = symbol_at_position ~notify_back state pos in
-  log_info ~notify_back "[Definition] symbol under cursor: %s" sym.v;
+  log "Symbol under cursor: %s" sym.v;
   (* Search for the symbol in the terminals or in the nonterminals. *)
   let+ def =
     let open L in
     (* It could also be a semantic binding (producer) inside a branch! *)
-    log_info ~notify_back "[Definition] Checking if we're inside an action...";
+    log "Checking if we're inside an action...";
     let open O in
     let* zone = query_position state.intervals offset in
     (match zone with
       | Action lst ->
-          log_info ~notify_back
-            "[Definition] It looks like we're inside an action!";
+          log "It looks like we're inside an action!";
           L.find_map
             (fun (binder, _param) ->
               if_ (fun _ -> String.equal binder.v sym.v) binder)
             lst
       | _ ->
-          log_info ~notify_back
-            "[Definition] Nope, we're inside something else...";
+          log "Nope, we're inside something else...";
           None)
     <|> fun () ->
     (let*? (t : token located) = state.tokens in
@@ -684,8 +682,7 @@ let definition ~(notify_back : notify_back) (state : state)
       L.find_opt (fun param -> String.equal param.v sym.v) pr_params
     else None
   in
-  log_info ~notify_back "[Definition] found definition at: %s"
-  @@ M.Range.show def.p;
+  log "found definition at: %a" M.Range.pp def.p;
   Location.create
     ~range:(Range.of_lexical_positions def.p)
     ~uri:(TD.documentUri doc)
@@ -695,6 +692,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
     CompletionItem.t list =
   let open O in
   let range = O.map (fun Utils.{ p; _ } -> p) word in
+  let log s = log_src ~notify_back "mly.completions" s in
   let grammar_completions () =
     default_completions ?range state
     @ standard_lib_completions @ declarations ?range ()
@@ -709,9 +707,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
     |> get_or_nil
   in
   let res = Ivl_map.query_interval_list query state.intervals in
-  log_info ~notify_back "[query_interval_list] for %s produced %d results"
-    (show_interval query)
-  @@ L.length res;
+  log "for %a produced %d results" pp_interval query @@ L.length res;
   let string_of_zone = function
     | OCaml -> "ocaml"
     | Declaration -> "decl"
@@ -720,12 +716,11 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
           (params |> List.map Located.value |> String.concat ", ")
     | Action _ -> "action"
   in
-  log_info ~notify_back "[query_interval] innermost zone:";
+  log "innermost zone:";
   let res = Ivl_map.query_interval ~order:Desc query state.intervals in
   let* (ivl, zones), gen = Ivl_map.Gen.next res in
   let+ innermost_zone = L.head_opt zones in
-  log_info ~notify_back "%s --> %s" (show_interval ivl)
-    (string_of_zone innermost_zone);
+  log "%a --> %s" pp_interval ivl (string_of_zone innermost_zone);
   match innermost_zone with
   | OCaml -> merlin_compls ()
   | Declaration -> grammar_completions ()
@@ -840,7 +835,7 @@ let selection_range ({ grammar; _ } as _state : state)
     ~(positions : Position.t list) ~(notify_back : notify_back) :
     SelectionRange.t list =
   let json = yojson_of_ast grammar in
-  log_info ~notify_back "%s" @@ Json.pretty_to_string json;
+  let log s = log_src ~debug:true ~notify_back "mly.selection_range" s in
   let open L in
   let@* i, pos = positions in
   let parent_ref = ref None in
@@ -853,11 +848,9 @@ let selection_range ({ grammar; _ } as _state : state)
       method! visit_action _ action =
         match action.expr with
         | IL.ETextual { p; v; _ } ->
-            parse_ocaml_impl v |> OcamlSymbols.get_ranges_for_pos pos (fst p)
-            |> fun l ->
-            log_info ~notify_back "range stack: %s"
-            @@ (List.map Range.show l |> String.concat " --> ");
-            l |> L.iter add_range
+            parse_ocaml_impl v
+            |> OcamlSymbols.get_ranges_for_pos pos (fst p)
+            |> L.iter add_range
         | _ -> ()
 
       (* This would work out of the box if every default method would visit the location first and the contents after, but the result confirms that's not the case. *)
@@ -873,7 +866,7 @@ let selection_range ({ grammar; _ } as _state : state)
   v#visit_partial_grammar () grammar;
   O.(
     let+ res = !parent_ref in
-    log_info ~notify_back "Range for pos #%d %s: %s" i (Position.show pos)
-      (Range.show res.SelectionRange.range);
+    log "Range stack for position #%d %a: %a" i Position.pp pos
+      pp_selection_range res;
     res)
   |> O.to_list
