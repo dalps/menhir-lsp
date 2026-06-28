@@ -226,7 +226,8 @@ reserved_word:
   (* Keywords cannot be identifiers but it is nice to
     let them parse as such to provide a better error *)
   | FUNCTIONBLOCK { "functions", $loc, false }|};
-  [%expect {|
+  [%expect
+    {|
     %token FUNCTIONBLOCK
 
     %start <unit> reserved_word
@@ -254,7 +255,8 @@ declaration:
 
     (* [menhir-lsp] desugared. *)
     { locate' $loc @@ DStart (t, nts) |> singleton }|};
-  [%expect {|
+  [%expect
+    {|
     %%
 
     declaration:
@@ -284,3 +286,60 @@ let reducearray (sbt, l) =
   String.equal
     (input |> format |> format |> format |> format |> format)
     (format input)
+
+let%expect_test
+    "Gracefully fails on invalid OCaml code (`List.fold_right l f:(fun z y \
+     ..`, `let module = ()`) and skips the bad block." =
+  let input =
+    {|%{
+    (* Takes a sized_basic_type and a list of sizes and repeatedly applies then
+        SArray constructor, taking sizes off the list *)
+     let reducearray (sbt, l) =
+       List.fold_right l f:(fun z y -> SizedType.SArray (y, z)) ~init:sbt
+%}
+
+%token FUNCTIONBLOCK
+
+%start <unit> reserved_word
+
+%%
+
+reserved_word:
+| FUNCTIONBLOCK;
+    (* Keywords cannot be identifiers but it is nice to
+    let them parse as such to provide a better error *)
+    { "functions", $loc, false }
+| FUNCTIONBLOCK;
+    { let module = ()
+    (* Keywords cannot be identifiers but it is nice to
+    let them parse as such to provide a better error *)
+    in     ("functions", $loc, false) }|}
+  in
+  input |> format |> format |> format |> format |> helper;
+  [%expect {|
+    %{
+      (* Takes a sized_basic_type and a list of sizes and repeatedly applies then
+            SArray constructor, taking sizes off the list *)
+         let reducearray (sbt, l) =
+           List.fold_right l f:(fun z y -> SizedType.SArray (y, z)) ~init:sbt
+    %}
+
+    %token FUNCTIONBLOCK
+
+    %start <unit> reserved_word
+
+    %%
+
+    reserved_word:
+    | FUNCTIONBLOCK
+      (* Keywords cannot be identifiers but it is nice to
+        let them parse as such to provide a better error *)
+      { "functions", $loc, false }
+    | FUNCTIONBLOCK
+      {
+        let module = ()
+        (* Keywords cannot be identifiers but it is nice to
+        let them parse as such to provide a better error *)
+        in     ("functions", $loc, false)
+      }
+    |}]

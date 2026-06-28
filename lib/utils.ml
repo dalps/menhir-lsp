@@ -65,12 +65,12 @@ let pf = Format.fprintf
 let ( >> ) = CCFun.( %> )
 let notify_back_ref : notify_back option ref = ref None
 
-(** [log] will print use the caller's [notify_back] argument if provided, or
-    fall back to the optional value stored in the global variable
-    [notify_back_ref], or [Format.eprintf] as a final resort. *)
+(** [log] prints to the output channel using the caller's [notify_back] argument if provided,
+    falling back to the optional value stored in the global variable
+    [notify_back_ref] or default [prerr_endline] if neither that is available. *)
 let log ?(notify_back : notify_back option) ?(kind = MessageType.Info) s =
   match (notify_back, !notify_back_ref) with
-  | None, None -> epr s
+  | None, None -> Format.kasprintf prerr_endline s
   | None, Some notify_back | Some notify_back, _ ->
       Format.kasprintf
         (fun s -> notify_back#send_log_msg ~type_:kind s |> ignore)
@@ -127,7 +127,7 @@ module Position = struct
   let show_lexing = spr "%a" pp_lexing
 
   let ( - ) ({ line; character } : t) (t : t) : t =
-    { line = line - t.line; character = character - t.character }
+    { line = line - t.line; character = max 0 (character - t.character) }
 
   let abs ({ line; character } : t) : t =
     { line = abs line; character = abs character }
@@ -149,6 +149,9 @@ module Position = struct
     let line = position.line + 1 in
     let col = position.character in
     `Logical (line, col)
+
+  let ( + ) ({ line; character } : t) (t : t) : t =
+    { line = line + t.line; character = character + t.character }
 end
 
 (** Adapted from
@@ -223,6 +226,12 @@ module Range = struct
     let start = { Position.line = 0; character = 0 } in
     let end_ = { Position.line = 1; character = 0 } in
     { start; end_ }
+
+  (* Enlarges the given range with one column on both ends. *)
+  let parenthesize (t : t) : t =
+    Range.create
+      ~start:{ t.start with character = max 0 (t.start.character - 1) }
+      ~end_:{ t.end_ with character = t.end_.character + 1 }
 
   let resize_for_edit { TextEdit.range; newText } =
     let lines = CCString.lines newText in

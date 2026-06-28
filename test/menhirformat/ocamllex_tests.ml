@@ -38,7 +38,7 @@ rule scan_feng_shui_item = parse
 | ("Alpinist" | "Blossoming" | "Dapper" | "Festivale" | "Festive-Tree"
    | "Chevron" | "Green Lace-Up" | "Lime") as line (("Dress" | "Hat"
                                                     | "Pants" | "Tank") as kind)
-  { CLOTHING (line, type) }
+  { CLOTHING (line, typ) }
 | green_series_item | ("Zodiac" as series) (("Goat" | "Snake" | "Tiger"
                                              | "Horse" | "Ox" | "Rabbit" | "Dragon") as item)
   | ("Golden" as series) (("Bed" | "Bench" | "Chair" | "Clock" | "Closet"
@@ -69,7 +69,7 @@ let%expect_test "Test breaking of alternations" =
       | ("Alpinist" | "Blossoming" | "Dapper" | "Festivale" | "Festive-Tree"
          | "Chevron" | "Green Lace-Up" | "Lime") as line (("Dress" | "Hat"
                                                            | "Pants" | "Tank") as kind)
-        { CLOTHING (line, type) }
+        { CLOTHING (line, typ) }
       | green_series_item | ("Zodiac" as series) (("Goat" | "Snake" | "Tiger"
                                                    | "Horse" | "Ox" | "Rabbit" | "Dragon") as item)
       | ("Golden" as series) (("Bed" | "Bench" | "Chair" | "Clock" | "Closet"
@@ -256,7 +256,8 @@ and token = parse
 
 let%expect_test "Comments can sit on top of action blocks" =
   helper calc_lexer;
-  [%expect {|
+  [%expect
+    {|
     { open Calc  exception Error of string }
 
     (* This rule looks for a single line, terminated with '\n' or eof.
@@ -352,15 +353,38 @@ let%expect_test "Comments can sit on top of rule cases, before the leading bar"
       | "functions" { lexer_logger "functions"; Parser.FUNCTIONBLOCK }
     |}]
 
-  helper
-    {|rule foo = parse
+let%expect_test
+    "Gracefully fails on invalid OCaml code (`let = ref 0`, `$loc`) and skips the whole block."
+    =
+  {|{
+    open Parser
+        let = ref 0
+}
+
+    rule foo = parse
 (* Program blocks *)
   | "functions"               { lexer_logger "functions" ;
-                                Parser.FUNCTIONBLOCK }|};
+                                Parser.FUNCTIONBLOCK }
+| "foonction"
+  {
+    let pattern =() in
+                let pattern =() in
+                let pattern =() in
+                     ("functions", $loc, false)
+  }|}
+  |> format |> format |> format |> format |> helper;
   [%expect {|
+    { open Parser
+            let = ref 0 }
+
     rule foo = parse
     (* Program blocks *)
     | "functions" { lexer_logger "functions"; Parser.FUNCTIONBLOCK }
+    | "foonction"
+      {
+        let pattern =() in
+                    let pattern =() in
+                    let pattern =() in
+                         ("functions", $loc, false)
+      }
     |}]
-
-  [%expect]

@@ -246,37 +246,28 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
               ]
 
     method private visit_ocaml (code : string) : document =
-      align
-      @@
-      let log s = log_src "mly.visit_ocaml" s in
-      log "<-- |%s|" code;
-      let ocf_pass = Ocamlformat_client.main code in
-      log "--> |%s|" ocf_pass;
-      ocf_pass |> String.trim |> arbitrary_string
+      Ocamlformat_client.main code |> align
 
     method! visit_action _ action =
+      let recover_menhir_keywords code =
+        code
+        (* 1. Recover ocamlyacc-style binders ($0, $1, ...)
+          We simply replace _i with $i where i is a number in [0-9].
+          This is a safe operation if we assume the user is a sane person who doesn't name her OCaml constants _0, _1 and the like. *)
+        |> Re.Str.(global_replace (regexp "\\b_\\([0-9]\\)\\b") "$\\1")
+        (* 2. Recover Menhir keywords ($startpos, $endpos, ...).
+          We fold the list of keywords from the right to follow the order in which they were scanned, and replace the leftmost occurrence for each one (i.e. ~which:`Left). *)
+        |> List.fold_right
+             (fun (Keyword.Position (text, _, _, _) as k) ->
+               CCString.replace ~which:`Left ~sub:(Keyword.kposvar k) ~by:text.v)
+             action.keyword_lst
+        (* [action.keyword_lst] holds the keywords in the order they are scanned, reversed. *)
+      in
       surround tabsize 1 lbrace
         (match action.expr with
         | IL.ETextual located ->
-            (* todo: include braces in the range fed to self#with_located so comments are allowed to sit on top of actions *)
             self#with_located
-              (fun code ->
-                Ocamlformat_client.main code
-                |> String.trim
-                   (* 1. Recover ocamlyacc-style binders ($0, $1, ...)
-                  We simply replace _i with $i where i is a number in [0-9].
-                  This is a safe operation if we assume the user is a sane person who doesn't name her OCaml constants _0, _1 and the like. *)
-                |> Re.Str.(global_replace (regexp "\\b_\\([0-9]\\)\\b") "$\\1")
-                |>
-                (* 2. Recover Menhir keywords ($startpos, $endpos, ...).
-                We fold the list of keywords from the right to follow the order in which they were scanned, and replace the leftmost occurrence for each one (i.e. ~which:`Left). *)
-                List.fold_right
-                  (fun (Keyword.Position (text, _, _, _) as k) ->
-                    CCString.replace ~which:`Left ~sub:(Keyword.kposvar k)
-                      ~by:text.v)
-                  action.keyword_lst
-                (* [action.keyword_lst] holds the keywords in the order they are scanned, reversed. *)
-                |> arbitrary_string)
+              (Ocamlformat_client.main ~post:recover_menhir_keywords)
               located
         | _ -> text "menhirformat: unrecognized syntax")
         rbrace

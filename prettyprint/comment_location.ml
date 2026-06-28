@@ -1,7 +1,9 @@
 open Utils
 
 let debug = false
-let log_src src s = Format.kasprintf (fun s -> if debug then log_src src "%s" s) s
+
+let log_src src s =
+  Format.kasprintf (fun s -> if debug then log_src src "%s" s) s
 
 (** This module is responsible for attaching comments to located syntax nodes
     over a generic syntax interface. Every lexed comment must be attached to a
