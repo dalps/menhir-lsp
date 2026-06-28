@@ -2,9 +2,7 @@ module M = MenhirSyntax
 module MR = MenhirSyntax.Range
 module Json = Yojson.Safe
 include Menhir_lsp_lib.Utils
-
 module Ivl_map = Interval_map.Make (Int)
-
 module Ivl = Ivl_map.Interval
 
 let server_name = "menhir-lsp"
@@ -176,3 +174,57 @@ let get_merlin_compls ~(notify_back : notify_back) ~(uri : uri)
       in
       log_info ~notify_back "# merlin completions: %d" (L.length compls);
       compls)
+
+let parse_ocaml_impl s =
+  let lexbuf = Lexing.from_string s in
+  Ppxlib.Parse.implementation lexbuf
+
+let parse_ocaml_type s =
+  let lexbuf = Lexing.from_string s in
+  Ppxlib.Parse.core_type lexbuf
+
+let add_range ~parent_ref range =
+  let add () =
+    parent_ref := O.some @@ SelectionRange.create ?parent:!parent_ref ~range ()
+  in
+  (* Add [range] only if it preserves the invariant. *)
+  match !parent_ref with
+  | None -> add ()
+  | Some p when Range.contains p.range range -> add ()
+  | Some _ -> epr "Skipping bad selection range: %a." Range.pp range
+
+let query_position (intervals : 'zone Ivl_map.t) offset : 'zone option =
+  let open O in
+  let query = Ivl.create (Included offset) (Included offset) in
+  let res = Ivl_map.query_interval ~order:Desc query intervals in
+  let* (ivl, zones), gen = Ivl_map.Gen.next res in
+  let+ innermost_zone = L.head_opt zones in
+  innermost_zone
+
+let pp_interval out ({ low; high } : Ivl.t) =
+  let open Ivl_map.Bound in
+  let pp_low out = function
+    | Included v -> pf out "[%d" v
+    | Excluded v -> pf out "(%d" v
+    | Unbounded -> pf out "(∞"
+  in
+  let pp_high out = function
+    | Included v -> pf out "%d]" v
+    | Excluded v -> pf out "%d)" v
+    | Unbounded -> pf out "∞)"
+  in
+  pf out "%a, %a" pp_low low pp_high high
+
+let show_interval = spr "%a" pp_interval
+
+let pp_uri out (uri : uri) =
+  pf out "%s{hash = %d; query = %a}" (Uri.to_path uri) (Uri.hash uri)
+    (pp_option pp_string) (Uri.query uri)
+
+let pp_short_uri out (uri : uri) = pf out "%s" (Uri.to_path uri)
+let pp_short_state = fun out _ -> pf out "<state>"
+
+let rec pp_selection_range (out : Format.formatter) (sr : SelectionRange.t) =
+  pf out "%a%a" Range.pp sr.range
+    (Format.pp_print_option (fun out p -> pf out " --> %a" pp_selection_range p))
+    sr.parent

@@ -42,15 +42,8 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
     (* --------------------------------------- *)
 
     method! visit_action _ =
-      self#with_located (fun v ->
-          let v =
-            match Ocamlformat_client.format (String.trim v) with
-            | Ok formatted -> formatted
-            | Error _ -> v
-          in
-          surround tabsize 1 lbrace
-            (v |> String.trim |> arbitrary_string)
-            rbrace)
+      self#with_located (fun code ->
+          surround tabsize 1 lbrace (Ocamlformat_client.main code) rbrace)
 
     method! visit_lexer_definition _ lexer_definition =
       let { header; entrypoints; trailer; refill_handler; named_regexps } =
@@ -93,10 +86,13 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
                 shortest)
            @@ separate_mapi (break 1)
                 (fun i loc ->
-                  ifflat empty
-                    (if_ ~then_:(blank 2) ~else_:barspace
-                       (i = 0 && cfg.noLeadingBar))
-                  ^^ self#with_located (self#visit_case ()) loc)
+                  self#with_located
+                    (fun case ->
+                      ifflat empty
+                        (if_ ~then_:(blank 2) ~else_:barspace
+                           (i = 0 && cfg.noLeadingBar))
+                      ^^ self#visit_case () case)
+                    loc)
                 clauses;
          ]
 
@@ -139,9 +135,11 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
     method! visit_Alt _ re1 re2 =
       (* Arrange the alternatives in a box only inside groups or in [let] definitions *)
       (if (not !in_case) || !group_lvl <> 0 then align else fun x -> x)
-      @@ (self#with_located self#visit_regexp re1
-         |^ group (break 1 ^^ barspace)
-            ^| self#with_located self#visit_regexp re2)
+      @@ (group @@ self#with_located self#visit_regexp re1)
+      ^^ group
+           (break 1
+           ^^ self#with_located (fun re -> barspace ^^ self#visit_regexp re) re2
+           )
 
     method! visit_CharSetDifference _ re1 re2 =
       group @@ align
@@ -197,8 +195,12 @@ let main ~config ~ast ~doc =
   let bag_of_comments = Lexer.get_comments () |> init_bag in
   let attach_vtor =
     object
-      inherit [_] Syntax.ast_endo
-      method! visit_located = visit_attach ~bag_of_comments ~doc
+      inherit [_] Syntax.ast_endo as super
+
+      method! visit_action _env loc =
+        loc |> Located.braces |> super#visit_action _env
+
+      method! visit_located env loc = visit_attach ~bag_of_comments ~before_whitelist:['|'] ~doc env loc
     end
   in
   attach_comments ast (attach_vtor#visit_main ()) ~bag_of_comments ~doc

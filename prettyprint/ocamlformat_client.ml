@@ -94,3 +94,21 @@ let halt () =
   close_client ();
   state := Uninitialized;
   return ()
+
+(** Format OCaml source code and turn it into a PPrint document. The output
+    document contains the original code unmodified and won't react to line
+    breaks if a formatting error occurred. A postprocessing function that acts
+    on the string output of both paths may be optionally specified. *)
+let main ?(post = fun x -> x) src =
+  let log s = log_src "ocamlformat" s in
+  let format_args =
+    { empty_args with config = Some [ ("wrap-comments", "true") ] }
+  in
+  let open PPrint in
+  (* Rationale:
+    - When the syntax is valid, ocamlformat will left justify every line, removing menhirformat's indentation. Therefore we process the result with [arbitrary_string] so we can reapply our current indentation.
+    - When the syntax is invalid, ocamlformat won't touch the whitespace so our existing indentation will be preserved and we must be careful not to add any more. Hence we use [string] to escape PPrint's automatic nesting on line breaks.
+      *)
+  match format ~format_args src with
+  | Ok out -> out |> String.trim |> post |> arbitrary_string
+  | Error _ -> src |> String.trim |> post |> string

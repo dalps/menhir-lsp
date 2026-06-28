@@ -1,7 +1,6 @@
 open Utils
 
 let debug = false
-let log_info s = Printf.ksprintf (fun s -> if debug then prerr_endline s) s
 
 (** This module is responsible for attaching comments to located syntax nodes
     over a generic syntax interface. Every lexed comment must be attached to a
@@ -49,7 +48,7 @@ struct
     let compare (Cmt c1) (Cmt c2) =
       Range.compare c1.range c2.range |> Ordering.to_int
 
-    let show (Cmt cmt) = spr "`%s`%s" cmt.text (Range.show cmt.range)
+    let show (Cmt cmt) = spr "`%s`%a" cmt.text Range.pp cmt.range
   end
 
   module Bag = struct
@@ -61,31 +60,28 @@ struct
 
   let show_loc ~doc loc =
     let range_loc = Range.of_lexical_positions loc.p in
-    spr "`%s`%s"
+    spr "`%s`%a"
       (Utils.substring doc range_loc |> O.get_string)
-      (Range.show range_loc)
+      Range.pp range_loc
 
   (** Check whether the section of [doc] delimited by [rng] contains only
       whitespace or comments. *)
-  let only_comments ~doc ~allow_newlines rng : bool =
+  let only_comments ~doc ~whitelist rng : bool =
+    let log s = log_src ~debug "only_comments" s in
     try
       Utils.substring doc rng |> Option.get |> Lexing.from_string
-      |> Comments.main allow_newlines;
+      |> Comments.main whitelist;
       true
-    with _ -> false
+    with Failure reason ->
+      log "Failed in %a due to: %s" Range.pp rng reason;
+      false
 
   let init_bag = L.map Cmt.of_lexer_comment >> Bag.of_list >> ref
 
-  (** Override the visit_located method of your endo object with this. *)
-  let visit_attach :
-      'env 'a.
-      bag_of_comments:Bag.t ref ->
-      doc:TD.t ->
-      ('env -> 'a -> 'a) ->
-      'env ->
-      'a located ->
-      'a located =
-   fun ~bag_of_comments ~doc visit_v env located ->
+  (** Override the [visit_located] method of your endo object with this. *)
+  let visit_attach ?(before_whitelist = []) ?(after_whitelist = [])
+      ~bag_of_comments ~doc visit_v env located =
+    let log s = log_src ~debug "visit_attach" s in
     let range_loc = Range.of_lexical_positions located.p in
     let parent_ref = ref (Some located) in
     let nearest_ref = ref located in
@@ -94,47 +90,46 @@ struct
     let ok_comments =
       !bag_of_comments
       |> Bag.filter_map (fun (Cmt cmt as c) ->
-          (* log_info "Seeing if comment %s can be directly attached to node: %s"
-            (Cmt.show c) (show_loc ~doc located); *)
+          log "Seeing if comment %s can be directly attached to node: %s"
+            (Cmt.show c) (show_loc ~doc located);
           let relpos = Range.compare_inclusion cmt.range range_loc in
           match relpos with
           | `Before dist
-            when only_comments ~doc ~allow_newlines:`AllowNewlines
+            when only_comments ~doc ~whitelist:('\n' :: before_whitelist)
                    Range.(create ~start:cmt.range.end_ ~end_:range_loc.start) ->
-              (* log_info "* Yes, prepending."; *)
+              log "* Yes, prepending.";
               Some (Cmt { cmt with relpos = `Before dist })
           | `After dist
-            when only_comments ~doc ~allow_newlines:`DisallowNewlines
+            when only_comments ~doc ~whitelist:after_whitelist
                    Range.(create ~start:range_loc.end_ ~end_:cmt.range.start) ->
-              (* log_info "* Yes, appending."; *)
+              log "* Yes, appending.";
               Some (Cmt { cmt with relpos = `After dist })
           | `Contained ->
-              (* log_info
+              log
                 "* No, but it is contained in the node, so I'll remember this \
-                 node as its parent."; *)
+                 node as its parent.";
               Bag.replace_ref bag_of_comments c (Cmt.with_parent c parent_ref);
               None
           | _ ->
-              (* log_info "* No."; *)
               (match relpos with
               | (`After _dist | `Before _dist) as relpos -> (
-                  (* log_info "The distance to this node is %s."
-                    (Position.show dist); *)
+                  log "No. The distance to this node is %s."
+                    (Position.show _dist);
                   match cmt.nearest_loc with
                   | None ->
-                      (* log_info
+                      log
                         "The nearest_loc field was empty, so I'll make this \
-                         node the nearest."; *)
+                         node the nearest.";
                       Bag.replace_ref bag_of_comments c
                         (Cmt.with_nearest c (nearest_ref, relpos))
                   | Some (_, old_relpos)
                     when compare_relpos relpos old_relpos < 0 ->
-                      (* log_info
+                      log
                         "The node is closer than the old nearest with distance \
                          %s"
                         (Position.show
                            (match old_relpos with
-                           | `After dist | `Before dist -> dist)); *)
+                           | `After dist | `Before dist -> dist));
                       Bag.replace_ref bag_of_comments c
                         (Cmt.with_nearest c (nearest_ref, relpos))
                   | _ -> ())
@@ -192,6 +187,7 @@ struct
       are broken up into individual lines, after comments (line comments) are
       laid out on the same line separated by single spaces. *)
   let render_located k ({ comment; _ } as located) : PPrint.document =
+    let log s = log_src ~debug "render_located" s in
     let open PPrint in
     let before_comments, after_comments =
       O.map_or ~default:([], [])

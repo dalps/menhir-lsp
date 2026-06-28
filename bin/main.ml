@@ -40,8 +40,8 @@ class lsp_server =
           Position.create ~line:pos.line ~character:(pos.character - length)
         in
         let range = Range.create ~start:start_pos ~end_:pos in
-        log_info ~notify_back "Word under cursor: |%s|, range: %s, length: %d"
-          word (Range.show range) length;
+        log_info ~notify_back "Word under cursor: |%s|, range: %a, length: %d"
+          word Range.pp range length;
         Some { v = word; p = range; offset = ofs; td }
 
     method private _dispatch : type r.
@@ -96,9 +96,7 @@ class lsp_server =
           self#_dispatch uri ~notify_back ~mll_handler:Mll.document_symbols
             ~mly_handler:Mly.document_symbols
         in
-        notify_back#send_log_msg ~type_:MessageType.Info
-          (spr "# symbols: %d" (List.length syms))
-        |> ignore;
+        log_info ~notify_back "# symbols: %d" (List.length syms);
         `DocumentSymbol syms
 
     method! config_definition = Some (`Bool true)
@@ -290,11 +288,15 @@ class lsp_server =
     method! on_req_definition =
       fun ~notify_back ~id:_ ~uri ~pos ~workDoneToken:_ ~partialResultToken:_
           _doc_state ->
+        Lwt.return
+        @@
+        let open O in
+        let* doc = self#get_text_document ~uri in
         log_info ~notify_back "Requested definition at pos %s"
           (Position.show pos);
-        self#_dispatch uri ~notify_back ~mly_handler:(Mly.definition ~uri ~pos)
-          ~mll_handler:(Mll.definition ~uri ~pos)
-        |> Lwt.return
+        self#_dispatch uri ~notify_back
+          ~mly_handler:(Mly.definition ~notify_back ~doc ~pos)
+          ~mll_handler:(Mll.definition ~notify_back ~doc ~pos)
 
     method! config_hover = Some (`Bool true)
 
@@ -356,9 +358,7 @@ class lsp_server =
       | ".mly" ->
           go mly_buffers Mly.load_state_from_contents
             (Mly.diagnostics ~notify_back ~uri)
-      | ext ->
-          notify_back#send_log_msg ~type_:Error
-          @@ spr "Unhandled document type: %s" ext
+      | ext -> log_error' ~notify_back "Unhandled document type: %s" ext
 
     (* We now override the [on_notify_doc_did_open] method that will be called
             by the server each time a new document is opened. *)

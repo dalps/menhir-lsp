@@ -1,4 +1,5 @@
 open Utils
+open Menhir_lsp_lib
 open M.Located
 open MenhirSyntax
 open Syntax
@@ -10,6 +11,7 @@ type zone =
   | OCaml
   | Declaration
   | Rule of symbol located list
+  (* Carries a list of the variables bound by the branch(es) the action is tied to. *)
   | Action of (symbol located * parameter located option) list
 
 type token = {
@@ -27,6 +29,21 @@ type state = {
   symbols : string located list;
   intervals : zone Ivl_map.t;
 }
+
+let pp_state out state =
+  pf out "Parse summary:\n# symbols: %d, # tokens: %a" (L.length state.symbols)
+    (Format.pp_print_list
+       ~pp_sep:(fun out () -> pf out ", ")
+       (Located.pp (fun out tok -> pf out "%s" tok.terminal)))
+    state.tokens
+
+let string_of_zone = function
+  | OCaml -> "ocaml"
+  | Declaration -> "decl"
+  | Rule params ->
+      spr "rule (params: %s)"
+        (params |> List.map Located.value |> String.concat ", ")
+  | Action _ -> "action"
 
 let get_cmly_file = fetch_build_dir ~ext:".cmly"
 let get_conflicts_file = fetch_build_dir ~ext:".conflicts"
@@ -186,6 +203,10 @@ let rec string_of_params : parameter -> string = function
         L.(ps >|= Located.iter string_of_params |> String.concat ", ")
   | ParamAnonymous _ -> ""
 
+let located_of_ppxloc ~(from : Lexing.position) ({ txt; loc } : 'v Ppxlib.Loc.t)
+    : 'v located =
+  Located.locate (OcamlSymbols.range_of_ppxlocation ~from loc) txt
+
 let process_symbols : partial_grammar -> symbol located list =
   let aliases : (string, string) Hashtbl.t = Hashtbl.create 99 in
   let v =
@@ -193,6 +214,15 @@ let process_symbols : partial_grammar -> symbol located list =
       inherit [_] ast_reduce as super
       method zero : symbol located list = []
       method plus = ( @ )
+
+      method! visit_action =
+        fun _ action ->
+          (* extract the free variables of this OCaml snippet *)
+          match action.expr with
+          | IL.ETextual text ->
+              parse_ocaml_impl text.v |> OcamlSymbols.get_fvars
+              |> L.map (located_of_ppxloc ~from:(Located.startp text))
+          | _ -> []
 
       method! visit_DToken =
         fun _ _option ts ->
@@ -260,7 +290,7 @@ let load_state_from_partial_grammar (grammar : partial_grammar) =
   let add_branch_var var = branch_vars_ref := var :: !branch_vars_ref in
   let action_zone loc =
     let start, end_ = loc.p in
-    let ivl = Ivl.create (Excluded start.pos_cnum) (Excluded end_.pos_cnum) in
+    let ivl = Ivl.create (Included start.pos_cnum) (Included end_.pos_cnum) in
     add_interval (Action !branch_vars_ref) ivl
   in
   let v =
@@ -478,13 +508,19 @@ let document_symbols ({ grammar = { pg_rules; _ }; tokens; _ } : state) :
            v#visit_rule () rule)
         ())
 
-let symbol_at_position (state : state) (pos : Position.t) :
-    (Range.t * string located) option =
+let symbol_at_position ?(notify_back : notify_back option) (state : state)
+    (pos : Position.t) : (Range.t * string located) option =
   let open L in
   let*? (s : string located) = state.symbols in
   let rng = Range.of_lexical_positions s.p in
   let res = Position.is_inside pos rng in
-  if res then Some (rng, s) else None
+  if res then (
+    O.iter
+      (fun notify_back -> log ~notify_back "found registered symbol %s\n" s.v)
+      notify_back;
+
+    Some (rng, s))
+  else None
 
 (** Produce hover information at a particular position. For:
     - token aliases, we display their full name;
@@ -517,7 +553,7 @@ let hover (state : state) ~(pos : Position.t) : Hover.t option =
 
 let diagnostics ~(notify_back : notify_back) ~(uri : uri) (_s : state) :
     Diagnostic.t list =
-  let log = log_info ~notify_back in
+  let log s = log_src ~notify_back "mly.diagnostics" s in
   let open R in
   get_or_nil
   @@
@@ -597,17 +633,35 @@ let references (state : state) ~uri ~(pos : Position.t) : Location.t list =
         state.symbols))
   |> O.to_list |> L.flatten
 
-let definition (state : state) ~uri ~(pos : Position.t) : Locations.t =
+let definition ~(notify_back : notify_back) (state : state)
+    ~(doc : Text_document.t) ~(pos : Position.t) : Locations.t =
   let mk_location locs = `Location locs in
+  let log s = log_src ~notify_back ~debug:false "mly.definition" s in
+  let offset = TD.absolute_position doc pos in
   let open O in
   mk_location @@ to_list
   @@
   (* Get the symbol under the cursor, if any. *)
-  let* sym_range, sym = symbol_at_position state pos in
-  (* log_info ~notify_back "[Definition] symbol under cursor: %s" sym.v; *)
+  let* sym_range, sym = symbol_at_position ~notify_back state pos in
+  log "Symbol under cursor: %s" sym.v;
   (* Search for the symbol in the terminals or in the nonterminals. *)
   let+ def =
     let open L in
+    (* It could also be a semantic binding (producer) inside a branch! *)
+    log "Checking if we're inside an action...";
+    let open O in
+    let* zone = query_position state.intervals offset in
+    (match zone with
+      | Action lst ->
+          log "It looks like we're inside an action!";
+          L.find_map
+            (fun (binder, _param) ->
+              if_ (fun _ -> String.equal binder.v sym.v) binder)
+            lst
+      | _ ->
+          log "Nope, we're inside something else...";
+          None)
+    <|> fun () ->
     (let*? (t : token located) = state.tokens in
      O.if_
        (fun _ -> String.equal t.v.terminal sym.v || t.v.alias = Some sym.v)
@@ -628,15 +682,17 @@ let definition (state : state) ~uri ~(pos : Position.t) : Locations.t =
       L.find_opt (fun param -> String.equal param.v sym.v) pr_params
     else None
   in
-  (* log_info ~notify_back "[Definition] found definition at: %s"
-  @@ M.Range.show def.p; *)
-  Location.create ~range:(Range.of_lexical_positions def.p) ~uri
+  log "found definition at: %a" M.Range.pp def.p;
+  Location.create
+    ~range:(Range.of_lexical_positions def.p)
+    ~uri:(TD.documentUri doc)
 
 let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
     ~(word : word option) ~(pos : Position.t) ~(uri : uri) (state : state) :
     CompletionItem.t list =
   let open O in
   let range = O.map (fun Utils.{ p; _ } -> p) word in
+  let log s = log_src ~notify_back "mly.completions" s in
   let grammar_completions () =
     default_completions ?range state
     @ standard_lib_completions @ declarations ?range ()
@@ -650,27 +706,8 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
      get_merlin_compls ~notify_back ~uri ~pos word)
     |> get_or_nil
   in
-  let string_of_ivl ({ low; high } : Ivl.t) =
-    let open Ivl_map.Bound in
-    let string_of_v = string_of_int in
-    let a =
-      match low with
-      | Included v -> [ "["; string_of_v v ]
-      | Excluded v -> [ "("; string_of_v v ]
-      | Unbounded -> [ "∞" ]
-    in
-    let b =
-      match high with
-      | Included v -> [ string_of_v v; "]" ]
-      | Excluded v -> [ string_of_v v; ")" ]
-      | Unbounded -> [ "∞" ]
-    in
-    spr "%s, %s" (String.concat "" a) (String.concat "" b)
-  in
   let res = Ivl_map.query_interval_list query state.intervals in
-  log_info ~notify_back "[query_interval_list] for %s produced %d results"
-    (string_of_ivl query)
-  @@ L.length res;
+  log "for %a produced %d results" pp_interval query @@ L.length res;
   let string_of_zone = function
     | OCaml -> "ocaml"
     | Declaration -> "decl"
@@ -679,12 +716,11 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
           (params |> List.map Located.value |> String.concat ", ")
     | Action _ -> "action"
   in
-  log_info ~notify_back "[query_interval] innermost zone:";
+  log "innermost zone:";
   let res = Ivl_map.query_interval ~order:Desc query state.intervals in
   let* (ivl, zones), gen = Ivl_map.Gen.next res in
   let+ innermost_zone = L.head_opt zones in
-  log_info ~notify_back "%s --> %s" (string_of_ivl ivl)
-    (string_of_zone innermost_zone);
+  log "%a --> %s" pp_interval ivl (string_of_zone innermost_zone);
   match innermost_zone with
   | OCaml -> merlin_compls ()
   | Declaration -> grammar_completions ()
@@ -799,29 +835,38 @@ let selection_range ({ grammar; _ } as _state : state)
     ~(positions : Position.t list) ~(notify_back : notify_back) :
     SelectionRange.t list =
   let json = yojson_of_ast grammar in
-  log_info ~notify_back "%s" @@ Json.pretty_to_string json;
+  let log s = log_src ~debug:true ~notify_back "mly.selection_range" s in
   let open L in
   let@* i, pos = positions in
-  let parent_ref = ref @@ None in
+  let parent_ref = ref None in
+  let add_range = add_range ~parent_ref in
   (* This visitor descends the grammar's syntax tree nodes which contain pos, connecting them in a ladder of [SelectionRange]s. *)
   let v =
     object
       inherit [_] ast_iter
 
+      method! visit_action _ action =
+        match action.expr with
+        | IL.ETextual { p; v; _ } ->
+            parse_ocaml_impl v
+            |> OcamlSymbols.get_ranges_for_pos pos (fst p)
+            |> L.iter add_range
+        | _ -> ()
+
+      (* This would work out of the box if every default method would visit the location first and the contents after, but the result confirms that's not the case. *)
       method! visit_located =
         fun visit_a _env located ->
           let range = Range.of_lexical_positions located.p in
 
-          if Position.is_inside pos range then
-            parent_ref :=
-              O.some @@ SelectionRange.create ?parent:!parent_ref ~range ();
-          visit_a _env located.v
+          if Position.is_inside pos range then (
+            add_range range;
+            visit_a _env located.v)
     end
   in
   v#visit_partial_grammar () grammar;
   O.(
     let+ res = !parent_ref in
-    log_info ~notify_back "Range for pos #%d %s: %s" i (Position.show pos)
-      (Range.show res.SelectionRange.range);
+    log "Range stack for position #%d %a: %a" i Position.pp pos
+      pp_selection_range res;
     res)
   |> O.to_list

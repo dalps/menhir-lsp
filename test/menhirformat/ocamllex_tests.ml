@@ -4,13 +4,7 @@ open Config
 module Mll = OcamllexSyntax
 module MF = Ocamllex
 
-let helper ?(config : Config.t = Config.default_config) text : unit =
-  text |> Mll.Main.parse_string
-  |> Result.fold
-       ~ok:(fun partial_grammar ->
-         MF.main ~config ~ast:partial_grammar ~doc:(doc_of_string text))
-       ~error:(fun (msg, range) -> spr "%s at %s" msg (Mll.Range.show range))
-  |> print_endline
+let format, helper = get_test_helpers Mll.Main.parse_string MF.main
 
 let%expect_test "It handles escape sequences correctly" =
   helper
@@ -44,7 +38,7 @@ rule scan_feng_shui_item = parse
 | ("Alpinist" | "Blossoming" | "Dapper" | "Festivale" | "Festive-Tree"
    | "Chevron" | "Green Lace-Up" | "Lime") as line (("Dress" | "Hat"
                                                     | "Pants" | "Tank") as kind)
-  { CLOTHING (line, type) }
+  { CLOTHING (line, typ) }
 | green_series_item | ("Zodiac" as series) (("Goat" | "Snake" | "Tiger"
                                              | "Horse" | "Ox" | "Rabbit" | "Dragon") as item)
   | ("Golden" as series) (("Bed" | "Bench" | "Chair" | "Clock" | "Closet"
@@ -62,33 +56,35 @@ let%expect_test "Test breaking of alternations" =
   [%expect
     {|
     let green_series_item =
-      "Green" as series (("Bed" | "Bench" | "Chair" | "Counter" | "Desk"
-                          | "Dresser" | "Lamp" | "Pantry" | "Shell" | "Table" | "Wall Clock"
-                          | "Wardrobe") as item)
+      "Green" as series (("Bed" | "Bench" | "Chair" | "Counter"
+                          | "Desk" | "Dresser" | "Lamp" | "Pantry" | "Shell"
+                          | "Table" | "Wall Clock" | "Wardrobe") as item)
 
     let bedroom_item =
       ("Gorgeous" | "Sea-Anemone" | "Polka-Dot") as series ("Bed" as item)
-      | ("Card" | "Gorgeous" | "Jingle" | "Polka-Dot" | "Regal" | "Pear") as series ("Dresser" as item)
+      | ("Card" | "Gorgeous" | "Jingle" | "Polka-Dot" | "Regal"
+         | "Pear") as series ("Dresser" as item)
       | ("Regal" | "Full-Moon") as series ("Vanity" as item)
 
     rule scan_feng_shui_item = parse
-      | ("Alpinist" | "Blossoming" | "Dapper" | "Festivale" | "Festive-Tree"
-         | "Chevron" | "Green Lace-Up" | "Lime") as line (("Dress" | "Hat"
-                                                           | "Pants" | "Tank") as kind)
-        { CLOTHING (line, type) }
-      | green_series_item | ("Zodiac" as series) (("Goat" | "Snake" | "Tiger"
-                                                   | "Horse" | "Ox" | "Rabbit" | "Dragon") as item)
-      | ("Golden" as series) (("Bed" | "Bench" | "Chair" | "Clock" | "Closet"
-                               | "Dresser" | "Man" | "Screen" | "Table") as item)
+      | ("Alpinist" | "Blossoming" | "Dapper" | "Festivale"
+         | "Festive-Tree" | "Chevron" | "Green Lace-Up" | "Lime") as line (("Dress"
+                                                                            | "Hat"
+                                                                            | "Pants"
+                                                                            | "Tank") as kind)
+        { CLOTHING (line, typ) }
+      | green_series_item
+      | ("Zodiac" as series) (("Goat" | "Snake" | "Tiger" | "Horse"
+                               | "Ox" | "Rabbit" | "Dragon") as item)
+      | ("Golden" as series) (("Bed" | "Bench" | "Chair" | "Clock"
+                               | "Closet" | "Dresser" | "Man" | "Screen" | "Table") as item)
         { FURNITURE (series, item) }
-      | ("Squat" as size) ("Nebuloid" as name) | (("Mega" | "Mini" | "Tall")? as size) (("Brewstoid"
-                                                                                         | "Buzzoid"
-                                                                                         | "Clankoid"
-                                                                                         | "Croakoid"
-                                                                                         | "Plinkoid"
-                                                                                         | "Quazoid"
-                                                                                         | "Sputnoid"
-                                                                                         | "Squelchoid") as name)
+      | ("Squat" as size) ("Nebuloid" as name)
+      | (("Mega" | "Mini" | "Tall")? as size) (("Brewstoid"
+                                                | "Buzzoid" | "Clankoid"
+                                                | "Croakoid" | "Plinkoid"
+                                                | "Quazoid" | "Sputnoid"
+                                                | "Squelchoid") as name)
         { GYROID (name, size) }
       | eof { EOF }
       | _ { failwith "not a feng shui item" }
@@ -211,4 +207,215 @@ let%expect_test "Option [breakRegexpGroups] works" =
     | eof { failwith "unterminated comment" }
     | '\n' { Lexing.new_line lexbuf; comment depth lexbuf }
     | _ { comment depth lexbuf }
+    |}]
+
+let calc_lexer =
+  {|{ open Calc  exception Error of string }
+
+(* This rule looks for a single line, terminated with '\n' or eof.
+   It returns a pair of an optional string (the line that was found)
+   and a Boolean flag (false if eof was reached). *)
+
+rule line = parse
+  | ([^'\n']* '\n') as line
+    (* Normal case: one line, no eof. *)
+    { Some line, true }
+  | eof
+    (* Normal case: no data, eof. *)
+    { None, false }
+  | ([^'\n']+ as line) eof
+    (* Special case: some data but missing '\n', then eof.
+       Consider this as the last line, and add the missing '\n'. *)
+    { Some (line ^ "\n"), false }
+
+(* This rule analyzes a single line and turns it into a stream of tokens. *)
+
+and token = parse
+  | [' ' '\t'] { token lexbuf }
+  | '\n' { EOL }
+  | ['0'-'9']+ as i { INT (int_of_string i) }
+  | '+' { PLUS }
+  | '-' { MINUS }
+  | '*' { TIMES }
+  | '/' { DIV }
+  | '(' { LPAREN }
+  | ')' { RPAREN }
+  | _
+    {
+      raise
+        (Error
+           (Printf.sprintf "At offset %d: unexpected character.\n"
+              (Lexing.lexeme_start lexbuf)))
+    }
+  | eof
+    {
+      raise
+        (Error
+           (Printf.sprintf "At offset %d: unexpected end of input.\n"
+              (Lexing.lexeme_start lexbuf)))
+    }
+|}
+
+let%expect_test "Comments can sit on top of action blocks" =
+  helper calc_lexer;
+  [%expect
+    {|
+    { open Calc  exception Error of string }
+
+    (* This rule looks for a single line, terminated with '\n' or eof.
+       It returns a pair of an optional string (the line that was found)
+       and a Boolean flag (false if eof was reached). *)
+
+    rule line = parse
+    | ([^'\n']* '\n') as line
+      (* Normal case: one line, no eof. *)
+      { Some line, true }
+    | eof
+      (* Normal case: no data, eof. *)
+      { None, false }
+    | ([^'\n']+ as line) eof
+      (* Special case: some data but missing '\n', then eof.
+           Consider this as the last line, and add the missing '\n'. *)
+      { Some (line ^ "\n"), false }
+
+    (* This rule analyzes a single line and turns it into a stream of tokens. *)
+
+    and token = parse
+    | [' ' '\t'] { token lexbuf }
+    | '\n' { EOL }
+    | ['0'-'9']+ as i { INT (int_of_string i) }
+    | '+' { PLUS }
+    | '-' { MINUS }
+    | '*' { TIMES }
+    | '/' { DIV }
+    | '(' { LPAREN }
+    | ')' { RPAREN }
+    | _
+      {
+        raise
+          (Error
+             (Printf.sprintf "At offset %d: unexpected character.\n"
+                (Lexing.lexeme_start lexbuf)))
+      }
+    | eof
+      {
+        raise
+          (Error
+             (Printf.sprintf "At offset %d: unexpected end of input.\n"
+                (Lexing.lexeme_start lexbuf)))
+      }
+    |}]
+
+let%test "Formatting of OCaml fragments is idempotent" =
+  let input =
+    {|{
+  (* Takes a sized_basic_type and a list of sizes and repeatedly applies then
+     SArray constructor, taking sizes off the list *)
+  let reducearray (sbt, l) =
+    List.fold_right l ~f:(fun z y -> SizedType.SArray (y, z)) ~init:sbt
+}
+
+rule foo = parse
+| (* Program blocks *)
+"functions"
+  { (* A comment that says hi *)
+    lexer_logger "functions"; Parser.FUNCTIONBLOCK }
+| "foonctions"
+  { (* A comment that says hello *)
+    let pattern = () in
+    let pattern = () in
+    let pattern = () in ()
+  }
+|}
+  in
+  String.equal
+    (input |> format |> format |> format |> format |> format)
+    (format input)
+
+let%expect_test "Comments can sit on top of rule cases, before the leading bar"
+    =
+  let input =
+    {|rule foo = parse
+(* Program blocks *)
+  | "functions"               { lexer_logger "functions" ;
+                                Parser.FUNCTIONBLOCK }|}
+  in
+  helper input;
+  [%expect
+    {|
+    rule foo = parse
+    (* Program blocks *)
+    | "functions" { lexer_logger "functions"; Parser.FUNCTIONBLOCK }
+    |}];
+  helper ~config:{ default_config with indentOnce = true } input;
+  [%expect
+    {|
+    rule foo = parse
+      (* Program blocks *)
+      | "functions" { lexer_logger "functions"; Parser.FUNCTIONBLOCK }
+    |}]
+
+let%expect_test
+    "Gracefully fails on invalid OCaml code (`let = ref 0`, `$loc`) and skips \
+     the whole block." =
+  {|{
+    open Parser
+        let = ref 0
+}
+
+    rule foo = parse
+(* Program blocks *)
+  | "functions"               { lexer_logger "functions" ;
+                                Parser.FUNCTIONBLOCK }
+| "foonction"
+  {
+    let pattern =() in
+                let pattern =() in
+                let pattern =() in
+                     ("functions", $loc, false)
+  }|}
+  |> format |> format |> format |> format |> helper;
+  [%expect
+    {|
+    { open Parser
+            let = ref 0 }
+
+    rule foo = parse
+    (* Program blocks *)
+    | "functions" { lexer_logger "functions"; Parser.FUNCTIONBLOCK }
+    | "foonction"
+      {
+        let pattern =() in
+                    let pattern =() in
+                    let pattern =() in
+                         ("functions", $loc, false)
+      }
+    |}]
+
+let%expect_test "Comments can sit on top of regexp alternations (sibling cases)"
+    =
+  {|rule skip_char = parse
+  | '\\'? ('\013'* '\010') "'"
+     { incr_loc lexbuf 1 }
+  | [^ '\\' '\'' '\010' '\013'] "'" (* regular character *)
+(* one character and numeric escape sequences *)
+  | '\\' _ "'"
+  | '\\' ['0'-'9'] ['0'-'9'] ['0'-'9'] "'"
+  | '\\' 'o' ['0'-'7'] ['0'-'7'] ['0'-'7'] "'"
+  | '\\' 'x' ['0'-'9' 'a'-'f' 'A'-'F'] ['0'-'9' 'a'-'f' 'A'-'F'] "'"
+     { () }
+(* Perilous *)
+  | "" { () }|}
+  |> helper;
+  [%expect {|
+    rule skip_char = parse
+    | '\\'? ('\r'* '\n') "'" { incr_loc lexbuf 1 }
+    | [^'\\' '\'' '\n' '\r'] "'" (* regular character *)
+    (* one character and numeric escape sequences *)
+    | '\\' _ "'" | '\\' ['0'-'9'] ['0'-'9'] ['0'-'9'] "'"
+    | '\\' 'o' ['0'-'7'] ['0'-'7'] ['0'-'7'] "'"
+    | '\\' 'x' ['0'-'9' 'a'-'f' 'A'-'F'] ['0'-'9' 'a'-'f' 'A'-'F'] "'"
+      { () }
+    (* Perilous *)
+    | "" { () }
     |}]

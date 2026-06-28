@@ -240,8 +240,7 @@ rule main = parse
     }
   | '{'
     { action_buffer#reset_string_buffer ();
-      (* action_buffer#store_lexeme lexbuf; Braces included. *)
-      let startp = Lexing.lexeme_start_p lexbuf in
+      let startp = Lexing.lexeme_end_p lexbuf in (* [menhir-lsp] The content starts right after the brace. *)
       let endp = handle_lexical_error action [] lexbuf in
       let content = action_buffer#get_stored_string () in
       action_buffer#reset_string_buffer ();
@@ -384,9 +383,7 @@ and action stk = parse
       | _ -> raise_lexical_error lexbuf "Unmatched ) in action" }
   | '}'
     { match stk with
-      | [] -> 
-        (* action_buffer#store_lexeme lexbuf;  1. Save the closing brace. *)
-        Lexing.lexeme_end_p lexbuf          (* 2. Return its position. *)
+      | [] -> Lexing.lexeme_start_p lexbuf (* ... |} *)
       | '{' :: stk' ->
         action_buffer#store_lexeme lexbuf;
         action stk' lexbuf

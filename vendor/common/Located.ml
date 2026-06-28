@@ -17,6 +17,7 @@ and comments = comment list option
 
 and comment = {text: string; relpos: Menhir_lsp_lib.Utils.relpos}
 
+let pp pp_v out t = Format.fprintf out "{p = %a; v = %a}" Range.pp t.p pp_v t.v
 
 let[@inline] locate ?comment p v =
   { p; v; comment }
@@ -35,6 +36,10 @@ let iter (f : 'a -> 'b) ({ v; _ } : 'a located) =
 
 let parenthesize { p; v; comment } =
   locate ?comment (Range.decrement p) ("(" ^ v ^ ")")
+
+(* [menhir-lsp] We need this for formatting actions. *)
+let braces { p; v; comment } =
+  locate ?comment (Range.parenthesize p) v (* ("{" ^ v ^ "}") *)
 
 let startp { p; _ } = Range.startp p
 

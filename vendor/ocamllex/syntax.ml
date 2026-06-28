@@ -113,6 +113,7 @@ type regular_expression =
 
 (* type 'a named = { name : string located; v : 'a } *)
 
+(* [menhir-lsp] Added a third component that records the variables of the definition. *)
 let named_regexps :
-    (string, named_regexp located * regular_expression) Hashtbl.t =
+    (string, named_regexp located * regular_expression * string located list) Hashtbl.t =
   Hashtbl.create 13

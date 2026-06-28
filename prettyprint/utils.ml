@@ -84,3 +84,16 @@ let doc_of_string ?(input_file = "") text : TD.t =
       textDocument =
         { languageId = ""; text; uri = Uri.of_path input_file; version = 0 };
     }
+
+let get_test_helpers parse format =
+  let format ?(config = Config.default_config) text =
+    text |> parse
+    |> Result.fold
+         ~ok:(fun partial_grammar ->
+           format ~config ~ast:partial_grammar ~doc:(doc_of_string text))
+         ~error:(fun (msg, range) -> spr "%s at %a" msg Range.pp_lexing range)
+  in
+  let format_and_print ?(config = Config.default_config) text : unit =
+    text |> format ~config |> print_endline
+  in
+  (format, format_and_print)

@@ -69,3 +69,7 @@ val bprint : Buffer.t -> ranges -> unit
    [ranges] to the output channel [f]. Each range is converted to a
    string via [show] and is terminated with a colon and a newline. *)
 val fprint : out_channel -> ranges -> unit
+
+(* [menhir-lsp] stuff *)
+val pp : Format.formatter -> range -> unit
+val parenthesize : range -> range

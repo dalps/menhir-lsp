@@ -209,7 +209,6 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
         ^^ colon)
         ^^ (fun doc -> if cfg.indentOnce then nest tabsize doc else doc)
              (hardline
-             ^^ (if cfg.noLeadingBar then blank 2 else barspace)
              ^^ self#visit_old_rule_branches pr_branches
              ^/^ self#visit_attributes () pr_attributes)
 
@@ -219,9 +218,11 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
         rparen self#visit_loctext
 
     method private visit_old_rule_branches branches =
-      separate_map (hardline ^^ barspace)
-        (self#with_located (fun branch ->
-             self#visit_parameterized_branch () branch))
+      separate_mapi hardline
+        (fun i ->
+          self#with_located (fun branch ->
+              (if i = 0 && cfg.noLeadingBar then blank 2 else barspace)
+              ^^ self#visit_parameterized_branch () branch))
         branches
 
     method! visit_early_production =
@@ -245,31 +246,28 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
               ]
 
     method private visit_ocaml (code : string) : document =
-      code |> Ocamlformat_client.format |> R.get_or ~default:code |> String.trim
-      |> arbitrary_string
+      Ocamlformat_client.main code |> align
 
     method! visit_action _ action =
+      let recover_menhir_keywords code =
+        code
+        (* 1. Recover ocamlyacc-style binders ($0, $1, ...)
+          We simply replace _i with $i where i is a number in [0-9].
+          This is a safe operation if we assume the user is a sane person who doesn't name her OCaml constants _0, _1 and the like. *)
+        |> Re.Str.(global_replace (regexp "\\b_\\([0-9]\\)\\b") "$\\1")
+        (* 2. Recover Menhir keywords ($startpos, $endpos, ...).
+          We fold the list of keywords from the right to follow the order in which they were scanned, and replace the leftmost occurrence for each one (i.e. ~which:`Left). *)
+        |> List.fold_right
+             (fun (Keyword.Position (text, _, _, _) as k) ->
+               CCString.replace ~which:`Left ~sub:(Keyword.kposvar k) ~by:text.v)
+             action.keyword_lst
+        (* [action.keyword_lst] holds the keywords in the order they are scanned, reversed. *)
+      in
       surround tabsize 1 lbrace
         (match action.expr with
         | IL.ETextual located ->
             self#with_located
-              (fun code ->
-                code |> Ocamlformat_client.format |> R.get_or ~default:code
-                |> String.trim
-                   (* 1. Recover ocamlyacc-style binders ($0, $1, ...)
-                  We simply replace _i with $i where i is a number in [0-9].
-                  This is a safe operation if we assume the user is a sane person who doesn't name her OCaml constants _0, _1 and the like. *)
-                |> Re.Str.(global_replace (regexp "\\b_\\([0-9]\\)\\b") "$\\1")
-                |>
-                (* 2. Recover Menhir keywords ($startpos, $endpos, ...).
-                We fold the list of keywords from the right to follow the order in which they were scanned, and replace the leftmost occurrence for each one (i.e. ~which:`Left). *)
-                List.fold_right
-                  (fun (Keyword.Position (text, _, _, _) as k) ->
-                    CCString.replace ~which:`Left ~sub:(Keyword.kposvar k)
-                      ~by:text.v)
-                  action.keyword_lst
-                (* [action.keyword_lst] holds the keywords in the order they are scanned, reversed. *)
-                |> arbitrary_string)
+              (Ocamlformat_client.main ~post:recover_menhir_keywords)
               located
         | _ -> text "menhirformat: unrecognized syntax")
         rbrace
@@ -353,7 +351,7 @@ let main ~config ~ast ~doc =
   let attach_vtor =
     object
       inherit [_] Syntax.ast_endo
-      method! visit_located = visit_attach ~bag_of_comments ~doc
+      method! visit_located env loc = visit_attach ~bag_of_comments ~doc env loc
     end
   in
   attach_comments ast (attach_vtor#visit_main ()) ~bag_of_comments ~doc

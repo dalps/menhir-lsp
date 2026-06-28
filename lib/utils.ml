@@ -58,16 +58,48 @@ type notify_back = Linol_lwt.Jsonrpc2.notify_back
 type uri = Lsp.Types.DocumentUri.t
 type word = { v : string; p : Range.t; offset : int; td : Text_document.t }
 
-let pr = Pr.printf
-let spr = Pr.sprintf
-let epr = Pr.eprintf
+let pr = Format.printf
+let spr = Format.asprintf
+let epr = Format.eprintf
+let pf = Format.fprintf
 let ( >> ) = CCFun.( %> )
+let notify_back_ref : notify_back option ref = ref None
 
-let log ~(notify_back : notify_back) ~type_ =
-  Printf.ksprintf (fun s -> notify_back#send_log_msg ~type_ s |> ignore)
+(** [log] prints to the first available output channel. It will use caller's
+    [notify_back] argument if provided, falling back to the optional value
+    stored in the global variable [notify_back_ref] and ultimately default to
+    [prerr_endline]. *)
+let log ?(notify_back : notify_back option) ?(kind = MessageType.Info) s =
+  match (notify_back, !notify_back_ref) with
+  | None, None -> Format.kasprintf prerr_endline s
+  | None, Some notify_back | Some notify_back, _ ->
+      Format.kasprintf
+        (fun s -> notify_back#send_log_msg ~type_:kind s |> ignore)
+        s
 
-let log_info ~(notify_back : notify_back) = log ~notify_back ~type_:Info
-let log_error ~(notify_back : notify_back) = log ~notify_back ~type_:Error
+(** Identical to [log] but returns a unit promise. *)
+let log' ?(notify_back : notify_back option) ?(kind = MessageType.Info) s =
+  match (notify_back, !notify_back_ref) with
+  | None, None -> Format.kasprintf (fun s -> prerr_endline s |> Lwt.return) s
+  | None, Some notify_back | Some notify_back, _ ->
+      Format.kasprintf (fun s -> notify_back#send_log_msg ~type_:kind s) s
+
+(** Logging helper that allows to specify a message source that will be
+    prepended to every log message.
+
+    Override with a concrete [src] argument like this:
+    [let log s = log_src "my_source" s in ..].
+
+    Set the [debug] flag to false to mute the messages from this source. *)
+let log_src ?(debug = true) ?notify_back ?kind src s =
+  Format.kasprintf
+    (fun s -> if debug then log ?notify_back ?kind "[%s] %s" src s)
+    s
+
+let log_info = log ~kind:Info
+let log_error = log ~kind:Error
+let log_info' = log' ~kind:Info
+let log_error' = log' ~kind:Error
 
 (** Adapted from
     https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/position.ml
@@ -76,7 +108,6 @@ module Position = struct
   include Lsp.Types.Position
 
   let start = { line = 0; character = 0 }
-  let show ({ character; line } : t) = spr "%d:%d" line character
 
   let is_dummy (lp : Lexing.position) =
     lp.pos_lnum = Lexing.dummy_pos.pos_lnum
@@ -95,8 +126,13 @@ module Position = struct
   let of_lexical_position (lex_position : Lexing.position) : t =
     of_lexical_position_opt lex_position |> O.get_or ~default:start
 
+  let pp out ({ character; line } : t) = pf out "%d:%d" line character
+  let pp_lexing out = of_lexical_position >> pf out "%a" pp
+  let show = spr "%a" pp
+  let show_lexing = spr "%a" pp_lexing
+
   let ( - ) ({ line; character } : t) (t : t) : t =
-    { line = line - t.line; character = character - t.character }
+    { line = line - t.line; character = max 0 (character - t.character) }
 
   let abs ({ line; character } : t) : t =
     { line = abs line; character = abs character }
@@ -118,6 +154,9 @@ module Position = struct
     let line = position.line + 1 in
     let col = position.character in
     `Logical (line, col)
+
+  let ( + ) ({ line; character } : t) (t : t) : t =
+    { line = line + t.line; character = character + t.character }
 end
 
 (** Adapted from
@@ -133,13 +172,17 @@ module Range = struct
   let end_ t = t.end_
   let start t = t.start
 
-  let show ({ end_; start } : t) =
-    spr "[ %s, %s ]" (Position.show start) (Position.show end_)
-
   let of_lexical_positions ((start, end_) : Lexing.position * Lexing.position) =
     create
       ~start:(Position.of_lexical_position start)
       ~end_:(Position.of_lexical_position end_)
+
+  let pp out ({ end_; start } : t) =
+    pf out "[ %a, %a ]" Position.pp start Position.pp end_
+
+  let pp_lexing out = of_lexical_positions >> pf out "%a" pp
+  let show = spr "%a" pp
+  let show_lexing = spr "%a" pp_lexing
 
   let compare (x : t) (y : t) =
     match Position.compare x.start y.start with
@@ -188,6 +231,12 @@ module Range = struct
     let start = { Position.line = 0; character = 0 } in
     let end_ = { Position.line = 1; character = 0 } in
     { start; end_ }
+
+  (* Enlarges the given range with one column on both ends. *)
+  let parenthesize (t : t) : t =
+    Range.create
+      ~start:{ t.start with character = max 0 (t.start.character - 1) }
+      ~end_:{ t.end_ with character = t.end_.character + 1 }
 
   let resize_for_edit { TextEdit.range; newText } =
     let lines = CCString.lines newText in
@@ -274,3 +323,21 @@ let find_prefix text ofs =
   let prefix = String.sub sub start_ofs length in
 
   (start_ofs, length, prefix)
+
+let pp_position out
+    ({ pos_fname; pos_lnum; pos_bol; pos_cnum } : Lexing.position) =
+  pf out "{lnum = %d; bol = %d; cnum = %d}" pos_lnum pos_bol pos_cnum
+
+module Lexing = struct
+  include Lexing
+
+  let pp_position out = pp_position
+end
+
+let pp_option pp_v out (o : 'a option) =
+  Format.pp_print_option
+    ~none:(fun out _ -> pf out "None")
+    (fun out v -> pf out "Some (%a)" pp_v v)
+    out o
+
+let pp_string = Format.pp_print_string

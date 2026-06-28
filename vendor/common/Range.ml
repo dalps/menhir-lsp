@@ -49,12 +49,21 @@ let decrement (pos : position) : position =
   let column = max 0 (column - 1) in
   { pos with pos_cnum = column }
 
+(* [menhir-lsp] we need this one too. *)
+let increment (pos : position) : position =
+  { pos with pos_cnum = pos.pos_cnum + 1 }
+
+let parenthesize ((startp, endp) : range) : range =
+    make (decrement startp, increment endp)
+
 let decrement ((startp, endp) : range) : range =
   make (decrement startp, endp)
 
+let pp = Menhir_lsp_lib.Utils.Range.pp_lexing
+
 let show =
-  (* [filename] is hopefully not empty. *)
-  Menhir_lsp_lib.Utils.(Range.of_lexical_positions >> Range.show)
+  (* [menhir-lsp] customized *)
+  Menhir_lsp_lib.Utils.Range.show_lexing
 
 let current lexbuf =
   (lexeme_start_p lexbuf, lexeme_end_p lexbuf)
