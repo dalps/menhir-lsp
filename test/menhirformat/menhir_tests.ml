@@ -214,7 +214,8 @@ declaration:
       }
     |}]
 
-let%expect_test "Comments behave well around parser branches" =
+let%expect_test
+    "Comments can sit on top of rule branches, before the leading bar" =
   helper
     {|%token FUNCTIONBLOCK
 %start <unit> reserved_word
@@ -225,7 +226,18 @@ reserved_word:
   (* Keywords cannot be identifiers but it is nice to
     let them parse as such to provide a better error *)
   | FUNCTIONBLOCK { "functions", $loc, false }|};
-  [%expect]
+  [%expect {|
+    %token FUNCTIONBLOCK
+
+    %start <unit> reserved_word
+
+    %%
+
+    reserved_word:
+    (* Keywords cannot be identifiers but it is nice to
+        let them parse as such to provide a better error *)
+    | FUNCTIONBLOCK { "functions", $loc, false }
+    |}]
 
 let%expect_test "Comments can sit on top of action blocks" =
   helper
@@ -242,7 +254,20 @@ declaration:
 
     (* [menhir-lsp] desugared. *)
     { locate' $loc @@ DStart (t, nts) |> singleton }|};
-  [%expect]
+  [%expect {|
+    %%
+
+    declaration:
+    | h = HEADER /* lexically delimited by %{ ... %} */
+      { locate' $loc @@ DCode h |> singleton }
+    | TOKEN ty = option(ocamltype) ts = clist(terminal_alias_attrs)
+      { locate' $loc @@ DToken (ty, ts) |> singleton } (* [menhir-lsp] Turned into a singleton. *)
+    | START t = option(ocamltype) nts = clist(nonterminal)
+      /* %start <ocamltype> foo is syntactic sugar for %start foo %type <ocamltype> foo */
+
+      (* [menhir-lsp] desugared. *)
+      { locate' $loc @@ DStart (t, nts) |> singleton }
+    |}]
 
 let%test "Formatting of OCaml fragments is idempotent" =
   let input =

@@ -209,7 +209,6 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
         ^^ colon)
         ^^ (fun doc -> if cfg.indentOnce then nest tabsize doc else doc)
              (hardline
-             ^^ (if cfg.noLeadingBar then blank 2 else barspace)
              ^^ self#visit_old_rule_branches pr_branches
              ^/^ self#visit_attributes () pr_attributes)
 
@@ -219,9 +218,11 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
         rparen self#visit_loctext
 
     method private visit_old_rule_branches branches =
-      separate_map (hardline ^^ barspace)
-        (self#with_located (fun branch ->
-             self#visit_parameterized_branch () branch))
+      separate_mapi hardline
+        (fun i ->
+          self#with_located (fun branch ->
+              (if i = 0 && cfg.noLeadingBar then blank 2 else barspace)
+              ^^ self#visit_parameterized_branch () branch))
         branches
 
     method! visit_early_production =
