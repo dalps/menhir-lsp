@@ -8,7 +8,7 @@ type zone =
   | OCaml
   | RegexpDefinition of string located list
   | Case
-  | Action of string located list
+  | Action of string located list * string located list
 
 type state = {
   grammar : lexer_definition;
@@ -181,19 +181,19 @@ let load_state_from_contents (_filename : string) (contents : string) :
   let case_zone loc = add_located Case loc in
 
   (* Stores the named regexp defined insofar into the declaration zone. *)
-  let named_regexp_ref : string located list ref = ref [] in
+  let named_regexps : string located list ref = ref [] in
 
   (* Stores the name and arguments of the currently visited entry. *)
-  let current_rule_ref : string located list ref = ref [] in
+  let current_rule_vars : string located list ref = ref [] in
 
   (* Stores the names bound in the currently visited entry case. *)
-  let case_vars_ref : _ list ref = ref [] in
+  let current_case_vars : _ list ref = ref [] in
 
-  let regexp_zone loc = add_located (RegexpDefinition !named_regexp_ref) loc in
+  let regexp_zone loc = add_located (RegexpDefinition !named_regexps) loc in
   let action_zone loc =
     let start, end_ = loc.p in
     let ivl = Ivl.create (Included start.pos_cnum) (Included end_.pos_cnum) in
-    add_interval (Action (!current_rule_ref @ !case_vars_ref)) ivl
+    add_interval (Action (!current_rule_vars, !current_case_vars)) ivl
   in
   let v =
     object (self)
@@ -217,24 +217,19 @@ let load_state_from_contents (_filename : string) (contents : string) :
 
       method! visit_named_regexp =
         fun _ nr ->
-          named_regexp_ref := nr.name :: !named_regexp_ref;
+          named_regexps := nr.name :: !named_regexps;
           super#visit_named_regexp () nr
 
-      (* No need to add the rule's name and params manually, they are included in merlin completions *)
-      (* method! visit_entry =
+      method! visit_entry =
         fun _ entry ->
-          current_rule_ref := entry.name :: entry.args;
-          L.iter
-            (fun loc ->
-              case_zone loc;
-              self#visit_case () loc.v)
-            entry.clauses *)
+          current_rule_vars := entry.name :: entry.args;
+          super#visit_entry () entry
 
       method! visit_action _ = action_zone
 
       method! visit_case =
         fun _ ((regexp, _) as case) ->
-          case_vars_ref := regexp_bindings ~resolve:true regexp.v;
+          current_case_vars := regexp_bindings ~resolve:true regexp.v;
           super#visit_case () case
     end
   in
@@ -300,10 +295,10 @@ let definition ~(notify_back : notify_back)
     let open L in
     let open O in
     ( (match query_position state.intervals offset with
-        | Some (Action lst) ->
+        | Some (Action (params, binders)) ->
             log_info ~notify_back
               "[Definition] It looks like we're inside an action!";
-            let*? binder = lst in
+            let*? binder = params @ binders in
             if_ (fun _ -> String.equal binder.v sym.v) binder
         | _ ->
             log_info ~notify_back
@@ -369,7 +364,9 @@ let completions
             CompletionItem.create ~kind:Property ~label:name.v ())
           defs
   | Case -> lexer_completions ()
-  | Action binders -> action_completions binders
+  | Action (_params, binders) ->
+      (* We don't use _params because Merlin already completes the rule's name parameters. *)
+      action_completions binders
 
 let print_symbols ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
     (state : state) =

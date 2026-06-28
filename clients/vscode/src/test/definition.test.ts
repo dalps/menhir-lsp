@@ -16,10 +16,17 @@ suite("should provide definitions in a lexer", () => {
     });
   });
 
-  test("jumps to the declaration of a rule's argument", async () => {
+  test("jumps to the declaration of a rule's parameter (`openingrange`)", async () => {
     await testDefinition(uri, P(747, 23), {
       uri,
       range: wordAt(P(732, 17), "openingrange"),
+    });
+  });
+
+  test("jumps to the declaration of a rule's parameter (`percent`)", async () => {
+    await testDefinition(uri, P(684, 18), {
+      uri,
+      range: wordAt(P(681, 12), "percent"),
     });
   });
 
@@ -44,14 +51,14 @@ suite("should provide definitions in a lexer", () => {
     });
   });
 
-  test("jumps to the definition of an OCaml symbol local defined in the same action", async () => {
+  test("jumps to the definition of an OCaml symbol local to the action", async () => {
     await testDefinition(uri, P(581, 34), {
       uri,
       range: wordAt(P(578, 11), "identchar"),
     });
   });
 
-  test("jumps to the definition of an OCaml symbol local defined way back in the prelude", async () => {
+  test("jumps to the definition of a OCaml symbol defined way back in the prelude", async () => {
     await testDefinition(uri, P(581, 12), {
       uri,
       range: wordAt(P(457, 5), "store_comment"),
