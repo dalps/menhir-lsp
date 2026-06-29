@@ -287,7 +287,7 @@ let definition ~(notify_back : notify_back)
     ({ grammar; intervals; _ } as state : state) ~(doc : Text_document.t)
     ~(pos : Position.t) : Locations.t =
   let open O in
-  let log s = log_src ~debug:false ~notify_back "mll.definition" s in
+  let _log s = log_src ~debug:false ~notify_back "mll.definition" s in
   let mk_location locs = `Location locs in
   let offset = TD.absolute_position doc pos in
   mk_location @@ to_list

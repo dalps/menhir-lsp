@@ -100,7 +100,7 @@ let halt () =
     breaks if a formatting error occurred. A postprocessing function that acts
     on the string output of both paths may be optionally specified. *)
 let main ?(post = fun x -> x) src =
-  let log s = log_src "ocamlformat" s in
+  let _log s = log_src "ocamlformat" s in
   let format_args =
     { empty_args with config = Some [ ("wrap-comments", "true") ] }
   in

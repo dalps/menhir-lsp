@@ -94,7 +94,7 @@ let cmd =
      and+ noLeadingBar = noLeadingBar
      and+ maxWidth = maxColumns
      and+ breakLongRegexps = breakLongRegexps
-     and+ breakRegexpsGroups = breakRegexpsGroups
+     and+ _breakRegexpsGroups = breakRegexpsGroups
      and+ semiAfterProducer = semiAfterProducer in
      let config =
        Config.make ~tabsize ~indentOnce ~noLeadingBar ~semiAfterProducer

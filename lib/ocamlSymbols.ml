@@ -5,7 +5,7 @@ module Names = Set.Make (String)
 
 let range_of_ppxlocation ~(from : Lexing.position)
     ({ loc_start; loc_end; _ } : Ppxlib.Location.t) :
-    Lexing.(position * position) =
+    Lexing.position * Lexing.position =
   let ( + ) p1 p2 =
     Lexing.
       {

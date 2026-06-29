@@ -187,7 +187,7 @@ struct
       are broken up into individual lines, after comments (line comments) are
       laid out on the same line separated by single spaces. *)
   let render_located k ({ comment; _ } as located) : PPrint.document =
-    let log s = log_src ~debug "render_located" s in
+    let _log s = log_src ~debug "render_located" s in
     let open PPrint in
     let before_comments, after_comments =
       O.map_or ~default:([], [])
