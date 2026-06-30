@@ -10,7 +10,7 @@
   menhir_lsp_lib
   menhirformat_lib)
  (modules main)
- (flags -w +27))
+ (flags -w +27+26))
 
 (library
  (name menhirformat_lib)
@@ -20,8 +20,10 @@
   menhirSyntax
   ocamllexSyntax
   ocamlformat-rpc-lib
+  pprint
   menhir_lsp_lib
   ppx_deriving_yojson.runtime)
- (modules utils comment_location comments ocamlformat_client ocamllex menhir))
+ (modules utils comment_location comments ocamlformat_client ocamllex menhir)
+ (flags -w +27+26))
 
 (ocamllex comments)

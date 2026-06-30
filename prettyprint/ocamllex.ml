@@ -2,14 +2,18 @@ open Utils
 open OcamllexSyntax
 open PPrint
 
-include Comment_location.Make (struct
+module S = struct
   type syntax = Syntax.main
 
   include Located
   include Range
 
   (* let get_comments = Lexer.get_comments *)
-end)
+  let parse_string = Main.parse_string
+  let parse_file = Main.parse_file
+end
+
+include Comment_location.Make (S)
 
 let group_lvl = ref 0
 let in_case = ref false
@@ -189,21 +193,22 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
       self#visit_Character () c1 ^^ minus ^^ self#visit_Character () c2 (**)
   end
 
-(* This should really go in comment_location, but I couldn't figure out how to generalize it over the endo visitor :/ *)
-let main ~config ~ast ~doc =
-  let buf = Buffer.create 80 in
-  let bag_of_comments = Lexer.get_comments () |> init_bag in
-  let attach_vtor =
-    object
-      inherit [_] Syntax.ast_endo as super
+include MakeFront (struct
+  include S
 
-      method! visit_action _env loc =
-        loc |> Located.braces |> super#visit_action _env
+  let main ~config ~ast ~doc =
+    let bag_of_comments = Lexer.get_comments () |> init_bag in
+    let attach_vtor =
+      object
+        inherit [_] Syntax.ast_endo as super
 
-      method! visit_located env loc = visit_attach ~bag_of_comments ~before_whitelist:['|'] ~doc env loc
-    end
-  in
-  attach_comments ast (attach_vtor#visit_main ()) ~bag_of_comments ~doc
-  |> (new formatter config)#visit_main ()
-  |> PPrint.ToBuffer.pretty 0.8 config.Config.maxWidth buf;
-  Buffer.contents buf
+        method! visit_action _env loc =
+          loc |> Located.braces |> super#visit_action _env
+
+        method! visit_located env loc =
+          visit_attach ~bag_of_comments ~before_whitelist:[ '|' ] ~doc env loc
+      end
+    in
+    attach_comments ast (attach_vtor#visit_main ()) ~bag_of_comments ~doc
+    |> (new formatter config)#visit_main ()
+end)

@@ -4,7 +4,7 @@ open Config
 module Mll = OcamllexSyntax
 module MF = Ocamllex
 
-let format, helper = get_test_helpers Mll.Main.parse_string MF.main
+let format, helper = get_test_helpers MF.format_string
 
 let%expect_test "It handles escape sequences correctly" =
   helper
@@ -407,7 +407,8 @@ let%expect_test "Comments can sit on top of regexp alternations (sibling cases)"
 (* Perilous *)
   | "" { () }|}
   |> helper;
-  [%expect {|
+  [%expect
+    {|
     rule skip_char = parse
     | '\\'? ('\r'* '\n') "'" { incr_loc lexbuf 1 }
     | [^'\\' '\'' '\n' '\r'] "'" (* regular character *)

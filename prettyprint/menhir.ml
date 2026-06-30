@@ -1,15 +1,19 @@
 open Utils
-open MenhirSyntax
 open PPrint
+open MenhirSyntax
 
-include Comment_location.Make (struct
+module S = struct
   type syntax = Syntax.main
 
   include Located
   include Range
 
   (* let get_comments = Lexer.get_comments *)
-end)
+  let parse_string = Main.load_grammar_from_contents 0 ""
+  let parse_file = Main.load_grammar_from_file
+end
+
+include Comment_location.Make (S)
 
 (* Keep this to query the reducer's type. *)
 (* let v =
@@ -20,7 +24,8 @@ end)
   end *)
 
 class formatter ({ tabsize; _ } as cfg : Config.t) =
-  let open Syntax in
+  let open S in
+  let open MenhirSyntax.Syntax in
   let tabsize = max 2 tabsize in
   let barspace = bar ^^ blank 1 in
   object (self)
@@ -344,17 +349,19 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
       ^/^ self#visit_attributes () attributes
   end
 
-(* This should really go in comment_location, but I couldn't figure out how to generalize it over the endo visitor :/ *)
-let main ~config ~ast ~doc =
-  let buf = Buffer.create 80 in
-  let bag_of_comments = Lexer.get_comments () |> init_bag in
-  let attach_vtor =
-    object
-      inherit [_] Syntax.ast_endo
-      method! visit_located env loc = visit_attach ~bag_of_comments ~doc env loc
-    end
-  in
-  attach_comments ast (attach_vtor#visit_main ()) ~bag_of_comments ~doc
-  |> (new formatter config)#visit_main ()
-  |> PPrint.ToBuffer.pretty 0.8 config.Config.maxWidth buf;
-  Buffer.contents buf
+include MakeFront (struct
+  include S
+
+  let main ~config ~ast ~doc =
+    let bag_of_comments = Lexer.get_comments () |> init_bag in
+    let attach_vtor =
+      object
+        inherit [_] MenhirSyntax.Syntax.ast_endo
+
+        method! visit_located env loc =
+          visit_attach ~bag_of_comments ~doc env loc
+      end
+    in
+    attach_comments ast (attach_vtor#visit_main ()) ~bag_of_comments ~doc
+    |> (new formatter config)#visit_main ()
+end)

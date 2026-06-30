@@ -6,16 +6,7 @@ let debug = false
     over a generic syntax interface. Every lexed comment must be attached to a
     syntax node before formatting, so nodes can be moved around freely by the
     formatter. *)
-module Make (Syntax : sig
-  type range = Lexing.position * Lexing.position
-
-  type 'a located = { p : range; v : 'a; mutable comment : comments }
-  and comments = comment list option
-  and comment = { text : string; relpos : relpos }
-
-  type syntax
-end) =
-struct
+module Make (Syntax : SyntaxSig) = struct
   open Syntax
 
   module Cmt = struct

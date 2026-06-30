@@ -78,6 +78,16 @@ module PPrint = struct
   let enclose l x r = enclose l r x
 end
 
+let read_file_contents filename =
+  try
+    let ic = open_in filename in
+    let contents = really_input_string ic (in_channel_length ic) in
+    close_in ic;
+    contents
+  with _ ->
+    log "File doesn't exist: %s" filename;
+    exit 1
+
 let doc_of_string ?(input_file = "") text : TD.t =
   TD.make ~position_encoding:`UTF8
     {
@@ -85,13 +95,48 @@ let doc_of_string ?(input_file = "") text : TD.t =
         { languageId = ""; text; uri = Uri.of_path input_file; version = 0 };
     }
 
-let get_test_helpers parse format =
+module type SyntaxSig = sig
+  type range = Lexing.position * Lexing.position
+
+  type 'a located = { p : range; v : 'a; mutable comment : comments }
+  and comments = comment list option
+  and comment = { text : string; relpos : relpos }
+
+  type syntax
+
+  val parse_string : string -> (syntax, string * range) result
+  val parse_file : string -> (syntax, string * range) result
+end
+
+module MakeFront (F : sig
+  include SyntaxSig
+
+  val main :
+    config:Config.t -> ast:syntax -> doc:Text_document.t -> PPrint.document
+end) =
+struct
+  open F
+
+  let format_doc ~config ~doc ast =
+    let buf = Buffer.create 80 in
+    main ~config ~ast ~doc
+    |> PPrint.ToBuffer.pretty 0.8 config.Config.maxWidth buf;
+    Buffer.contents buf
+
+  let format_string ~config input =
+    let doc = doc_of_string input in
+    parse_string input |> Result.map (format_doc ~config ~doc)
+
+  let format_file ~config input_file =
+    let contents = read_file_contents input_file in
+    let doc = doc_of_string ~input_file contents in
+    parse_string contents |> Result.map (format_doc ~config ~doc)
+end
+
+let get_test_helpers format =
   let format ?(config = Config.default_config) text =
-    text |> parse
-    |> Result.fold
-         ~ok:(fun partial_grammar ->
-           format ~config ~ast:partial_grammar ~doc:(doc_of_string text))
-         ~error:(fun (msg, range) -> spr "%s at %a" msg Range.pp_lexing range)
+    text |> format ~config
+    |> R.get_lazy (fun (msg, range) -> spr "%s at %a" msg Range.pp_lexing range)
   in
   let format_and_print ?(config = Config.default_config) text : unit =
     text |> format ~config |> print_endline

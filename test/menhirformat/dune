@@ -3,4 +3,5 @@
  (inline_tests)
  (libraries menhirformat_lib menhirSyntax ocamllexSyntax)
  (preprocess
-  (pps ppx_expect)))
+  (pps ppx_inline_test ppx_expect))
+ (flags -w +26))

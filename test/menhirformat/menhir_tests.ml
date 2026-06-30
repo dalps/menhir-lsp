@@ -4,8 +4,7 @@ open Config
 module Mly = MenhirSyntax
 module MF = Menhir
 
-let format, helper =
-  get_test_helpers (Mly.Main.load_grammar_from_contents 0 "") MF.main
+let format, helper = get_test_helpers MF.format_string
 
 let calc_demo =
   {|%token <int> INT
@@ -316,7 +315,8 @@ reserved_word:
     in     ("functions", $loc, false) }|}
   in
   input |> format |> format |> format |> format |> helper;
-  [%expect {|
+  [%expect
+    {|
     %{
       (* Takes a sized_basic_type and a list of sizes and repeatedly applies then
             SArray constructor, taking sizes off the list *)

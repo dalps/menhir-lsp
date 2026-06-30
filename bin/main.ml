@@ -238,10 +238,9 @@ class lsp_server =
         { cfg with tabsize = options.tabSize }
       in
       let filename = doc |> Text_document.documentUri |> Uri.to_path in
-      let format _ ~parse ~format =
-        match parse (Text_document.text doc) with
-        | Ok ast ->
-            let newText = format ~config ~ast ~doc in
+      let go _ ~format =
+        match format ~config (Text_document.text doc) with
+        | Ok newText ->
             [ TextEdit.create ~newText ~range:Range.(whole_document doc) ]
         | Error (msg, range) ->
             let message =
@@ -257,13 +256,8 @@ class lsp_server =
             []
       in
       self#_dispatch uri ~notify_back
-        ~mll_handler:
-          (format ~parse:OcamllexSyntax.Main.parse_string
-             ~format:MF.Ocamllex.main)
-        ~mly_handler:
-          (format
-             ~parse:(MenhirSyntax.Main.load_grammar_from_contents 0 filename)
-             ~format:MF.Menhir.main)
+        ~mll_handler:(go ~format:MF.Ocamllex.format_string)
+        ~mly_handler:(go ~format:MF.Menhir.format_string)
 
     method private _on_req_references =
       fun ~notify_back ~id:_ ~uri ~pos : Location.t list option Lwt.t ->
