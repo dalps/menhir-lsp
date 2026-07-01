@@ -46,43 +46,18 @@ module C = CCChar
 module Pr = Printf
 module U = CCParse.U
 module Lsp = Linol_lsp.Lsp
-
-(* module Loc = M.Located *)
-module Log = (val Logs.src_log Linol.logs_src)
+module LSP = Lsp.Types
 include Lsp.Types
 module Uri = DocumentUri
 module Text_document = Lsp.Text_document
 module TD = Text_document
-
-type notify_back = Linol_lwt.Jsonrpc2.notify_back
-type uri = Lsp.Types.DocumentUri.t
-type word = { v : string; p : Range.t; offset : int; td : Text_document.t }
 
 let pr = Format.printf
 let spr = Format.asprintf
 let epr = Format.eprintf
 let pf = Format.fprintf
 let ( >> ) = CCFun.( %> )
-let notify_back_ref : notify_back option ref = ref None
-
-(** [log] prints to the first available output channel. It will use caller's
-    [notify_back] argument if provided, falling back to the optional value
-    stored in the global variable [notify_back_ref] and ultimately default to
-    [prerr_endline]. *)
-let log ?(notify_back : notify_back option) ?(kind = MessageType.Info) s =
-  match (notify_back, !notify_back_ref) with
-  | None, None -> Format.kasprintf prerr_endline s
-  | None, Some notify_back | Some notify_back, _ ->
-      Format.kasprintf
-        (fun s -> notify_back#send_log_msg ~type_:kind s |> ignore)
-        s
-
-(** Identical to [log] but returns a unit promise. *)
-let log' ?(notify_back : notify_back option) ?(kind = MessageType.Info) s =
-  match (notify_back, !notify_back_ref) with
-  | None, None -> Format.kasprintf (fun s -> prerr_endline s |> Lwt.return) s
-  | None, Some notify_back | Some notify_back, _ ->
-      Format.kasprintf (fun s -> notify_back#send_log_msg ~type_:kind s) s
+let log s = Format.kasprintf prerr_endline s
 
 (** Logging helper that allows to specify a message source that will be
     prepended to every log message.
@@ -91,21 +66,14 @@ let log' ?(notify_back : notify_back option) ?(kind = MessageType.Info) s =
     [let log s = log_src "my_source" s in ..].
 
     Set the [debug] flag to false to mute the messages from this source. *)
-let log_src ?(debug = true) ?notify_back ?kind src s =
-  Format.kasprintf
-    (fun s -> if debug then log ?notify_back ?kind "[%s] %s" src s)
-    s
-
-let log_info = log ~kind:Info
-let log_error = log ~kind:Error
-let log_info' = log' ~kind:Info
-let log_error' = log' ~kind:Error
+let log_src ?(debug = true) src s =
+  Format.kasprintf (fun s -> if debug then log "[%s] %s" src s) s
 
 (** Adapted from
     https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/position.ml
 *)
 module Position = struct
-  include Lsp.Types.Position
+  include LSP.Position
 
   let start = { line = 0; character = 0 }
 
@@ -141,7 +109,7 @@ module Position = struct
     CCOrd.(pair int int) (line, character) (t.line, t.character)
     |> Ordering.of_int
 
-  let compare_inclusion (t : t) (r : Lsp.Types.Range.t) =
+  let compare_inclusion (t : t) (r : LSP.Range.t) =
     match (compare t r.start, compare t r.end_) with
     | Lt, Lt -> `Outside (abs (r.start - t))
     | Gt, Gt -> `Outside (abs (r.end_ - t))
@@ -150,7 +118,7 @@ module Position = struct
 
   let is_inside (t : t) r = compare_inclusion t r = `Inside
 
-  let logical position =
+  let logical (position : t) =
     let line = position.line + 1 in
     let col = position.character in
     `Logical (line, col)
@@ -163,11 +131,11 @@ end
     https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/range.ml
 *)
 module Range = struct
-  include Lsp.Types.Range
+  include LSP.Range
 
   let create ~(end_ : Position.t) ~(start : Position.t) : t =
     assert (Position.(compare start end_) <> Gt);
-    Range.create ~end_ ~start
+    create ~end_ ~start
 
   let end_ t = t.end_
   let start t = t.start
@@ -234,11 +202,11 @@ module Range = struct
 
   (* Enlarges the given range with one column on both ends. *)
   let parenthesize (t : t) : t =
-    Range.create
+    create
       ~start:{ t.start with character = max 0 (t.start.character - 1) }
       ~end_:{ t.end_ with character = t.end_.character + 1 }
 
-  let resize_for_edit { TextEdit.range; newText } =
+  let resize_for_edit { LSP.TextEdit.range; newText } =
     let lines = CCString.lines newText in
     match lines with
     | [] -> { range with end_ = range.start }
@@ -256,8 +224,10 @@ module Range = struct
         in
         { range with end_ }
 
-  let whole_document (td : Text_document.t) : Range.t =
-    let dummy_edit = TextEdit.create ~range:first_line ~newText:(TD.text td) in
+  let whole_document (td : Text_document.t) : t =
+    let dummy_edit =
+      LSP.TextEdit.create ~range:first_line ~newText:(TD.text td)
+    in
     resize_for_edit dummy_edit
 
   let overlaps x y =

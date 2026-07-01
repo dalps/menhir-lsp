@@ -626,7 +626,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
     ~(word : word option) ~(pos : Position.t) ~(uri : uri) (state : state) :
     CompletionItem.t list =
   let open O in
-  let range = O.map (fun Utils.{ p; _ } -> p) word in
+  let range = O.map (fun ({ p; _ } : word) -> p) word in
   let log s = log_src ~notify_back "mly.completions" s in
   let grammar_completions () =
     default_completions ?range state
@@ -769,7 +769,6 @@ let code_actions (state : state) ~uri ~(range : Range.t) : CodeActionResult.t =
 let selection_range ({ grammar; _ } as _state : state)
     ~(positions : Position.t list) ~(notify_back : notify_back) :
     SelectionRange.t list =
-  let json = yojson_of_ast grammar in
   let log s = log_src ~debug:true ~notify_back "mly.selection_range" s in
   let open L in
   let@* i, pos = positions in

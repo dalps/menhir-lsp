@@ -1,4 +1,4 @@
 (library
  (name menhir_lsp_lib)
- (libraries containers linol linol-lwt ordering re ppxlib ppxlib.ast)
+ (libraries containers linol ordering re ppxlib ppxlib.ast)
  (flags -w -27))
