@@ -343,3 +343,63 @@ reserved_word:
         in     ("functions", $loc, false)
       }
     |}]
+
+let%expect_test "Formatting of parameterized rules" =
+  helper
+    ~config:{ default_config with noLeadingBar = true }
+    {|%%
+
+%inline generic_actual(A, B):
+(* 1- *)
+  symbol = symbol actuals = plist(A)
+    { locate' (startp symbol, $endpos(actuals)) @@ Parameter.apply symbol actuals }
+(* 2- *)
+| p = B m = located(modifier)
+    { locate' $loc @@ Parameter.apply m [p] }
+
+strict_actual:
+  p = generic_actual(strict_actual, strict_actual)
+    { p }
+
+actual:
+  p = generic_actual(lax_actual, actual)
+    { p }
+
+lax_actual:
+  p = generic_actual(lax_actual, /* cannot be lax_ */ actual)
+    { p }
+(* 3- *)
+| /* leading bar disallowed */
+  branches = located(branches)
+    { locate' $loc @@ ParamAnonymous branches }|};
+  [%expect {|
+    %%
+
+    %inline generic_actual(A, B):
+    (* 1- *)
+      symbol = symbol actuals = plist(A)
+      {
+        locate' (startp symbol, $endpos(actuals)) @@ Parameter.apply symbol actuals
+      }
+    (* 2- *)
+    | p = B m = located(modifier)
+      { locate' $loc @@ Parameter.apply m [ p ] }
+
+    strict_actual:
+      p = generic_actual(strict_actual, strict_actual) { p }
+
+    actual:
+      p = generic_actual(lax_actual, actual) { p }
+
+    lax_actual:
+      p = generic_actual(
+        lax_actual,
+        /* cannot be lax_ */
+        actual
+      )
+      { p }
+    (* 3- *)
+    | /* leading bar disallowed */
+      branches = located(branches)
+      { locate' $loc @@ ParamAnonymous branches }
+    |}]

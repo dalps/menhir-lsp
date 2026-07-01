@@ -136,7 +136,10 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
         self#visit_loctext
           located (* ^^ align --- only if subtree is ParamAnon *)
         ^^ surround tabsize 0 lparen
-             (separate_map (text ",") (self#visit_parameter_loc ()) parameters)
+             (separate_map
+                (comma ^^ break 1)
+                (self#visit_parameter_loc ())
+                parameters)
              rparen
 
     method! visit_DToken =
