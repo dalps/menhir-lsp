@@ -133,6 +133,21 @@ struct
     parse_string contents |> Result.map (format_doc ~config ~doc)
 end
 
+let heredoc () =
+  let buffer_size = 1024 in
+  let buf = Bytes.create buffer_size in
+  let output = ref "" in
+  let append_output len = output := !output ^ Bytes.sub_string buf 0 len in
+  (* Read until eof is found *)
+  let rec loop () =
+    let len = input stdin buf 0 buffer_size in
+    if len <> 0 then (
+      append_output len;
+      loop ())
+  in
+  loop ();
+  !output
+
 let get_test_helpers format =
   let format ?(config = Config.default_config) text =
     text |> format ~config

@@ -1,7 +1,7 @@
 open Menhir_lsp_lib.Utils
 open Menhirformat_lib.Utils
 
-let version = "0.0.0"
+let version = "0.1.0"
 
 open Cmdliner
 open Cmdliner.Term.Syntax
@@ -15,7 +15,9 @@ let maxColumns =
   Arg.(value & opt int 80 & info [ "w"; "width" ] ~docv:"COLS" ~doc)
 
 let noLeadingBar =
-  let doc = "Omit the optional leading bar `|` in the first case of a rule." in
+  let doc =
+    "Omit the optional leading bar `|` in the first case of each rule."
+  in
   Arg.(value & flag & info [ "no-leading-bar" ] ~doc)
 
 let indentOnce =
@@ -23,7 +25,7 @@ let indentOnce =
     "Add a level of indentation to the cases of a rule or (default) keep them \
      flush with the start of the definition."
   in
-  Arg.(value & flag & info [ "indent-rule" ] ~doc)
+  Arg.(value & flag & info [ "indent-once" ] ~doc)
 
 let semiAfterProducer =
   let doc =
@@ -49,33 +51,68 @@ let breakRegexpsGroups =
 
 let input_file =
   let doc =
-    "The file to format, whose name must end with a `.mly' or `.mll' file \
-     extension."
+    "The path to the file to format, preferably ending with the `.mly` or \
+     `.mll` file extension, or `-` to read from stdin until an end-of-file is \
+     reached."
   in
-  Arg.(value & pos 0 file "" & info [] ~docv:"FILE" ~doc)
+  Arg.(value & pos 0 string "" & info [] ~docv:"FILE" ~doc)
 
-let main ~config (input_file : string) =
+let lang =
+  let doc =
+    "Specify the syntax of the document. Useful only when FILE has no \
+     extension or when reading from stdin."
+  in
+  (* Arg.(value & vflag `Mly [ (`Mly, info [ "mly" ]); (`Mll, info [ "mll" ])  ]) *)
+  Arg.(
+    value & opt string ""
+    & info [ "lang" ] ~docv:"mll|mly" ~doc
+        ~absent:"inferred from file extension")
+
+let log s = Format.kasprintf (log "menhirformat: %s") s
+
+let main ?(lang = "") ~config (input_file : string) =
   let open R in
   let open Menhirformat_lib in
-  let res =
-    match Filename.extension input_file with
-    | ".mly" -> Menhir.format_file ~config input_file
-    | ".mll" -> Ocamllex.format_file ~config input_file
+  if String.length input_file = 0 then (
+    log "Please provide an input file or `-` to read input from stdin.";
+    exit 2);
+  let lang : [> `Mll | `Mly ] =
+    match (Filename.extension input_file, lang) with
+    | ".mll", _ | _, "mll" -> `Mll
+    | ".mly", _ | _, "mly" -> `Mly
     | _ ->
-        log "%s: Unrecognized file extension: must be either '.mll' or '.mly'."
-          input_file;
+        log "Unrecognized file extension: must be either `.mll` or `.mly`.";
         exit 2
+  in
+  let res =
+    match (input_file, lang) with
+    | "-", `Mll -> heredoc () |> Ocamllex.format_string ~config
+    | "-", `Mly -> heredoc () |> Menhir.format_string ~config
+    | _, `Mll -> Ocamllex.format_file ~config input_file
+    | _, `Mly -> Menhir.format_file ~config input_file
+  in
+  let input_file =
+    if input_file = "-" then "<standard input>" else input_file
   in
   res
   |> R.map_err (fun (msg, rng) ->
-      log "%s: Failed to format: at %a: %s" input_file Range.pp_lexing rng msg;
+      log "Failed to format %s: at %a: %s" input_file Range.pp_lexing rng msg;
       exit 1)
   |> R.iter print_endline
 
 let cmd =
+  let help_secs =
+    [
+      `S Manpage.s_bugs;
+      `P
+        "Report bugs or request new features at \
+         https://github.com/dalps/menhir-lsp/issues";
+    ]
+  in
+  let man : Manpage.block list = [ `Blocks help_secs ] in
   Cmd.v
-    (Cmd.info "menhirformat" ~version
-       ~doc:"A formatter for Menhir ocamllex .mll and .mly files.")
+    (Cmd.info "menhirformat" ~version ~man
+       ~doc:"A formatter for Menhir and ocamllex code.")
   @@ let+ input_file = input_file
      and+ tabsize = tabsize
      and+ indentOnce = indentOnce
@@ -83,11 +120,12 @@ let cmd =
      and+ maxWidth = maxColumns
      (* and+ breakLongRegexps = breakLongRegexps
      and+ breakRegexpsGroups = breakRegexpsGroups *)
-     and+ semiAfterProducer = semiAfterProducer in
+     and+ semiAfterProducer = semiAfterProducer
+     and+ lang = lang in
      let config =
        Config.make ~tabsize ~indentOnce ~noLeadingBar ~semiAfterProducer
          ~maxWidth ~breakLongRegexps:true ()
      in
-     main ~config input_file
+     main ~lang ~config input_file
 
 let () = if !Sys.interactive then () else exit (Cmd.eval cmd)
