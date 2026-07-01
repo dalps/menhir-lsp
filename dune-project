@@ -39,41 +39,45 @@
   ("stdune"
    (>= "3.20.2"))
   visitors
-  ("pprint"
-   (>= "20230830"))
   dune-build-info
-  (ocamlformat-rpc-lib
-   (>= "0.23.0"))
-  (alcotest :with-test)
+  menhirformat
   (interval-map
-   (>= "0.2.1")))
+   (>= "0.2.1"))
+  ("ppx_deriving"
+   (>= "6.1.1"))
+  (alcotest :with-test))
  (tags
   ("lsp" "menhir" "ocamllex")))
 
 (package
  (name menhirformat)
- (synopsis "A beautifier for Menhir and Ocamllex programs.")
- (description "A beautifier for Menhir and Ocamllex programs.")
+ (synopsis "Formatter for Menhir and ocamllex")
+ (description
+  "A formatter for Menhir and ocamllex code. It takes care of indentation and whitespace in your lexer and parser rules and it calls ocamlformat to format the OCaml code of their semantic actions.")
  (depends
   ("ocaml"
    (>= "4.14"))
   ("linol"
    (>= "0.10"))
-  linol-lwt
-  lwt_ppx
+  visitors
   ("containers"
    (>= "3.6"))
   ("ordering"
    (>= "3.20.2"))
   ("menhir"
    (>= "20250912"))
-  interval-map
-  menhirSdk
-  menhirLib
-  (alcotest :with-test)
+  ("pprint"
+   (>= "20230830"))
+  ("ppx_deriving_yojson"
+   (>= "3.10.0"))
+  (ocamlformat-rpc-lib
+   (>= "0.23.0"))
   ("re"
    (>= "1.14.0"))
-  visitors))
+  (ppx_expect :with-test)
+  (ppx_inline_test :with-test))
+ (tags
+  ("format" "menhir" "ocamllex")))
 
 (using menhir 3.0)
 
