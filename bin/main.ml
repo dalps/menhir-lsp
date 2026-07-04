@@ -296,9 +296,14 @@ class lsp_server =
 
     method! on_req_hover =
       fun ~notify_back ~id:_ ~uri ~pos ~workDoneToken:_ _doc_state ->
+        let open O in
+        notify_back_ref := Some notify_back;
+        Lwt.return
+        @@
+        let* doc = self#get_text_document ~uri in
         self#_dispatch uri ~notify_back ~mly_handler:(Mly.hover ~pos)
-          ~mll_handler:(fun _ -> None)
-        |> O.flatten |> Lwt.return
+          ~mll_handler:(Mll.hover ~doc ~pos)
+        |> O.flatten
 
     method! config_code_action_provider =
       `CodeActionOptions
@@ -337,7 +342,7 @@ class lsp_server =
       notify_back_ref := Some notify_back;
       let go buffers loader diagnose =
         let new_state, new_diags =
-          match loader filename contents with
+          match loader uri contents with
           | Ok new_state ->
               Hashtbl.replace buffers uri new_state;
               (Some new_state, [])

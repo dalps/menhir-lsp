@@ -69,6 +69,10 @@ let log s = Format.kasprintf prerr_endline s
 let log_src ?(debug = true) src s =
   Format.kasprintf (fun s -> if debug then log "[%s] %s" src s) s
 
+let pp_position out
+    ({ pos_fname; pos_lnum; pos_bol; pos_cnum } : Lexing.position) =
+  pf out "{lnum = %d; bol = %d; cnum = %d}" pos_lnum pos_bol pos_cnum
+
 (** Adapted from
     https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/position.ml
 *)
@@ -91,12 +95,25 @@ module Position = struct
       let character = max character 0 in
       Some { line; character }
 
+  let pp out ({ character; line } : t) = pf out "%d:%d" line character
+  let show = spr "%a" pp
+
   let of_lexical_position (lex_position : Lexing.position) : t =
     of_lexical_position_opt lex_position |> O.get_or ~default:start
 
-  let pp out ({ character; line } : t) = pf out "%d:%d" line character
+  let to_lexical_position ~(doc : Text_document.t) (pos : Position.t) :
+      Lexing.position =
+    let log s = log_src "to_lexical_position" s in
+    let pos_fname = TD.documentUri doc |> Uri.to_path in
+    let pos_cnum = TD.absolute_position doc pos in
+    let pos_bol = pos_cnum - pos.character in
+    let res =
+      Lexing.{ pos_fname; pos_lnum = pos.line + 1; pos_bol; pos_cnum }
+    in
+    log "%a -> %a" pp pos pp_position res;
+    res
+
   let pp_lexing out = of_lexical_position >> pf out "%a" pp
-  let show = spr "%a" pp
   let show_lexing = spr "%a" pp_lexing
 
   let ( - ) ({ line; character } : t) (t : t) : t =
@@ -144,6 +161,10 @@ module Range = struct
     create
       ~start:(Position.of_lexical_position start)
       ~end_:(Position.of_lexical_position end_)
+
+  let to_lexical_positions ~doc ({ end_; start } : t) =
+    ( Position.to_lexical_position ~doc start,
+      Position.to_lexical_position ~doc end_ )
 
   let pp out ({ end_; start } : t) =
     pf out "[ %a, %a ]" Position.pp start Position.pp end_
@@ -294,9 +315,7 @@ let find_prefix text ofs =
 
   (start_ofs, length, prefix)
 
-let pp_position out
-    ({ pos_fname; pos_lnum; pos_bol; pos_cnum } : Lexing.position) =
-  pf out "{lnum = %d; bol = %d; cnum = %d}" pos_lnum pos_bol pos_cnum
+type lexing_range = Lexing.position * Lexing.position
 
 module Lexing = struct
   include Lexing

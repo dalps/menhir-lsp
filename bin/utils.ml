@@ -121,9 +121,9 @@ let fetch_build_dir ?(ext : string option) uri =
   let error =
     Error
       (spr
-         "No implementation found for %s. Make sure your module is declared included \
-          in the library's dune file. e.g. (menhir (modules .. %s ..)) or \
-          (ocamllex .. %s ..) "
+         "No implementation found for %s. Make sure your module is declared \
+          included in the library's dune file. e.g. (menhir (modules .. %s \
+          ..)) or (ocamllex .. %s ..) "
          s_name s_slug s_slug)
   in
   match P.drop_prefix p_dir ~prefix:p_root with
@@ -273,3 +273,24 @@ let rec pp_selection_range (out : Format.formatter) (sr : SelectionRange.t) =
   pf out "%a%a" Range.pp sr.range
     (Format.pp_print_option (fun out p -> pf out " --> %a" pp_selection_range p))
     sr.parent
+
+let get_ocaml_impl = fetch_build_dir ~ext:".ml"
+let get_ocaml_intf = fetch_build_dir ~ext:".mli"
+
+let read_file_contents filename =
+  let ic = open_in filename in
+  let contents = really_input_string ic (in_channel_length ic) in
+  close_in ic;
+  contents
+
+let get_source_map uri =
+  match get_ocaml_impl uri with
+  | Ok path ->
+      let in_chan = open_in path in
+      let sourcemap =
+        in_chan |> Lexing.from_channel
+        |> Menhir_lsp_lib.Line_directives.read_line_directives []
+      in
+      close_in in_chan;
+      sourcemap
+  | Error _ -> []

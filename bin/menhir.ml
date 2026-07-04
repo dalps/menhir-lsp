@@ -315,12 +315,13 @@ let load_state_from_partial_grammar (grammar : partial_grammar) =
   in
   { grammar; tokens; symbols; intervals = !map_ref }
 
-let load_state_from_contents (file_name : string) (file_contents : string) :
+let load_state_from_contents (uri : uri) (file_contents : string) :
     (state, Diagnostic.t list) result =
   let open R in
   let mk_diag msg range =
     Diagnostic.create ~message:(`String msg) ~range () ~source:server_name
   in
+  let file_name = Uri.to_path uri in
   M.Main.load_grammar_from_contents 0 file_name file_contents
   |> map_err (fun (msg, rng) ->
       mk_diag msg (Range.of_lexical_positions rng) :: [])
