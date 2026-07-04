@@ -20,6 +20,8 @@ type state = {
   intervals : zone Ivl_map.t;
 }
 
+let get_ocaml_impl = fetch_build_dir ~ext:".ml"
+
 let pp_state out (state : state) =
   pf out "{symbols = %a}"
     (Format.pp_print_list (fun out sym ->
@@ -270,7 +272,28 @@ let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
     DocumentSymbol.create ~kind:Property ~name:name.v ~range ~selectionRange
       ~children:bindings ()
 
-let diagnostics _ = []
+let diagnostics _ ~(notify_back : notify_back) ~(uri : uri) =
+  let open R in
+  let read_file_contents filename =
+    let ic = open_in filename in
+    let contents = really_input_string ic (in_channel_length ic) in
+    close_in ic;
+    contents
+  in
+  match get_ocaml_impl uri with
+  | Ok impl ->
+      log "Implementation of %a is %s" pp_short_uri uri impl;
+      let contents = read_file_contents impl in
+
+      contents |> Lexing.from_string |> Line_directives.read_line_directives;
+      []
+  | Error msg ->
+      [
+        Diagnostic.create
+          ~message:
+            (`MarkupContent (MarkupContent.create ~kind:PlainText ~value:msg))
+          ~range:Range.first_line ();
+      ]
 
 let references (state : state) ~uri ~(pos : Position.t) : Location.t list =
   (let open O in

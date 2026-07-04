@@ -334,6 +334,7 @@ class lsp_server =
         (uri : uri) (contents : string) : unit Lwt.t =
       let filename = DocumentUri.to_path uri in
       log_info ~notify_back "Processing document %s" filename;
+      notify_back_ref := Some notify_back;
       let go buffers loader diagnose =
         let new_state, new_diags =
           match loader filename contents with
@@ -348,7 +349,9 @@ class lsp_server =
       in
       (* consider matching on TextDocumentItem.languageId *)
       match Filename.extension filename with
-      | ".mll" -> go mll_buffers Mll.load_state_from_contents Mll.diagnostics
+      | ".mll" ->
+          go mll_buffers Mll.load_state_from_contents
+            (Mll.diagnostics ~notify_back ~uri)
       | ".mly" ->
           go mly_buffers Mly.load_state_from_contents
             (Mly.diagnostics ~notify_back ~uri)

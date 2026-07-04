@@ -118,18 +118,21 @@ let fetch_build_dir ?(ext : string option) uri =
   let* root, ctx = get_build_dir () in
   let p_root = P.of_string root in
   let p_dir = P.of_string (F.dirname s_path) in
+  let error =
+    Error
+      (spr
+         "No implementation found for %s. Make sure your module is declared included \
+          in the library's dune file. e.g. (menhir (modules .. %s ..)) or \
+          (ocamllex .. %s ..) "
+         s_name s_slug s_slug)
+  in
   match P.drop_prefix p_dir ~prefix:p_root with
-  | None ->
-      Error
-        (spr
-           "No config found for %s. Make sure (menhir (modules .. %s ..)) is \
-            included in the stanza's dune file."
-           s_name s_slug)
+  | None -> error
   | Some p_rel ->
       let p_ctx = P.of_string (F.concat root ctx) in
       let p_res = P.append_local p_ctx p_rel in
       let res = F.concat (P.to_string p_res) (s_slug ^ s_ext) in
-      Ok res
+      if Sys.file_exists res then Ok res else error
 
 module MK = Merlin_kernel
 module QP = Query_protocol
