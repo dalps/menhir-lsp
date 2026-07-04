@@ -50,7 +50,16 @@ module LSP = Lsp.Types
 include Lsp.Types
 module Uri = DocumentUri
 module Text_document = Lsp.Text_document
-module TD = Text_document
+
+module TD = struct
+  include Text_document
+
+  let create ?(position_encoding = `UTF8) ?(version = 0) ?(languageId = "")
+      ~text uri =
+    make ~position_encoding
+      (DidOpenTextDocumentParams.create
+         ~textDocument:{ text; version; languageId; uri })
+end
 
 let pr = Format.printf
 let spr = Format.asprintf

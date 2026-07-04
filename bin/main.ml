@@ -18,12 +18,9 @@ class lsp_server =
 
     method private get_text_document ~(uri : uri) : Text_document.t option =
       let open O in
-      let+ d = self#find_doc uri in
-      let text = d.content in
-      Text_document.make ~position_encoding:positionEncoding
-        (DidOpenTextDocumentParams.create
-           ~textDocument:
-             { text; version = d.version; languageId = d.languageId; uri })
+      let+ { languageId; version; content = text; _ } = self#find_doc uri in
+      TD.create ~position_encoding:positionEncoding ~text ~version ~languageId
+        uri
 
     method private _word_at_position :
         notify_back:Linol_lwt.Jsonrpc2.notify_back ->

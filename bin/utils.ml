@@ -139,14 +139,14 @@ module QP = Query_protocol
 
 let merlin_configs : (uri, MK.Mconfig.t) Hashtbl.t = Hashtbl.create 42
 
-let get_merlin_config ~(notify_back : notify_back) ~(uri : uri) =
+let get_merlin_config (uri : uri) =
   let path = DocumentUri.to_path uri in
   let dir = Filename.dirname path in
   let open O in
   let+ ctx, config_path = MK.Mconfig_dot.find_project_context dir in
   let dot, failures = MK.Mconfig_dot.get_config ctx path in
   let concat = String.concat ", " in
-  log_info ~notify_back
+  log_info
     {|Search result for Merlin config of %s:
   Errors: %s
   Source path: %s
@@ -165,7 +165,7 @@ let find_merlin_config ~notify_back ~uri =
       log_info ~notify_back
         "couldn't find merlin config for %s, generating new one"
         (DocumentUri.to_path uri);
-      let+ config = get_merlin_config ~notify_back ~uri in
+      let+ config = get_merlin_config uri in
       Hashtbl.add merlin_configs uri config;
       config
   | o -> o
@@ -184,41 +184,55 @@ let completion_kind kind : CompletionItemKind.t option =
   | `Constructor -> Some Constructor
   | `Type -> Some TypeParameter
 
-let get_merlin_compls ~(notify_back : notify_back) ~(uri : uri)
-    ~(pos : Position.t) (prefix : word) =
+let with_merlin ~(doc : Text_document.t)
+    (f : MK.Msource.t -> MK.Mpipeline.t -> 'a) =
   let open O in
-  let+ config = get_merlin_config ~notify_back ~uri in
-  let source = MK.Msource.make (Text_document.text prefix.td) in
+  let+ config = get_merlin_config (TD.documentUri doc) in
+  let source = MK.Msource.make (TD.text doc) in
   let pipeline = MK.Mpipeline.make config source in
-  MK.Mpipeline.with_pipeline pipeline (fun _ ->
-      let logical_pos = Position.logical pos in
-      let query =
-        Query_protocol.Complete_prefix (prefix.v, logical_pos, [], false, true)
-      in
-      let compls = Query_commands.dispatch pipeline query in
-      let sortText_of_index idx = Printf.sprintf "%04d" idx in
-      (* Merlin wants the completion prefix to include the fully qualified module path,
+  MK.Mpipeline.with_pipeline pipeline (fun () -> f source pipeline)
+
+let get_merlin_completions ~(uri : uri) ~(pos : Position.t) (prefix : word)
+    source pipeline =
+  let open O in
+  let logical_pos = Position.logical pos in
+  let query =
+    Query_protocol.Complete_prefix (prefix.v, logical_pos, [], false, true)
+  in
+  let compls = Query_commands.dispatch pipeline query in
+  let sortText_of_index idx = Printf.sprintf "%04d" idx in
+  (* Merlin wants the completion prefix to include the fully qualified module path,
       but the TextEdit range must not extend before the cursor position, otherwise the completion won't show.
       Reference: https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/compl.ml *)
-      let range =
-        (let+ prefix = String.split_on_char '.' prefix.v |> L.last_opt in
-         let len = String.length prefix in
-         let character = pos.character - len in
-         let start = { pos with character } in
-         { Range.start; end_ = pos })
-        |> get_or ~default:prefix.p
-      in
-      let compls =
-        L.mapi
-          (fun idx QP.Compl.{ name; kind; desc; _ } ->
-            CompletionItem.create ~label:name ?kind:(completion_kind kind)
-              ~sortText:(sortText_of_index idx) ~detail:desc
-              ~textEdit:(`TextEdit { newText = name; range })
-              ())
-          compls.entries
-      in
-      log_info ~notify_back "# merlin completions: %d" (L.length compls);
-      compls)
+  let range =
+    (let+ prefix = String.split_on_char '.' prefix.v |> L.last_opt in
+     let len = String.length prefix in
+     let character = pos.character - len in
+     let start = { pos with character } in
+     { Range.start; end_ = pos })
+    |> get_or ~default:prefix.p
+  in
+  let compls =
+    L.mapi
+      (fun idx QP.Compl.{ name; kind; desc; _ } ->
+        CompletionItem.create ~label:name ?kind:(completion_kind kind)
+          ~sortText:(sortText_of_index idx) ~detail:desc
+          ~textEdit:(`TextEdit { newText = name; range })
+          ())
+      compls.entries
+  in
+  log_info "# merlin completions: %d" (L.length compls);
+  compls
+
+let get_merlin_type ~(doc : Text_document.t) ~(pos : Position.t) expression =
+  with_merlin ~doc (fun _source pipeline ->
+      let logical_pos = Position.logical pos in
+      let query = Query_protocol.Type_expr (expression, logical_pos) in
+      let typ = Query_commands.dispatch pipeline query in
+      typ)
+
+let get_merlin_compls ~uri ~pos word =
+  with_merlin ~doc:word.td (get_merlin_completions ~uri ~pos word)
 
 let parse_ocaml_impl s =
   let lexbuf = Lexing.from_string s in
@@ -286,11 +300,11 @@ let read_file_contents filename =
 let get_source_map uri =
   match get_ocaml_impl uri with
   | Ok path ->
-      let in_chan = open_in path in
+      let text = read_file_contents path in
+      let doc = TD.create ~text (Uri.of_path path) in
       let sourcemap =
-        in_chan |> Lexing.from_channel
+        text |> Lexing.from_string
         |> Menhir_lsp_lib.Line_directives.read_line_directives []
       in
-      close_in in_chan;
-      sourcemap
-  | Error _ -> []
+      (Some doc, sourcemap)
+  | Error _ -> (None, [])

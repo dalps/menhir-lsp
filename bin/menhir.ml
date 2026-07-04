@@ -639,7 +639,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
   let query = Ivl.create (Included offset) (Included offset) in
   let merlin_compls () =
     (let* word = word in
-     get_merlin_compls ~notify_back ~uri ~pos word)
+     get_merlin_compls ~uri ~pos word)
     |> get_or_nil
   in
   let res = Ivl_map.query_interval_list query state.intervals in
