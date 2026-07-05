@@ -338,4 +338,10 @@ let pp_option pp_v out (o : 'a option) =
     (fun out v -> pf out "Some (%a)" pp_v v)
     out o
 
+let pp_stropt out (o : string option) =
+  Format.pp_print_option
+    ~none:(fun out _ -> pf out "<none>")
+    (fun out v -> pf out "%s" v)
+    out o
+
 let pp_string = Format.pp_print_string

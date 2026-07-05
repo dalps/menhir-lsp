@@ -28,6 +28,8 @@ type state = {
   tokens : token located list;
   symbols : string located list;
   intervals : zone Ivl_map.t;
+  implemenation : Text_document.t option;
+  sourcemap : Line_directives.source_mapping list;
 }
 
 let pp_state out state =
@@ -205,7 +207,8 @@ let process_symbols : partial_grammar -> symbol located list =
   in
   v#visit_partial_grammar ()
 
-let load_state_from_partial_grammar (grammar : partial_grammar) =
+let load_state_from_partial_grammar ?(implemenation = None) ?(sourcemap = [])
+    (grammar : partial_grammar) =
   let symbols = process_symbols grammar in
   let map_ref = ref Ivl_map.empty in
   let add_interval : 'a. zone -> Ivl.t -> unit =
@@ -313,7 +316,7 @@ let load_state_from_partial_grammar (grammar : partial_grammar) =
         | _ -> [])
       grammar.pg_declarations
   in
-  { grammar; tokens; symbols; intervals = !map_ref }
+  { grammar; tokens; symbols; intervals = !map_ref; implemenation; sourcemap }
 
 let load_state_from_contents (uri : uri) (file_contents : string) :
     (state, Diagnostic.t list) result =
@@ -321,11 +324,12 @@ let load_state_from_contents (uri : uri) (file_contents : string) :
   let mk_diag msg range =
     Diagnostic.create ~message:(`String msg) ~range () ~source:server_name
   in
+  let implemenation, sourcemap = get_source_map uri in
   let file_name = Uri.to_path uri in
   M.Main.load_grammar_from_contents 0 file_name file_contents
   |> map_err (fun (msg, rng) ->
       mk_diag msg (Range.of_lexical_positions rng) :: [])
-  |> map load_state_from_partial_grammar
+  |> map (load_state_from_partial_grammar ~implemenation ~sourcemap)
 
 let standard_lib =
   menhir_standard_library_grammar |> R.get_exn
@@ -463,29 +467,44 @@ let symbol_at_position ?(notify_back : notify_back option) (state : state)
     - standard library rules, their documentation; *)
 let hover (state : state) ~(pos : Position.t) : Hover.t option =
   let open O in
-  let* rng, sym = symbol_at_position state pos in
-  let+ contents, range =
-    (let+ stdlib_doc = Hashtbl.find_opt menhir_standard_library_doc sym.v in
-     (stdlib_doc, rng))
-    <+> L.find_map
-          (fun ({ v = t; _ } : token located) ->
-            if_
-              (fun _ -> t.alias = Some sym.v || t.terminal = sym.v)
-              ( O.map_or ~default:""
-                  (function
-                    | M.BaseTypes.Declared { v; _ } | M.BaseTypes.Inferred v ->
-                        spr "<%s> " v)
-                  t.ocamltype
-                ^ t.terminal
-                |> md_fenced,
-                rng ))
-          state.tokens
+  let log s = log_src "mly.hover" s in
+  log "Requested hover at %a" Position.pp pos;
+  let+ sym_range, sym = symbol_at_position state pos in
+  let info_type =
+    let* answer = lookup_source state.sourcemap sym.p sym.v in
+    log "[sourcemap] ok: %a" Range.pp_lexing answer;
+    let* doc = state.implemenation in
+    log "[doc] ok";
+    let+ typ =
+      get_merlin_type ~doc
+        ~pos:(Position.of_lexical_position (fst answer))
+        sym.v
+    in
+    log "[merlin type] ok: %s" typ;
+    md_fenced typ
+  in
+  let info_stdlib = Hashtbl.find_opt menhir_standard_library_doc sym.v in
+  let info_token =
+    L.find_map
+      (fun ({ v = t; _ } : token located) ->
+        if_
+          (fun _ -> t.alias = Some sym.v || t.terminal = sym.v)
+          (spr "%a%s"
+             (pp_option (fun out -> pf out "<%s>"))
+             M.BaseTypes.(
+               t.ocamltype >|= function Declared { v; _ } | Inferred v -> v)
+             t.terminal
+          |> md_fenced))
+      state.tokens
   in
   Hover.create
     ~contents:
       (`MarkupContent
-         (MarkupContent.create ~kind:MarkupKind.Markdown ~value:contents))
-    ~range ()
+         (MarkupContent.create ~kind:Markdown
+            ~value:
+              (spr "%a\n\n%a\n\n%a\n" pp_stropt info_token pp_stropt info_stdlib
+                 pp_stropt info_type)))
+    ~range:sym_range ()
 
 let diagnostics ~(notify_back : notify_back) ~(uri : uri) (_s : state) :
     Diagnostic.t list =
