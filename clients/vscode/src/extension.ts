@@ -2,14 +2,14 @@ import { exec } from "child_process";
 import * as vscode from "vscode";
 
 import {
-    CancellationToken,
-    DocumentUri,
-    ExecuteCommandParams,
-    LanguageClient,
-    LanguageClientOptions,
-    Range,
-    ServerOptions,
-    TransportKind
+  CancellationToken,
+  DocumentUri,
+  ExecuteCommandParams,
+  LanguageClient,
+  LanguageClientOptions,
+  Range,
+  ServerOptions,
+  TransportKind,
 } from "vscode-languageclient/node";
 import { ASTPanel, getWebviewOptions } from "./astPanel";
 
@@ -119,6 +119,14 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
+    vscode.commands.registerCommand(commandName("showImplementation"), () => {
+      const editor = vscode.window.activeTextEditor;
+
+      if (!editor) return;
+
+      showImplementation(editor.document.uri, editor.selection.active);
+    }),
+
     vscode.commands.registerCommand(commandName("astView"), () => {
       ASTPanel.createOrShow(context.extensionUri);
     }),
@@ -165,6 +173,24 @@ export async function getAst(uri: vscode.Uri) {
   return await client.sendRequest(
     "workspace/executeCommand",
     { command: "getAst", arguments: [uri.toString()] } as ExecuteCommandParams,
+    CancellationToken.None,
+  );
+}
+
+export async function showImplementation(
+  uri: vscode.Uri,
+  pos?: vscode.Position,
+) {
+  console.log(
+    `Requesting implementation of document: ${uri} at position ${pos}`,
+  );
+
+  return await client.sendRequest(
+    "workspace/executeCommand",
+    {
+      command: "showImplementation",
+      arguments: [uri.toString(), pos], // Position is serialized automatically
+    } as ExecuteCommandParams,
     CancellationToken.None,
   );
 }

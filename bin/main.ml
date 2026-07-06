@@ -97,7 +97,7 @@ class lsp_server =
         `DocumentSymbol syms
 
     method! config_definition = Some (`Bool true)
-    method! config_list_commands = [ "getAst" ]
+    method! config_list_commands = [ "getAst"; "showImplementation" ]
 
     method! config_modify_capabilities (default : ServerCapabilities.t) =
       {
@@ -201,24 +201,65 @@ class lsp_server =
     (* Wasted a lot of time thinking this request was not handled natively by Linol *)
     method! on_req_execute_command ~notify_back ~id:_ ~workDoneToken:_
         (command : string) (args : Yojson.Safe.t list option) : Json.t Lwt.t =
-      Lwt.return
+      notify_back_ref := Some notify_back;
+      let open O in
+      Lwt.return @@ O.get_or ~default:`Null
       @@
       match command with
       | "getAst" ->
-          let uri =
+          let log s = log_src "getAst" s in
+          let* uri =
             match args with
             | Some [ `String uri ] ->
-                log_info ~notify_back "Client requested AST of %s" uri;
-                Uri.of_string uri
+                log "Client requested AST of %s" uri;
+                Some (Uri.of_string uri)
             | _ ->
-                prerr_endline "Failed to read uri argument";
-                failwith "bad arguments: getAst"
+                log "Failed to read uri argument";
+                None
           in
           self#_dispatch uri ~notify_back
             ~mly_handler:(fun state -> Mly.yojson_of_ast state.grammar)
             ~mll_handler:(fun state -> Mll.yojson_of_ast state.grammar)
-          |> O.get_or ~default:`Null
-      | _ -> `Null
+      | "showImplementation" ->
+          let log s = log_src "showImplementation" s in
+          let* uri, pos =
+            match args with
+            | Some [ `String uri; pos ] ->
+                let pos = Position.t_of_yojson pos in
+                log "Client requested implementation of %s at position %a" uri
+                  Position.pp pos;
+                Some (Uri.of_string uri, Some pos)
+            | Some [ `String uri ] ->
+                log "Client requested implementation of %s" uri;
+                Some (Uri.of_string uri, None)
+            | _ ->
+                log "Failed to read uri argument";
+                None
+          in
+          let showDoc (doc_uri, selection) =
+            let _ =
+              notify_back#send_request
+                (ShowDocumentRequest
+                   {
+                     external_ = None;
+                     selection;
+                     takeFocus = Some true;
+                     uri = doc_uri;
+                   })
+                (fun result ->
+                  match result with
+                  | Ok success -> Lwt.return ()
+                  | Error { code; message; data } ->
+                      notify_back#send_notification
+                        (ShowMessage { message; type_ = Error }))
+            in
+            None
+          in
+          self#_dispatch uri ~notify_back
+            ~mly_handler:(Mly.show_impl ?pos >=> showDoc)
+            ~mll_handler:(Mll.show_impl ?pos >=> showDoc)
+          |> O.flatten
+      | _ -> None
 
     method private _on_req_document_formatting ~notify_back
         ~r:

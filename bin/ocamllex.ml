@@ -18,7 +18,7 @@ type state = {
     | `Anonymous of regular_expression_syntax located ]
     list;
   intervals : zone Ivl_map.t;
-  implemenation : Text_document.t option;
+  implementation : Text_document.t option;
   sourcemap : Line_directives.source_mapping list;
 }
 
@@ -239,8 +239,8 @@ let load_state_from_contents (uri : uri) (contents : string) :
     end
   in
   v#visit_main () grammar;
-  let implemenation, sourcemap = get_source_map uri in
-  { grammar; symbols; regexps; intervals = !map_ref; implemenation; sourcemap }
+  let implementation, sourcemap = get_source_map uri in
+  { grammar; symbols; regexps; intervals = !map_ref; implementation; sourcemap }
 
 let hover (state : state) ~(doc : Text_document.t) ~(pos : Position.t) :
     Hover.t option =
@@ -250,7 +250,7 @@ let hover (state : state) ~(doc : Text_document.t) ~(pos : Position.t) :
   log "symbol under cursor: %a %a (%a)" (Located.pp pp_string) sym Range.pp
     sym_range Range.pp_lexing sym.p;
   let* answer = lookup_source state.sourcemap sym.p sym.v in
-  let* doc = state.implemenation in
+  let* doc = state.implementation in
   let+ info_type =
     (* Merlin refuses to type code sandwiched between line directives. Even Alt+T in the editor selects another containing region and types that. This returns `Unbound value x` *)
     get_merlin_type ~doc ~pos:(Position.of_lexical_position (fst answer)) sym.v
@@ -266,6 +266,16 @@ let hover (state : state) ~(doc : Text_document.t) ~(pos : Position.t) :
             ~value:(spr "%s" (md_fenced info_type))))
     ~range:(Range.of_lexical_positions answer)
     ()
+
+let show_impl ?(pos : Position.t option) state =
+  let open O in
+  let+ doc = state.implementation in
+  let doc_uri = TD.documentUri doc in
+  let selection =
+    pos >>= symbol_at_position state >>= fun (_, { v; p }) ->
+    lookup_source state.sourcemap p v >|= Range.of_lexical_positions
+  in
+  (doc_uri, selection)
 
 let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
   let open L in

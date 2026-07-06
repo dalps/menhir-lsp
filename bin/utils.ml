@@ -277,11 +277,12 @@ let pp_interval out ({ low; high } : Ivl.t) =
 
 let show_interval = spr "%a" pp_interval
 
-let pp_uri out (uri : uri) =
+let pp_uri_debug out (uri : uri) =
   pf out "%s{hash = %d; query = %a}" (Uri.to_path uri) (Uri.hash uri)
     (pp_option pp_string) (Uri.query uri)
 
-let pp_short_uri out (uri : uri) = pf out "%s" (Uri.to_path uri)
+let pp_uri out (uri : uri) = pf out "%s" (Uri.to_path uri)
+let pp_short_uri = pp_uri
 let pp_short_state = fun out _ -> pf out "<state>"
 
 let rec pp_selection_range (out : Format.formatter) (sr : SelectionRange.t) =

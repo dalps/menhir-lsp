@@ -50,6 +50,10 @@
 		],
 		"commands": [
 			{
+				"title": "Menhir: Focus Implementation",
+				"command": "menhir-lsp-client.showImplementation"
+			},
+			{
 				"title": "Menhir: Show Language Server output",
 				"command": "menhir-lsp-client.showOutput"
 			},
