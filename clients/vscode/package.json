@@ -1,130 +1,139 @@
 {
-	"name": "menhir-lsp-client",
-	"displayName": "Menhir",
-	"description": "IntelliSense for Menhir grammars and Ocamllex lexers",
-	"version": "0.3.0",
-	"publisher": "dalps",
-	"private": true,
-	"license": "GPL-2.0-only",
-	"icon": ".fileicons/icon.png",
-	"repository": {
-		"type": "git",
-		"url": "https://github.com/dalps/menhir-lsp"
-	},
-	"engines": {
-		"vscode": "^1.100.0"
-	},
-	"categories": [
-		"Programming Languages"
-	],
-	"activationEvents": [
-		"onLanguage:ocaml.menhir",
-		"onLanguage:ocaml.ocamllex"
-	],
-	"contributes": {
-		"colors": [
-			{
-				"id": "menhirlsp.astExplorer.highlightColor",
-				"defaults": {
-					"light": "#0000ff33",
-					"dark": "#9393ff66"
-				},
-				"description": "The background color of the source code contained in the highlighted AST node."
-			}
-		],
-		"languages": [
-			{
-				"id": "ocaml.menhir",
-				"icon": {
-					"dark": ".fileicons/menhir.svg",
-					"light": ".fileicons/menhir.svg"
-				}
-			},
-			{
-				"id": "ocaml.ocamllex",
-				"icon": {
-					"dark": ".fileicons/ocamllex.svg",
-					"light": ".fileicons/ocamllex.svg"
-				}
-			}
-		],
-		"commands": [
-			{
-				"title": "Menhir: Focus Implementation",
-				"command": "menhir-lsp-client.showImplementation"
-			},
-			{
-				"title": "Menhir: Show Language Server output",
-				"command": "menhir-lsp-client.showOutput"
-			},
-			{
-				"title": "Menhir: Restart Language Server",
-				"command": "menhir-lsp-client.restartServer"
-			},
-			{
-				"title": "Menhir: Show AST view",
-				"command": "menhir-lsp-client.astView"
-			},
-			{
-				"title": "Menhir: Reveal AST node under cursor",
-				"enablement": "never",
-				"command": "menhir-lsp-client.revealAstNode"
-			},
-			{
-				"title": "Menhir: prompt for an alias",
-				"enablement": "never",
-				"command": "menhir-lsp-client.promptAlias"
-			}
-		],
-		"configuration": {
-			"type": "object",
-			"title": "Menhir LSP - Formatting options",
-			"properties": {
-				"menhir.format.maxWidth": {
-					"type": "integer",
-					"default": 80,
-					"description": "Maximum number of characters per line."
-				},
-				"menhir.format.indentOnce": {
-					"type": "boolean",
-					"default": false,
-					"description": "Add a level of indentation to the cases of a rule or (default) keep them flush with the start of the definition."
-				},
-				"menhir.format.noLeadingBar": {
-					"type": "boolean",
-					"default": false,
-					"description": "Omit the optional leading bar `|` in the first case of a rule."
-				},
-				"menhir.format.semiAfterProducer": {
-					"type": "boolean",
-					"default": false,
-					"description": "Terminate every producer with a semicolon in Menhir rules written in the traditional syntax."
-				}
-			}
-		}
-	},
-	"main": "./out/extension.js",
-	"scripts": {
-		"vscode:prepublish": "just bundle",
-		"build": "just bundle",
-		"debug": "just build",
-		"watch": "just watch"
-	},
-	"devDependencies": {
-		"@types/mocha": "^10.0.10",
-		"@types/node": "^24.10.1",
-		"@types/vscode": "^1.73.0",
-		"@vscode/test-electron": "^2.5.2",
-		"mocha": "^11.7.5",
-		"@types/vscode-webview": "^1.57.5",
-		"esbuild": "^0.28.0",
-		"esbuild-svelte": "^0.9.4",
-		"svelte-preprocess": "^6.0.3",
-		"typescript": "^5.9.3",
-		"svelte": "^5.55.1",
-		"vscode-test": "^1.6.1"
-	},
-	"dependencies": {
-		"vscode-languageclient": "^9.0.1"
-	}
+  "name": "menhir-lsp-client",
+  "displayName": "Menhir",
+  "description": "IntelliSense for Menhir grammars and Ocamllex lexers",
+  "version": "0.3.0",
+  "publisher": "dalps",
+  "private": true,
+  "license": "GPL-2.0-only",
+  "icon": ".fileicons/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dalps/menhir-lsp"
+  },
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:ocaml.menhir",
+    "onLanguage:ocaml.ocamllex"
+  ],
+  "contributes": {
+    "colors": [
+      {
+        "id": "menhirlsp.astExplorer.highlightColor",
+        "defaults": {
+          "light": "#0000ff33",
+          "dark": "#9393ff66"
+        },
+        "description": "The background color of the source code contained in the highlighted AST node."
+      }
+    ],
+    "languages": [
+      {
+        "id": "ocaml.menhir",
+        "icon": {
+          "dark": ".fileicons/menhir.svg",
+          "light": ".fileicons/menhir.svg"
+        }
+      },
+      {
+        "id": "ocaml.ocamllex",
+        "icon": {
+          "dark": ".fileicons/ocamllex.svg",
+          "light": ".fileicons/ocamllex.svg"
+        }
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "when": "editorTextFocus && (editorLangId == ocaml.menhir || editorLangId == ocaml.ocamllex)",
+          "command": "menhir-lsp-client.showImplementation"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "title": "Menhir: Show Implementation",
+        "shortTitle": "Reveal in Implementation",
+        "command": "menhir-lsp-client.showImplementation"
+      },
+      {
+        "title": "Menhir: Show Language Server Output",
+        "command": "menhir-lsp-client.showOutput"
+      },
+      {
+        "title": "Menhir: Restart Language Server",
+        "command": "menhir-lsp-client.restartServer"
+      },
+      {
+        "title": "Menhir: Show AST View",
+        "command": "menhir-lsp-client.astView"
+      },
+      {
+        "title": "Menhir: Reveal AST Lode Under Cursor",
+        "enablement": "never",
+        "command": "menhir-lsp-client.revealAstNode"
+      },
+      {
+        "title": "Menhir: prompt for an alias",
+        "enablement": "never",
+        "command": "menhir-lsp-client.promptAlias"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Menhir LSP - Formatting options",
+      "properties": {
+        "menhir.format.maxWidth": {
+          "type": "integer",
+          "default": 80,
+          "description": "Maximum number of characters per line."
+        },
+        "menhir.format.indentOnce": {
+          "type": "boolean",
+          "default": false,
+          "description": "Add a level of indentation to the cases of a rule or (default) keep them flush with the start of the definition."
+        },
+        "menhir.format.noLeadingBar": {
+          "type": "boolean",
+          "default": false,
+          "description": "Omit the optional leading bar `|` in the first case of a rule."
+        },
+        "menhir.format.semiAfterProducer": {
+          "type": "boolean",
+          "default": false,
+          "description": "Terminate every producer with a semicolon in Menhir rules written in the traditional syntax."
+        }
+      }
+    }
+  },
+  "main": "./out/extension.js",
+  "scripts": {
+    "vscode:prepublish": "just bundle",
+    "build": "just bundle",
+    "debug": "just build",
+    "watch": "just watch"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^24.10.1",
+    "@types/vscode": "^1.73.0",
+    "@vscode/test-electron": "^2.5.2",
+    "mocha": "^11.7.5",
+    "@types/vscode-webview": "^1.57.5",
+    "esbuild": "^0.28.0",
+    "esbuild-svelte": "^0.9.4",
+    "svelte-preprocess": "^6.0.3",
+    "typescript": "^5.9.3",
+    "svelte": "^5.55.1",
+    "vscode-test": "^1.6.1"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
 }
