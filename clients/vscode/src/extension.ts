@@ -119,12 +119,12 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(
-    vscode.commands.registerCommand(commandName("showImplementation"), () => {
+    vscode.commands.registerCommand(commandName("gotoImplementation"), () => {
       const editor = vscode.window.activeTextEditor;
 
       if (!editor) return;
 
-      showImplementation(editor.document.uri, editor.selection.active);
+      gotoImplementation(editor.document.uri, editor.selection.active);
     }),
 
     vscode.commands.registerCommand(commandName("astView"), () => {
@@ -177,7 +177,7 @@ export async function getAst(uri: vscode.Uri) {
   );
 }
 
-export async function showImplementation(
+export async function gotoImplementation(
   uri: vscode.Uri,
   pos?: vscode.Position,
 ) {
@@ -188,7 +188,7 @@ export async function showImplementation(
   return await client.sendRequest(
     "workspace/executeCommand",
     {
-      command: "showImplementation",
+      command: "gotoImplementation",
       arguments: [uri.toString(), pos], // Position is serialized automatically
     } as ExecuteCommandParams,
     CancellationToken.None,

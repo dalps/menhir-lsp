@@ -52,15 +52,15 @@
       "editor/context": [
         {
           "when": "editorTextFocus && (editorLangId == ocaml.menhir || editorLangId == ocaml.ocamllex)",
-          "command": "menhir-lsp-client.showImplementation"
+          "command": "menhir-lsp-client.gotoImplementation"
         }
       ]
     },
     "commands": [
       {
-        "title": "Menhir: Show Implementation",
-        "shortTitle": "Reveal in Implementation",
-        "command": "menhir-lsp-client.showImplementation"
+        "title": "Menhir: Go To Implementation",
+        "shortTitle": "Go To Implementation",
+        "command": "menhir-lsp-client.gotoImplementation"
       },
       {
         "title": "Menhir: Show Language Server Output",
@@ -123,14 +123,14 @@
     "@types/mocha": "^10.0.10",
     "@types/node": "^24.10.1",
     "@types/vscode": "^1.73.0",
-    "@vscode/test-electron": "^2.5.2",
-    "mocha": "^11.7.5",
     "@types/vscode-webview": "^1.57.5",
+    "@vscode/test-electron": "^2.5.2",
     "esbuild": "^0.28.0",
     "esbuild-svelte": "^0.9.4",
+    "mocha": "^11.7.5",
+    "svelte": "^5.55.1",
     "svelte-preprocess": "^6.0.3",
     "typescript": "^5.9.3",
-    "svelte": "^5.55.1",
     "vscode-test": "^1.6.1"
   },
   "dependencies": {

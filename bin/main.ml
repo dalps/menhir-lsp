@@ -97,7 +97,7 @@ class lsp_server =
         `DocumentSymbol syms
 
     method! config_definition = Some (`Bool true)
-    method! config_list_commands = [ "getAst"; "showImplementation" ]
+    method! config_list_commands = [ "getAst"; "gotoImplementation" ]
 
     method! config_modify_capabilities (default : ServerCapabilities.t) =
       {
@@ -220,8 +220,8 @@ class lsp_server =
           self#_dispatch uri ~notify_back
             ~mly_handler:(fun state -> Mly.yojson_of_ast state.grammar)
             ~mll_handler:(fun state -> Mll.yojson_of_ast state.grammar)
-      | "showImplementation" ->
-          let log s = log_src "showImplementation" s in
+      | "gotoImplementation" ->
+          let log s = log_src "gotoImplementation" s in
           let* uri, pos =
             match args with
             | Some [ `String uri; pos ] ->

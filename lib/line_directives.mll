@@ -2,6 +2,8 @@
 {
   open Utils
 
+  let log s = log_src ~debug:false "line_directives" s
+
   type source_mapping = {
     src_line : int;
     impl_line : int;
