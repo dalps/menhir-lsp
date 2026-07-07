@@ -1,6 +1,6 @@
-# Menhir and Ocamllex LSP client
+# Menhir and Ocamllex LSP Client
 
-VS Code extension providing IntelliSense for [Menhir](https://fpottier.gitlabpages.inria.fr/menhir/) grammars and [Ocamllex](https://ocaml.org/manual/5.4/lexyacc.html) lexers. In order to work, it needs the Menhir language server [menhir-lsp](https://github.com/dalps/menhir-lsp). Install it with [opam](https://ocaml.org/packages), the OCaml package manager:
+VS Code extension providing IntelliSense for [Menhir](https://fpottier.gitlabpages.inria.fr/menhir/) parsers and [Ocamllex](https://ocaml.org/manual/5.4/lexyacc.html) lexers. In order to work, it needs the Menhir language server [menhir-lsp](https://github.com/dalps/menhir-lsp). Install it with [opam](https://ocaml.org/packages), the OCaml package manager:
 
 ```
 opam install menhir-lsp
@@ -24,8 +24,22 @@ Enjoy ease of navigation and *rock*-solid language support in your grammars!
 * Rename Symbol (F2 on a rule name or a token name)
 * Refactorings for Menhir tokens and Ocamllex regular expressions (Cltr+.)
 * Selection Ranges (Shift+Alt+← / Shift+Alt+→ to respectively shrink / expand your selection on a regular expression)
-* Document Formatting (Shift+Alt+F)
+* Document Formatting (Shift+Alt+F) powered by `ocamlformat`
 * Fancy file icons
+
+### Code Actions
+
+#### Menhir Refactorings
+
+* **Define and replace with alias**: replace all occurrences of a token `RBRACE` in your grammar with an alias `"}"`. The action automatically (re)defines the alias at the site of the token declaration.
+
+#### ocamllex Refactorings
+
+* **Extract to named regexp**: select a valid regexp range and replace it with a reference to a fresh named regular expression generated above your lexer rules.
+
+### Commands
+
+Open the command palette (F1) and type `Menhir` to view the available commands.
 
 ## License
 

@@ -13,7 +13,7 @@ export function getWebviewOptions(extensionUri: Uri): vscode.WebviewOptions {
   return {
     enableScripts: true,
     localResourceRoots: [
-      Uri.joinPath(extensionUri, ".fileicons"),
+      Uri.joinPath(extensionUri, "icons"),
       Uri.joinPath(extensionUri, "out", "webviews"),
     ],
   };
@@ -157,7 +157,7 @@ export class ASTPanel implements vscode.Disposable {
     } else {
       this.title = editor.document.fileName.split(/\//g).at(-1) ?? "AST View";
       const lang = editor.document.languageId.split(".").at(-1)!;
-      const iconsPath = Uri.joinPath(this._extensionUri, ".fileicons");
+      const iconsPath = Uri.joinPath(this._extensionUri, "icons");
 
       this._panel.iconPath = Uri.joinPath(iconsPath, `${lang}.svg`);
 
@@ -169,6 +169,9 @@ export class ASTPanel implements vscode.Disposable {
 
   public dispose() {
     ASTPanel.currentPanel = undefined;
+
+    // Clear any active decoration in the editor
+    this._editor?.setDecorations(highlightDecorationType, []);
 
     this._panel.dispose();
 

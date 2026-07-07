@@ -6,7 +6,7 @@
   "publisher": "dalps",
   "private": true,
   "license": "GPL-2.0-only",
-  "icon": ".fileicons/icon.png",
+  "icon": "icons/icon.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/dalps/menhir-lsp"
@@ -36,15 +36,15 @@
       {
         "id": "ocaml.menhir",
         "icon": {
-          "dark": ".fileicons/menhir.svg",
-          "light": ".fileicons/menhir.svg"
+          "dark": "icons/menhir.svg",
+          "light": "icons/menhir.svg"
         }
       },
       {
         "id": "ocaml.ocamllex",
         "icon": {
-          "dark": ".fileicons/ocamllex.svg",
-          "light": ".fileicons/ocamllex.svg"
+          "dark": "icons/ocamllex.svg",
+          "light": "icons/ocamllex.svg"
         }
       }
     ],
