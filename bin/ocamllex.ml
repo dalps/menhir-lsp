@@ -245,26 +245,17 @@ let load_state_from_contents (uri : uri) (contents : string) :
 let hover (state : state) ~(doc : Text_document.t) ~(pos : Position.t) :
     Hover.t option =
   let open O in
-  let log s = log_src "hover" s in
+  let log s = log_src "mll.hover" s in
   let* sym_range, sym = symbol_at_position state pos in
   log "symbol under cursor: %a %a (%a)" (Located.pp pp_string) sym Range.pp
     sym_range Range.pp_lexing sym.p;
   let* answer = lookup_source state.sourcemap sym.p sym.v in
   let+ doc = state.implementation in
   let pos = Position.of_lexical_position (fst answer) in
-  let info_type, info_docs =
-    let typ = get_merlin_type ~doc ~pos sym.v
-    and docs = get_merlin_docs ~expression:(Some sym.v) ~doc ~pos in
-    O.flatten_pair @@ Some (typ, docs)
-  in
-  Hover.create
-    ~contents:
-      (`MarkupContent
-         (MarkupContent.create ~kind:Markdown
-            ~value:
-              ([ info_type >|= md_fenced; info_docs ]
-              |> L.keep_some |> String.concat "\n\n")))
-    ~range:sym_range ()
+  let info_type = get_merlin_type ~doc ~pos sym.v in
+  let info_docs = get_merlin_docs ~expression:(Some sym.v) ~doc ~pos in
+  make_md_hover ~range:sym_range
+    (L.keep_some [ info_type >|= md_fenced; info_docs >|= odoc_to_md ])
 
 let show_impl ?(pos : Position.t option) state =
   let open O in

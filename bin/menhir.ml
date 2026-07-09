@@ -480,9 +480,9 @@ let hover (state : state) ~(pos : Position.t) : Hover.t option =
     log "[sourcemap] ok: %a" Range.pp_lexing answer;
     let* doc = state.implementation in
     let pos = Position.of_lexical_position (fst answer) in
-    let typ = get_merlin_type ~doc ~pos sym.v >|= md_fenced
+    let typ = get_merlin_type ~doc ~pos sym.v
     and docs = get_merlin_docs ~expression:(Some sym.v) ~doc ~pos in
-    Some (typ >|= md_fenced, docs)
+    Some (typ >|= md_fenced, docs >|= odoc_to_md)
   in
   let info_stdlib = Hashtbl.find_opt menhir_standard_library_doc sym.v in
   let info_token =
@@ -500,14 +500,8 @@ let hover (state : state) ~(pos : Position.t) : Hover.t option =
           |> md_fenced))
       state.tokens
   in
-  Hover.create
-    ~contents:
-      (`MarkupContent
-         (MarkupContent.create ~kind:Markdown
-            ~value:
-              ([ info_token; info_stdlib; info_type; info_docs ]
-              |> L.keep_some |> String.concat "\n\n")))
-    ~range:sym_range ()
+  make_md_hover ~range:sym_range
+    (L.keep_some [ info_token; info_stdlib; info_type; info_docs ])
 
 let diagnostics ~(notify_back : notify_back) ~(uri : uri) (_s : state) :
     Diagnostic.t list =
