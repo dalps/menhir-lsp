@@ -31,6 +31,12 @@ module O = struct
   let ( <|> ) (a : 'a option) (b : unit -> 'a option) =
     match (a, b) with Some a, _ -> Some a | None, f -> f ()
 
+  let pair (o : ('a * 'b) t) : 'a t * 'b t =
+    match o with None -> (None, None) | Some (a, b) -> (Some a, Some b)
+
+  let flatten_pair (o : ('a t * 'b t) t) : 'a t * 'b t =
+    match o with None -> (None, None) | Some (a, b) -> (a, b)
+
   let guard b = if b then Some () else None
   let get_or_nil (t : 'a list t) : 'a list = get_or ~default:[] t
   let get_string = get_or ~default:""
@@ -341,4 +347,8 @@ let pp_option pp_v out (o : 'a option) =
 
 let pp_string = Format.pp_print_string
 let pp_stropt = Format.pp_print_option pp_string
+
+let pp_list ?(pp_sep = fun out unit -> pf out ", ") out pp_v =
+  Format.pp_print_list out ~pp_sep pp_v
+
 let pp_fenced out a = pf out "```\n%a\n```" a

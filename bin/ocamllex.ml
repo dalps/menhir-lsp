@@ -250,22 +250,21 @@ let hover (state : state) ~(doc : Text_document.t) ~(pos : Position.t) :
   log "symbol under cursor: %a %a (%a)" (Located.pp pp_string) sym Range.pp
     sym_range Range.pp_lexing sym.p;
   let* answer = lookup_source state.sourcemap sym.p sym.v in
-  let* doc = state.implementation in
-  let+ info_type =
-    (* Merlin refuses to type code sandwiched between line directives. Even Alt+T in the editor selects another containing region and types that. This returns `Unbound value x` *)
-    get_merlin_type ~doc ~pos:(Position.of_lexical_position (fst answer)) sym.v
-    (* ...but it works for any other word outside line directives. Alt+T does in fact select and display the type. Try the query below: *)
-    (* get_merlin_type ~doc
-      ~pos:(Position.create ~line:257 ~character:62)
-      "__ocaml_lex_read_line_directives_rec" *)
+  let+ doc = state.implementation in
+  let pos = Position.of_lexical_position (fst answer) in
+  let info_type, info_docs =
+    let typ = get_merlin_type ~doc ~pos sym.v
+    and docs = get_merlin_docs ~expression:(Some sym.v) ~doc ~pos in
+    O.flatten_pair @@ Some (typ, docs)
   in
   Hover.create
     ~contents:
       (`MarkupContent
          (MarkupContent.create ~kind:Markdown
-            ~value:(spr "%s" (md_fenced info_type))))
-    ~range:(Range.of_lexical_positions answer)
-    ()
+            ~value:
+              ([ info_type >|= md_fenced; info_docs ]
+              |> L.keep_some |> String.concat "\n\n")))
+    ~range:sym_range ()
 
 let show_impl ?(pos : Position.t option) state =
   let open O in

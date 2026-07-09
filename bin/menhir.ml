@@ -7,6 +7,9 @@ open MenhirDocs
 open MenhirStdlib
 module Range = Utils.Range
 
+let pp_strloc out ({ p; v; _ } : string located) =
+  pf out "`%s`%a" v Range.pp_lexing p
+
 type zone =
   | OCaml
   | Declaration
@@ -470,18 +473,16 @@ let hover (state : state) ~(pos : Position.t) : Hover.t option =
   let log s = log_src "mly.hover" s in
   log "Requested hover at %a" Position.pp pos;
   let+ sym_range, sym = symbol_at_position state pos in
-  let info_type =
+  let info_type, info_docs =
+    O.flatten_pair
+    @@
     let* answer = lookup_source state.sourcemap sym.p sym.v in
     log "[sourcemap] ok: %a" Range.pp_lexing answer;
     let* doc = state.implementation in
-    log "[doc] ok";
-    let+ typ =
-      get_merlin_type ~doc
-        ~pos:(Position.of_lexical_position (fst answer))
-        sym.v
-    in
-    log "[merlin type] ok: %s" typ;
-    md_fenced typ
+    let pos = Position.of_lexical_position (fst answer) in
+    let typ = get_merlin_type ~doc ~pos sym.v >|= md_fenced
+    and docs = get_merlin_docs ~expression:(Some sym.v) ~doc ~pos in
+    Some (typ >|= md_fenced, docs)
   in
   let info_stdlib = Hashtbl.find_opt menhir_standard_library_doc sym.v in
   let info_token =
@@ -504,7 +505,7 @@ let hover (state : state) ~(pos : Position.t) : Hover.t option =
       (`MarkupContent
          (MarkupContent.create ~kind:Markdown
             ~value:
-              ([ info_token; info_stdlib; info_type ]
+              ([ info_token; info_stdlib; info_type; info_docs ]
               |> L.keep_some |> String.concat "\n\n")))
     ~range:sym_range ()
 

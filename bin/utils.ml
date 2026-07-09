@@ -146,13 +146,9 @@ let get_merlin_config (uri : uri) =
   let open O in
   let+ ctx, config_path = MK.Mconfig_dot.find_project_context dir in
   let dot, failures = MK.Mconfig_dot.get_config ctx path in
-  let concat = String.concat ", " in
-  log_info
-    {|Search result for Merlin config of %s:
-  Errors: %s
-  Source path: %s
-  Build path: %s|}
-    path (concat failures) (concat dot.source_path) (concat dot.build_path);
+  log_info {|Search result for Merlin config of %s:
+  Errors: %a|} path
+    (pp_list pp_string) failures;
   let merlin =
     MK.Mconfig.merge_merlin_config dot MK.Mconfig.initial.merlin ~failures
       ~config_path
@@ -225,12 +221,61 @@ let get_merlin_completions ~(uri : uri) ~(pos : Position.t) (prefix : word)
   log_info "# merlin completions: %d" (L.length compls);
   compls
 
-let get_merlin_type ~(doc : Text_document.t) ~(pos : Position.t) expression =
+let get_merlin_docs ~expression ~(doc : Text_document.t) ~(pos : Position.t) =
+  let logical_pos = Position.logical pos in
   with_merlin ~doc (fun _source pipeline ->
-      let logical_pos = Position.logical pos in
-      let query = Query_protocol.Type_expr (expression, logical_pos) in
+      let query = Query_protocol.Document (expression, logical_pos) in
       let typ = Query_commands.dispatch pipeline query in
-      typ)
+      match typ with
+      | `Found s | `Builtin s -> s
+      | `No_documentation | `Invalid_context | `Not_found _ | `Not_in_env _
+      | `File_not_found _ ->
+          "")
+
+let get_merlin_type ~(doc : Text_document.t) ~(pos : Position.t) expression =
+  let open O in
+  let logical_pos = Position.logical pos in
+  let expr =
+    with_merlin ~doc (fun _source pipeline ->
+        let query = Query_protocol.Type_expr (expression, logical_pos) in
+        let typ = Query_commands.dispatch pipeline query in
+        typ)
+  in
+  let _search () =
+    with_merlin ~doc (fun _source pipeline ->
+        let query =
+          Query_protocol.Type_search (expression, logical_pos, 0, true)
+        in
+        let typs = Query_commands.dispatch pipeline query in
+        spr "%a"
+          (Format.pp_print_list (fun out typ ->
+               pf out "%s, %s" typ.Query_protocol.typ typ.Query_protocol.name))
+          typs)
+  in
+  let enclosing =
+    with_merlin ~doc (fun _source pipeline ->
+        let query = Query_protocol.Type_enclosing (None, logical_pos, Some 0) in
+        let typs = Query_commands.dispatch pipeline query in
+        spr "%a"
+          (Format.pp_print_list (fun out typ ->
+               pf out "%s"
+               @@ match typ with _, `Index _, _ -> "" | _, `String s, _ -> s))
+          typs)
+  in
+  let _locate () =
+    with_merlin ~doc (fun _source pipeline ->
+        let query = Query_protocol.Locate_type logical_pos in
+        let typ = Query_commands.dispatch pipeline query in
+        match typ with
+        | `Builtin t | `Found (Some t, _) -> t
+        | `Invalid_context | `Not_found _ | `At_origin | `Not_in_env _
+        | `File_not_found _
+        | `Found (None, _) ->
+            "")
+  in
+  log "Type_expr: %a" pp_stropt expr;
+  log "Type_enclosing: %a" pp_stropt enclosing;
+  expr <+> enclosing
 
 let get_merlin_compls ~uri ~pos word =
   with_merlin ~doc:word.td (get_merlin_completions ~uri ~pos word)
