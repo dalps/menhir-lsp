@@ -22,6 +22,13 @@
     "onLanguage:ocaml.ocamllex"
   ],
   "contributes": {
+    "grammars": [
+      {
+        "language": "ocaml.menhir.messages",
+        "scopeName": "source.ocaml.menhir.messages",
+        "path": "./syntaxes/ocaml.menhir.messages.json"
+      }
+    ],
     "colors": [
       {
         "id": "menhirlsp.astExplorer.highlightColor",
@@ -46,6 +53,12 @@
           "dark": "icons/ocamllex.svg",
           "light": "icons/ocamllex.svg"
         }
+      },
+      {
+        "id": "ocaml.menhir.messages",
+        "extensions": [
+          ".messages"
+        ]
       }
     ],
     "menus": {

@@ -1,0 +1,169 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/refs/heads/master/tmlanguage.json",
+  "scopeName": "source.ocaml.menhir.messages",
+  "fileTypes": [
+    "messages"
+  ],
+  "patterns": [
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#sentences"
+    },
+    {
+      "include": "#messages"
+    }
+  ],
+  "repository": {
+    "sentences": {
+      "comment": "main: INT MINUS TIMES",
+      "begin": "^([[:lower:]_][[:word:]]*):",
+      "beginCaptures": {
+        "1": {
+          "name": "entity.name.function"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#token-name"
+        }
+      ],
+      "end": "$"
+    },
+    "token-name": {
+      "comment": "reference to a token",
+      "name": "entity.name.tag",
+      "match": "[[:upper:]][[:word:]]*|#"
+    },
+    "actual": {
+      "match": "([[:lower:]_][[:word:]']*)[[:space:]]*(\\(([^)]+)\\))?",
+      "captures": {
+        "1": {
+          "name": "entity.name.function.rule.menhir"
+        },
+        "2": {
+          "patterns": [
+            {
+              "match": "\\(",
+              "name": "keyword.other"
+            },
+            {
+              "include": "#token-name"
+            },
+            {
+              "comment": "rule parameter",
+              "name": "variable.parameter.rule.menhir",
+              "match": "[[:alpha:]_][[:word:]]*"
+            },
+            {
+              "match": "\\)",
+              "name": "keyword.other"
+            }
+          ]
+        }
+      }
+    },
+    "entrypoint": {
+      "comment": "name of grammar start symbol (lid)",
+      "name": "entity.name.function.menhir",
+      "match": "[[:lower:]_][[:word:]']*"
+    },
+    "comments": {
+      "comment": "comment",
+      "name": "comment",
+      "begin": "#",
+      "patterns": [
+        {
+          "include": "#productions"
+        }
+      ],
+      "end": "$"
+    },
+    "productions": {
+      "comment": "program -> declaration . SEMICOLON [ # ]",
+      "begin": "([[:lower:]_][[:word:]']*)[[:space:]]*(\\([^)]+\\))?[[:space:]]*(->)",
+      "beginCaptures": {
+        "1": {
+          "name": "entity.name.function.rule.menhir"
+        },
+        "2": {
+          "patterns": [
+            {
+              "match": "\\(",
+              "name": "keyword.other"
+            },
+            {
+              "include": "#token-name"
+            },
+            {
+              "comment": "rule parameter",
+              "name": "variable.parameter.rule.menhir",
+              "match": "[[:alpha:]_][[:word:]]*"
+            },
+            {
+              "match": "\\)",
+              "name": "keyword.other"
+            }
+          ]
+        },
+        "3": {
+          "name": "keyword.other"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#token-name"
+        },
+        {
+          "include": "#actual"
+        },
+        {
+          "match": "\\.",
+          "name": "keyword.other.present"
+        },
+        {
+          "comment": "possible token continuations",
+          "begin": "\\[",
+          "beginCaptures": {
+            "0": {
+              "name": "keyword.other"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#token-name"
+            }
+          ],
+          "end": "\\]",
+          "endCaptures": {
+            "0": {
+              "name": "keyword.other"
+            }
+          }
+        }
+      ],
+      "end": "$"
+    },
+    "production-name": {
+      "comment": "reference to a production",
+      "name": "entity.name.function",
+      "match": "[[:lower:]_][[:word:]]*"
+    },
+    "messages": {
+      "comment": "user-provided error messages",
+      "name": "emphasis",
+      "patterns": [
+        {
+          "include": "#placeholders"
+        }
+      ],
+      "begin": "^.",
+      "end": "$"
+    },
+    "placeholders": {
+      "match": "\\$([[:digit:]]+)",
+      "name": "variable.other"
+    }
+  }
+}
