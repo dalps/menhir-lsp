@@ -339,7 +339,7 @@ class lsp_server =
         Lwt.return
         @@
         let* doc = self#get_text_document ~uri in
-        self#_dispatch uri ~notify_back ~mly_handler:(Mly.hover ~pos)
+        self#_dispatch uri ~notify_back ~mly_handler:(Mly.hover ~doc ~pos)
           ~mll_handler:(Mll.hover ~doc ~pos)
         |> O.flatten
 

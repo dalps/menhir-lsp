@@ -17,6 +17,14 @@ type zone =
   (* Carries a list of the variables bound by the branch(es) the action is tied to. *)
   | Action of (symbol located * parameter located option) list
 
+let pp_zone out zone =
+  pf out "%s"
+    (match zone with
+    | OCaml -> "Ocaml"
+    | Declaration -> "Declaration"
+    | Rule params -> spr "Rule (params: %a)" (pp_list pp_strloc) params
+    | Action _ -> "Action")
+
 type token = {
   ocamltype : ocamltype option;
   terminal : terminal;
@@ -42,13 +50,24 @@ let pp_state out state =
        (Located.pp (fun out tok -> pf out "%s" tok.terminal)))
     state.tokens
 
-let string_of_zone = function
-  | OCaml -> "ocaml"
-  | Declaration -> "decl"
-  | Rule params ->
-      spr "rule (params: %s)"
-        (params |> List.map Located.value |> String.concat ", ")
-  | Action _ -> "action"
+(** Given a document [doc] and a position into [doc], returns the stack of
+    logical zones around [pos], from most to least local. Used for completions
+    and hovers. *)
+let skewer ?offset (state : state) ~doc ~pos : zone =
+  let open O in
+  let offset = get_lazy (fun _ -> TD.absolute_position doc pos) offset in
+  let query = Ivl.create (Included offset) (Included offset) in
+  let res = Ivl_map.query_interval_list query state.intervals in
+  log "Position %a is contained in %d zones: %a" Position.pp pos (L.length res)
+    (pp_list (fun out (ivl, zs) -> pf out "[%a]" (pp_list pp_zone) zs))
+    res;
+  let res = Ivl_map.query_interval ~order:Desc query state.intervals in
+  (* Get the first value of the first result *)
+  match Ivl_map.Gen.next res with
+  | Some ((ivl, innermost_zone :: _), gen') ->
+      log "%a --> %a" pp_interval ivl pp_zone innermost_zone;
+      innermost_zone
+  | _ -> Declaration
 
 let get_cmly_file = fetch_build_dir ~ext:".cmly"
 let get_conflicts_file = fetch_build_dir ~ext:".conflicts"
@@ -149,6 +168,10 @@ let located_of_ppxloc ~(from : Lexing.position) ({ txt; loc } : 'v Ppxlib.Loc.t)
 
 let process_symbols : partial_grammar -> symbol located list =
   let aliases : (string, string) Hashtbl.t = Hashtbl.create 99 in
+  let ocaml_vars text =
+    parse_ocaml_impl text.v |> OcamlSymbols.get_vars
+    |> L.map (located_of_ppxloc ~from:(Located.startp text))
+  in
   let v =
     object
       inherit [_] ast_reduce as super
@@ -159,10 +182,11 @@ let process_symbols : partial_grammar -> symbol located list =
         fun _ action ->
           (* extract the free variables of this OCaml snippet *)
           match action.expr with
-          | IL.ETextual text ->
-              parse_ocaml_impl text.v |> OcamlSymbols.get_fvars
-              |> L.map (located_of_ppxloc ~from:(Located.startp text))
+          | IL.ETextual text -> ocaml_vars text
           | _ -> []
+
+      method! visit_DCode _ = ocaml_vars
+      method! visit_Declared _ = ocaml_vars
 
       method! visit_DToken =
         fun _ _option ts ->
@@ -468,21 +492,25 @@ let symbol_at_position ?(notify_back : notify_back option) (state : state)
 (** Produce hover information at a particular position. For:
     - token aliases, we display their full name;
     - standard library rules, their documentation; *)
-let hover (state : state) ~(pos : Position.t) : Hover.t option =
+let hover (state : state) ~(doc : document) ~(pos : Position.t) : Hover.t option
+    =
   let open O in
   let log s = log_src "mly.hover" s in
   log "Requested hover at %a" Position.pp pos;
   let+ sym_range, sym = symbol_at_position state pos in
+  let zone = skewer state ~doc ~pos in
   let info_type, info_docs =
     O.flatten_pair
     @@
-    let* answer = lookup_source state.sourcemap sym.p sym.v in
-    log "[sourcemap] ok: %a" Range.pp_lexing answer;
-    let* doc = state.implementation in
-    let pos = Position.of_lexical_position (fst answer) in
-    let typ = get_merlin_type ~doc ~pos sym.v
-    and docs = get_merlin_docs ~expression:(Some sym.v) ~doc ~pos in
-    Some (typ >|= md_fenced, docs >|= odoc_to_md)
+    match zone with
+    | OCaml | Action _ ->
+        let* answer = lookup_source state.sourcemap sym.p sym.v in
+        let* doc = state.implementation in
+        let pos = Position.of_lexical_position (fst answer) in
+        let typ = get_merlin_type ~doc ~pos sym.v
+        and docs = get_merlin_docs ~expression:(Some sym.v) ~doc ~pos in
+        Some (typ >|= md_fenced, docs >|= odoc_to_md)
+    | _ -> None
   in
   let info_stdlib = Hashtbl.find_opt menhir_standard_library_doc sym.v in
   let info_token =
@@ -657,34 +685,20 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
   let log s = log_src ~notify_back "mly.completions" s in
   let grammar_completions () =
     default_completions ?range state
-    @ standard_lib_completions @ declarations ?range ()
+    @ standard_lib_completions
+    @ declarations_completions ?range ()
   in
   get_lazy grammar_completions
   @@
   let* { p = rng; offset; _ } = word in
-  let query = Ivl.create (Included offset) (Included offset) in
-  let merlin_compls () =
+  let merlin_completions () =
     (let* word = word in
      get_merlin_compls ~uri ~pos word)
     |> get_or_nil
   in
-  let res = Ivl_map.query_interval_list query state.intervals in
-  log "for %a produced %d results" pp_interval query @@ L.length res;
-  let string_of_zone = function
-    | OCaml -> "ocaml"
-    | Declaration -> "decl"
-    | Rule params ->
-        spr "rule (params: %s)"
-          (params |> List.map Located.value |> String.concat ", ")
-    | Action _ -> "action"
-  in
-  log "innermost zone:";
-  let res = Ivl_map.query_interval ~order:Desc query state.intervals in
-  let* (ivl, zones), gen = Ivl_map.Gen.next res in
-  let+ innermost_zone = L.head_opt zones in
-  log "%a --> %s" pp_interval ivl (string_of_zone innermost_zone);
-  match innermost_zone with
-  | OCaml -> merlin_compls ()
+  let+ { p = rng; offset; td = doc } = word in
+  match skewer state ~offset ~doc ~pos with
+  | OCaml -> merlin_completions ()
   | Declaration -> grammar_completions ()
   | Rule params ->
       grammar_completions ()
@@ -706,8 +720,8 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
             ~textEdit:(`TextEdit TextEdit.{ newText = name; range = rng })
             ())
         binders
-      @ merlin_compls ()
-      @ position_keywords ~range:rng ()
+      @ merlin_completions ()
+      @ position_keywords_completions ~range:rng ()
 
 let prepare_rename (state : state) ~(pos : Position.t) : Range.t option =
   let open O in

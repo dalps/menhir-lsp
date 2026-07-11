@@ -4,11 +4,23 @@ open Utils
 open Syntax
 open Menhir_lsp_lib
 
+let pp_strloc out ({ p; v; _ } : string located) =
+  pf out "`%s`%a" v Range.pp_lexing p
+
 type zone =
   | OCaml
   | RegexpDefinition of string located list
   | Case
   | Action of string located list * string located list
+
+let pp_zone out zone =
+  pf out "%s"
+    (match zone with
+    | OCaml -> "OCaml"
+    | RegexpDefinition bindings ->
+        spr "RegexpDefinition (bindings: %a)" (pp_list pp_strloc) bindings
+    | Case -> "Case"
+    | Action (_, _) -> "Action")
 
 type state = {
   grammar : lexer_definition;
@@ -27,6 +39,25 @@ let pp_state out (state : state) =
     (Format.pp_print_list (fun out sym ->
          pf out "%a" (Located.pp pp_string) sym))
     state.symbols
+
+(** Given a document [doc] and a position into [doc], returns the stack of
+    logical zones around [pos], from most to least local. Used for completions
+    and hovers. *)
+let skewer ?offset (state : state) ~doc ~pos : zone =
+  let open O in
+  let offset = get_lazy (fun _ -> TD.absolute_position doc pos) offset in
+  let query = Ivl.create (Included offset) (Included offset) in
+  let res = Ivl_map.query_interval_list query state.intervals in
+  log "Position %a is contained in %d zones: %a" Position.pp pos (L.length res)
+    (pp_list (fun out (ivl, zs) -> pf out "[%a]" (pp_list pp_zone) zs))
+    res;
+  let res = Ivl_map.query_interval ~order:Desc query state.intervals in
+  (* Get the first value of the first result *)
+  match Ivl_map.Gen.next res with
+  | Some ((ivl, innermost_zone :: _), gen') ->
+      log "%a --> %a" pp_interval ivl pp_zone innermost_zone;
+      innermost_zone
+  | _ -> Case
 
 let located_of_ppxloc ~(from : Lexing.position) ({ txt; loc } : 'v Ppxlib.Loc.t)
     : 'v located =
@@ -117,6 +148,10 @@ let regexp_bindings ?(resolve = false) :
   v#visit_regular_expression_syntax ()
 
 let process_symbols : lexer_definition -> string located list =
+  let ocaml_vars text =
+    parse_ocaml_impl text.v |> OcamlSymbols.get_vars
+    |> L.map (located_of_ppxloc ~from:(Located.startp text))
+  in
   let v =
     object
       inherit [_] ast_reduce as super
@@ -128,10 +163,7 @@ let process_symbols : lexer_definition -> string located list =
           name :: super#visit_regular_expression_syntax () _regexp.v
 
       method! visit_Ref = fun _ name -> [ name ]
-
-      method! visit_action _ action =
-        parse_ocaml_impl action.v |> OcamlSymbols.get_fvars
-        |> L.map (located_of_ppxloc ~from:(fst action.p))
+      method! visit_action _ = ocaml_vars
 
       method! visit_entry =
         fun _env entry ->
@@ -249,13 +281,18 @@ let hover (state : state) ~(doc : Text_document.t) ~(pos : Position.t) :
   let* sym_range, sym = symbol_at_position state pos in
   log "symbol under cursor: %a %a (%a)" (Located.pp pp_string) sym Range.pp
     sym_range Range.pp_lexing sym.p;
+  let zone = skewer state ~doc ~pos in
   let* answer = lookup_source state.sourcemap sym.p sym.v in
-  let+ doc = state.implementation in
+  let* doc = state.implementation in
   let pos = Position.of_lexical_position (fst answer) in
-  let info_type = get_merlin_type ~doc ~pos sym.v in
-  let info_docs = get_merlin_docs ~expression:(Some sym.v) ~doc ~pos in
-  make_md_hover ~range:sym_range
-    (L.keep_some [ info_type >|= md_fenced; info_docs >|= odoc_to_md ])
+  match zone with
+  | OCaml | Action _ ->
+      let info_type = get_merlin_type ~doc ~pos sym.v in
+      let info_docs = get_merlin_docs ~expression:(Some sym.v) ~doc ~pos in
+      some
+      @@ make_md_hover ~range:sym_range
+           (L.keep_some [ info_type >|= md_fenced; info_docs >|= odoc_to_md ])
+  | _ -> None
 
 let show_impl ?(pos : Position.t option) state =
   let open O in
@@ -371,12 +408,11 @@ let completions
   in
   get_lazy lexer_completions
   @@
-  let* { offset; _ } = word in
-  let query = Ivl.create (Included offset) (Included offset) in
+  let+ { offset; td = doc } = word in
   (* Inside actions we shall suggest `lexbuf`, the variables bound with `as` in the current clause, the lexer entrypoints, and OCaml symbols *)
   let action_completions binders =
     let open L in
-    (* Merlin alread reports the rule's args... *)
+    (* Merlin already reports the rule's args... *)
     (* (let+ arg = rule.args in
     CompletionItem.create ~kind:Value ~label:arg.v ()) *)
 
@@ -388,10 +424,7 @@ let completions
          ~documentation:(`String "(previously captured in this case)") ())
     @ lexbuf @ merlin_compls ()
   in
-  let res = Ivl_map.query_interval ~order:Desc query state.intervals in
-  let* (ivl, zones), gen = Ivl_map.Gen.next res in
-  let+ innermost_zone = L.head_opt zones in
-  match innermost_zone with
+  match skewer state ~offset ~doc ~pos with
   | OCaml -> merlin_compls ()
   | RegexpDefinition defs ->
       regex_operator_completions @ keyword_completions

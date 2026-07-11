@@ -6,6 +6,8 @@ include Menhir_lsp_lib.Utils
 module Ivl_map = Interval_map.Make (Int)
 module Ivl = Ivl_map.Interval
 
+type document = Text_document.t
+
 let server_name = "menhir-lsp"
 
 type uri = Lsp.Types.DocumentUri.t
@@ -13,25 +15,31 @@ type notify_back = Linol_lwt.Jsonrpc2.notify_back
 type word = { v : string; p : Range.t; offset : int; td : Text_document.t }
 
 let notify_back_ref : notify_back option ref = ref None
+let guard flag f s = if flag then f s
+let guard' flag f s = if%lwt flag then f s
 
 (** [log] prints to the first available output channel. It will use caller's
     [notify_back] argument if provided, falling back to the optional value
     stored in the global variable [notify_back_ref] and ultimately default to
     [prerr_endline]. *)
-let log ?(notify_back : notify_back option) ?(kind = MessageType.Info) s =
+let log ?(debug = true) ?(notify_back : notify_back option)
+    ?(kind = MessageType.Info) s =
   match (notify_back, !notify_back_ref) with
-  | None, None -> Format.kasprintf prerr_endline s
+  | None, None -> Format.kasprintf (guard debug prerr_endline) s
   | None, Some notify_back | Some notify_back, _ ->
       Format.kasprintf
-        (fun s -> notify_back#send_log_msg ~type_:kind s |> ignore)
+        (guard debug @@ (notify_back#send_log_msg ~type_:kind >> ignore))
         s
 
 (** Identical to [log] but returns a unit promise. *)
-let log' ?(notify_back : notify_back option) ?(kind = MessageType.Info) s =
+let log' ?(debug = true) ?(notify_back : notify_back option)
+    ?(kind = MessageType.Info) s =
   match (notify_back, !notify_back_ref) with
-  | None, None -> Format.kasprintf (fun s -> prerr_endline s |> Lwt.return) s
+  | None, None -> Format.kasprintf (guard debug prerr_endline >> Lwt.return) s
   | None, Some notify_back | Some notify_back, _ ->
-      Format.kasprintf (fun s -> notify_back#send_log_msg ~type_:kind s) s
+      Format.kasprintf
+        (guard' (Lwt.return debug) (notify_back#send_log_msg ~type_:kind))
+        s
 
 (** Logging helper that allows to specify a message source that will be
     prepended to every log message.
@@ -39,11 +47,9 @@ let log' ?(notify_back : notify_back option) ?(kind = MessageType.Info) s =
     Override with a concrete [src] argument like this:
     [let log s = log_src "my_source" s in ..].
 
-    Set the [debug] flag to false to mute the messages from this source. *)
+    Set the [debug] flag to false to mute all messages from this source. *)
 let log_src ?(debug = true) ?notify_back ?kind src s =
-  Format.kasprintf
-    (fun s -> if debug then log ?notify_back ?kind "[%s] %s" src s)
-    s
+  Format.kasprintf (log ~debug ?notify_back ?kind "[%s] %s" src) s
 
 let log_info = log ~kind:Info
 let log_error = log ~kind:Error
@@ -181,6 +187,7 @@ let completion_kind kind : CompletionItemKind.t option =
   | `Constructor -> Some Constructor
   | `Type -> Some TypeParameter
 
+(* Consider switching return type from options to more descriptive results *)
 let with_merlin ~(doc : Text_document.t)
     (f : MK.Msource.t -> MK.Mpipeline.t -> 'a) =
   let open O in
@@ -231,6 +238,18 @@ let get_merlin_docs ~expression ~(doc : Text_document.t) ~(pos : Position.t) =
       | `No_documentation | `Invalid_context | `Not_found _ | `Not_in_env _
       | `File_not_found _ ->
           "")
+
+let odoc_to_md text =
+  match Doc_to_md.translate text with
+  | Doc_to_md.Raw d | Doc_to_md.Markdown d -> d
+
+let make_md_hover ?range sections =
+  let concat_sections = String.concat "\n***\n" in
+  Hover.create
+    ~contents:
+      (`MarkupContent
+         (MarkupContent.create ~kind:Markdown ~value:(concat_sections sections)))
+    ?range ()
 
 let get_merlin_type ~(doc : Text_document.t) ~(pos : Position.t) expression =
   let open O in
@@ -381,8 +400,8 @@ let lookup_source (sourcemap : Line_directives.source_mapping list)
   let start_col = startp.pos_cnum - endp.pos_bol in
   let end_col = endp.pos_cnum - endp.pos_bol in
   let@*? i, m = sourcemap in
-  log "Comparing %a with mapping #%d %a " Range.pp_lexing src_pos i
-    pp_source_mapping m;
+  (* log "Comparing %a with mapping #%d %a " Range.pp_lexing src_pos i
+    pp_source_mapping m; *)
   (* The text in the implementation has the same number of lines as the original action source text, plus a blank line we omit. *)
   let lines = String.split_on_char '\n' m.text in
   let lines = L.(take (length lines - 1) lines) in

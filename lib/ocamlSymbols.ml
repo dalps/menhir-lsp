@@ -21,6 +21,25 @@ let range_of_ppxlocation ~(from : Lexing.position)
   in
   (from + loc_start, from + loc_end)
 
+(** Get all names referenced inside a parsetree. *)
+let get_vars ast : string loc list =
+  let v =
+    object (self)
+      inherit [string loc list] T.fold as super
+
+      (* This object would be slightly less boilerplate-y if ppxlib provided dedicated visitors for each AST constructor, thus we could visit [Ppat_var] or [Pexp_record] directly. Oh well :/ *)
+
+      method! pattern_desc ptn (names as acc) =
+        match ptn with
+        | Ppat_var name -> name :: names
+        | desc -> super#pattern_desc desc acc
+
+      method! longident_loc lid names = Loc.map ~f:Longident.name lid :: names
+    end
+  in
+  v#structure ast []
+
+(** Get the free variables referenced inside a parsetree. *)
 let get_fvars ast : string loc list =
   let v =
     object (self)

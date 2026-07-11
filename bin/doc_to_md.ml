@@ -240,6 +240,7 @@ let rec nestable_block_element_to_block
       in
       let meta = loc_to_meta location in
       Block.Ext_math_block (code_block, meta)
+  | _ -> assert false
 
 and nestable_block_element_to_inlines
     (nestable :
@@ -302,6 +303,7 @@ and nestable_block_element_to_inlines
         Inline.Math_span.make ~display:true [ ("", (code, Meta.none)) ]
       in
       Inline.Ext_math_span (code_span, meta)
+  | _ -> assert false
 
 and nestable_block_element_list_to_inlines l =
   let inlines = List.map ~f:nestable_block_element_to_inlines l in
@@ -404,6 +406,7 @@ let tag_to_block ~meta (tag : Odoc_parser.Ast.tag) =
   | `Open -> format_tag_empty "@open"
   | `Closed -> format_tag_empty "@closed"
   | `Hidden -> format_tag_empty "@hidden"
+  | _ -> assert false
 
 let rec block_element_to_block
     (block_element :
@@ -426,6 +429,7 @@ let rec block_element_to_block
       location = _;
     } as nestable ->
       nestable_block_element_to_block nestable
+  | _ -> assert false
 
 and block_element_list_to_block l =
   let rec aux acc rest =
