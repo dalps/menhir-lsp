@@ -26,6 +26,7 @@ Enjoy ease of navigation and *rock*-solid language support in your grammars!
 * Selection Ranges (Shift+Alt+← / Shift+Alt+→ to respectively shrink / expand your selection on a regular expression)
 * Document Formatting (Shift+Alt+F) powered by `ocamlformat`
 * Fancy file icons
+* Syntax highlighting for Menhir's [.messages file format](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec73)
 
 ### Code Actions
 

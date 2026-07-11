@@ -2,7 +2,7 @@
   "name": "menhir-lsp-client",
   "displayName": "Menhir",
   "description": "IntelliSense for Menhir grammars and Ocamllex lexers",
-  "version": "0.3.0",
+  "version": "3.0.5",
   "publisher": "dalps",
   "private": true,
   "license": "GPL-2.0-only",
@@ -58,7 +58,11 @@
         "id": "ocaml.menhir.messages",
         "extensions": [
           ".messages"
-        ]
+        ],
+        "icon": {
+          "dark": "icons/menhir.svg",
+          "light": "icons/menhir.svg"
+        }
       }
     ],
     "menus": {

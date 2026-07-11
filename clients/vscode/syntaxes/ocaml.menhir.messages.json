@@ -6,6 +6,24 @@
   ],
   "patterns": [
     {
+      "begin": "^## The known suffix of the stack is as follows:$",
+      "while": "^##(.+)$",
+      "name": "comment",
+      "whileCaptures": {
+        "1": {
+          "patterns": [
+            {
+              "include": "#token-name"
+            },
+            {
+              "include": "#actual"
+            }
+          ]
+        }
+      },
+      "end": "^##$"
+    },
+    {
       "include": "#comments"
     },
     {
@@ -37,7 +55,7 @@
       "match": "[[:upper:]][[:word:]]*|#"
     },
     "actual": {
-      "match": "([[:lower:]_][[:word:]']*)[[:space:]]*(\\(([^)]+)\\))?",
+      "match": "([[:lower:]_][[:word:]']*)[[:space:]]*(\\([[:word:][:punct:]]+\\))?",
       "captures": {
         "1": {
           "name": "entity.name.function.rule.menhir"
@@ -49,12 +67,14 @@
               "name": "keyword.other"
             },
             {
+              "match": ",",
+              "name": "keyword.other"
+            },
+            {
               "include": "#token-name"
             },
             {
-              "comment": "rule parameter",
-              "name": "variable.parameter.rule.menhir",
-              "match": "[[:alpha:]_][[:word:]]*"
+              "include": "#actual"
             },
             {
               "match": "\\)",
@@ -76,13 +96,21 @@
       "patterns": [
         {
           "include": "#productions"
+        },
+        {
+          "match": "Concrete syntax:(.+)$",
+          "captures": {
+            "1": {
+              "name": "markup.bold"
+            }
+          }
         }
       ],
       "end": "$"
     },
     "productions": {
       "comment": "program -> declaration . SEMICOLON [ # ]",
-      "begin": "([[:lower:]_][[:word:]']*)[[:space:]]*(\\([^)]+\\))?[[:space:]]*(->)",
+      "begin": "([[:lower:]_][[:word:]']*)[[:space:]]*(\\([[:word:][:punct:]]+\\))?[[:space:]]*(->)",
       "beginCaptures": {
         "1": {
           "name": "entity.name.function.rule.menhir"
@@ -94,12 +122,14 @@
               "name": "keyword.other"
             },
             {
+              "match": ",",
+              "name": "keyword.other"
+            },
+            {
               "include": "#token-name"
             },
             {
-              "comment": "rule parameter",
-              "name": "variable.parameter.rule.menhir",
-              "match": "[[:alpha:]_][[:word:]]*"
+              "include": "#actual"
             },
             {
               "match": "\\)",
