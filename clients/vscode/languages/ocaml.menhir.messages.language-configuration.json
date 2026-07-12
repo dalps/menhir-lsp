@@ -1,0 +1,11 @@
+{
+  "comments": {
+    "lineComment": { "comment": "#" }
+  },
+  "folding": {
+    "markers": {
+      "start": "^\\w+:", // e.g. grammar:
+      "end": "^\\s*#\\s*-+"     // e.g. # -----------------
+    }
+  }
+}

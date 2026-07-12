@@ -6,9 +6,9 @@
   ],
   "patterns": [
     {
+      "name": "comment",
       "begin": "^## The known suffix of the stack is as follows:$",
       "while": "^##(.+)$",
-      "name": "comment",
       "whileCaptures": {
         "1": {
           "patterns": [
@@ -52,7 +52,7 @@
     "token-name": {
       "comment": "reference to a token",
       "name": "entity.name.tag",
-      "match": "[[:upper:]][[:word:]]*|#"
+      "match": "[[:upper:]][[:word:]]*|#|error"
     },
     "actual": {
       "match": "([[:lower:]_][[:word:]']*)[[:space:]]*(\\([[:word:][:punct:]]+\\))?",
