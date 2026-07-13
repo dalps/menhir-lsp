@@ -70,6 +70,18 @@ let lang =
 
 let log s = Format.kasprintf (log "menhirformat: %s") s
 
+(* Borrowed from menhir/lib/LexerUtil.ml *)
+let pp_range out (startp, endp) =
+  let open Lexing in
+  if startp == dummy_pos || endp == dummy_pos then
+    pf out "At an unknown location:\n"
+  else
+    let file = startp.pos_fname in
+    let line = startp.pos_lnum in
+    let char1 = startp.pos_cnum - startp.pos_bol + 1 in
+    let char2 = endp.pos_cnum - startp.pos_bol + 1 in
+    pf out "File %s, line %d, characters %d-%d" file line char1 char2
+
 let main ?(lang = "") ~config (input_file : string) =
   let open R in
   let open Menhirformat_lib in
@@ -91,12 +103,9 @@ let main ?(lang = "") ~config (input_file : string) =
     | _, `Mll -> Ocamllex.format_file ~config input_file
     | _, `Mly -> Menhir.format_file ~config input_file
   in
-  let input_file =
-    if input_file = "-" then "<standard input>" else input_file
-  in
   res
   |> R.map_err (fun (msg, rng) ->
-      log "Failed to format %s: at %a: %s" input_file Range.pp_lexing rng msg;
+      log "Failed to format\n%a: %s" pp_range rng msg;
       exit 1)
   |> R.iter print_endline
 
@@ -122,6 +131,9 @@ let cmd =
      and+ breakRegexpsGroups = breakRegexpsGroups *)
      and+ semiAfterProducer = semiAfterProducer
      and+ lang = lang in
+     let input_file =
+       if input_file = "-" then "<standard input>" else input_file
+     in
      let config =
        Config.make ~tabsize ~indentOnce ~noLeadingBar ~semiAfterProducer
          ~maxWidth ~breakLongRegexps:true ()
