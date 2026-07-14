@@ -9,13 +9,11 @@ open Located
 (** [menhir-lsp] Start of code grabbed from menhir/middle/Messages.ml. We don't
     get into the LR1 thingies. *)
 
-(* [menhir-lsp] Our dumbed-down version of sentences. *)
-type sentence = nonterminal located option * terminal located list
-
 (* A located sentence is a sentence
    together with its start and end positions. *)
 
-type located_sentence = Range.ranges * sentence
+(* [menhir-lsp] changed [ranges] to [range] *)
+type located_sentence = Range.range * RawSentence.raw_sentence
 
 let ranges ((ranges, _) : located_sentence) = ranges
 
@@ -38,9 +36,9 @@ type run = {
   (* A list of sentences. *)
   elements : tso list;
   (* A delimiter. *)
-  delimiter : string;
+  delimiter : string located;
   (* A message. *)
-  message : message;
+  message : message located; (* [menhir-lsp] made located. *)
 }
 
 type orun = run OrComment.t
@@ -61,19 +59,24 @@ let count_input_sentences oruns : int =
 
 let count_error_messages oruns : int = OrComment.count oruns
 
-let stats (oruns : oruns) : unit =
-  epr "Read %d sample input sentences and %d error messages.\n%!"
+let stats (oruns : oruns) : string =
+  spr "Read %d sample input sentences and %d error messages.\n%!"
     (count_input_sentences oruns)
     (count_error_messages oruns)
 
 (* --------------------------------------------------------------------------- *)
+
+let mkcomment c accu =
+  if String.length c = 0 then accu else OrComment.Comment c :: accu
 
 let read_messages mode filename : oruns =
   Report.monitor mode @@ fun c ->
   let open MenhirSyntax in
   let open Segment in
   (* Read and segment the file. *)
-  let segments : (tag * string * Lexing.lexbuf) list = segment filename in
+  let segments : (tag * string located * Lexing.lexbuf) list =
+    segment filename
+  in
   (* Process the segments, two by two. We expect one segment to contain
                 a non-empty series of sentences, and the next segment to contain
                 free-form text. *)
@@ -81,7 +84,7 @@ let read_messages mode filename : oruns =
     match segments with
     | [] -> List.rev accu
     | (Whitespace, comments, _) :: segments ->
-        loop (mkcomment comments accu) segments
+        loop (mkcomment comments.v accu) segments
     | (Segment, _, lexbuf) :: segments -> (
         (* Read a series of raw sentences. *)
         match RawSentenceParser.entry RawSentenceLexer.lex lexbuf with
@@ -94,6 +97,12 @@ let read_messages mode filename : oruns =
                 continue. If there remain zero sentences, then this entry is
                 removed entirely. *)
             (* let elements = validate_entry c elements in *)
+            let elements : tso list =
+              L.map
+                (OrComment.map (fun raw_sentence ->
+                     (RawSentence.range raw_sentence, raw_sentence)))
+                elements
+            in
             (* In principle, we should now find a segment of whitespace
                 followed with a segment of text. By construction, the two
                 kinds of segments alternate. *)
@@ -117,15 +126,48 @@ let read_messages mode filename : oruns =
                 assert false))
   in
   let oruns = loop [] segments in
-  stats oruns;
+  log "%s" @@ stats oruns;
   oruns
 
 (** End of code grabbed from menhir/middle/Messages.ml *)
 (* --------------------------------------------------------------------------- *)
 
-type state = { segments : _ }
+type state = { segments : oruns }
 
-let load_state_from_contents input_file contents =
+let load_state_from_contents (uri : uri) contents :
+    (state, Diagnostic.t list) result =
   let open MenhirSyntax in
-  let segments = Segment.segment input_file in
-  RawSentenceParser.entry RawSentenceLexer.lex
+  let input_file = Uri.to_path uri in
+  try
+    let segments = read_messages Report.(`SignalIsWarning) input_file in
+    Ok { segments }
+  with _ -> Error []
+
+(* A few commands that make up the message-editing UI *)
+let stats state = stats state.segments
+
+(*
+
+let next_message state : Range.t = _
+let next_unhandled_message state : Range.t = _
+let previous_message state : Range.t = _
+
+*)
+
+let folding_ranges ~(doc : document) (state : state) : FoldingRange.t list =
+  OrComment.things state.segments
+  |> L.map (fun { elements; delimiter; message } ->
+      let sentences = OrComment.things elements in
+      let startp =
+        O.(
+          L.head_opt sentences >|= fst >|= fst <+> Some (Located.startp message))
+        |> O.get_exn_or "startp"
+      in
+      let endp = Located.endp message in
+      let startLine, startCharacter =
+        (startp.pos_lnum - 1, startp.pos_cnum - startp.pos_bol + 1)
+      in
+      let endLine, endCharacter =
+        (endp.pos_lnum - 1, endp.pos_cnum - endp.pos_bol + 1)
+      in
+      FoldingRange.create ~startLine ~startCharacter ~endLine ~endCharacter ())

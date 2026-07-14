@@ -96,7 +96,9 @@ and busy segments opening just_saw_a_newline = parse
      creates a fresh lexbuf for each segment, taking care to adjust
      its start position. *)
 
-  let segment filename : (tag * string * lexbuf) list =
+  open Located
+
+  let segment filename : (tag * string located * lexbuf) list =
     let content = IO.read_whole_file filename in
     let lexbuf = from_string content in
     lexbuf.lex_curr_p <- { lexbuf.lex_curr_p with pos_fname = filename };
@@ -113,7 +115,8 @@ and busy segments opening just_saw_a_newline = parse
       lexbuf.lex_abs_pos <- startp.pos_cnum;
         (* That was tricky to find out. See [Lexing.engine]. [pos_cnum] is
            updated based on [buf.lex_abs_pos + buf.lex_curr_pos]. *)
-      tag, content, lexbuf
+      tag, locate (startp, endp) content, lexbuf
+      (* [menhir-lsp] located [content]. *)
     ) segments
 
 }

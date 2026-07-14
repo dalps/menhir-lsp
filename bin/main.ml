@@ -2,6 +2,7 @@ open Utils
 open Menhir_lsp_lib
 module Mll = Ocamllex
 module Mly = Menhir
+module Msg = MenhirMessages
 module MF = Menhirformat_lib
 
 let formatter_config : MF.Utils.Config.t option ref = ref None
@@ -12,6 +13,7 @@ class lsp_server =
     inherit Linol_lwt.Jsonrpc2.server
 
     (* one env per document *)
+    val msg_buffers : (uri, Msg.state) Hashtbl.t = Hashtbl.create 32
     val mly_buffers : (uri, Mly.state) Hashtbl.t = Hashtbl.create 32
     val mll_buffers : (uri, Mll.state) Hashtbl.t = Hashtbl.create 32
     method spawn_query_handler f = Linol_lwt.spawn f
@@ -109,6 +111,7 @@ class lsp_server =
                { prepareProvider = Some true; workDoneProgress = None });
         selectionRangeProvider = Some (`Bool true);
         documentFormattingProvider = Some (`Bool true);
+        foldingRangeProvider = Some (`Bool true);
       }
 
     method! on_notification_unhandled ~notify_back =
@@ -173,27 +176,39 @@ class lsp_server =
         r Lsp.Client_request.t ->
         r Lwt.t =
       fun ~notify_back ~id t ->
+        set_notify_back notify_back;
+        let module C = Lsp.Client_request in
         match t with
-        | Lsp.Client_request.TextDocumentPrepareRename
-            (r : PrepareRenameParams.t) ->
+        | C.TextDocumentPrepareRename (r : PrepareRenameParams.t) ->
             self#_on_req_prepare_rename ~notify_back ~id ~uri:r.textDocument.uri
               ~pos:r.position
-        | Lsp.Client_request.TextDocumentRename (r : RenameParams.t) ->
+        | C.TextDocumentFoldingRange (r : FoldingRangeParams.t) -> (
+            let open O in
+            let uri = r.textDocument.uri in
+            Lwt.return
+            @@
+            let _ = log "Requested folding ranges for: %a" pp_uri uri in
+            let* state = Hashtbl.find_opt msg_buffers uri in
+            let* doc = self#get_text_document ~uri in
+            let ext = Uri.to_path uri |> Filename.extension in
+            match ext with
+            | ".messages" -> Some (Msg.folding_ranges state ~doc)
+            | _ -> None)
+        | C.TextDocumentRename (r : RenameParams.t) ->
             log_info ~notify_back "Requested rename at position: %s"
               (Position.show r.position);
             self#_on_req_rename ~notify_back r.newName ~pos:r.position ~id
               ~uri:r.textDocument.uri
-        | Lsp.Client_request.TextDocumentReferences (r : ReferenceParams.t) ->
+        | C.TextDocumentReferences (r : ReferenceParams.t) ->
             log_info ~notify_back "Requested references at position: %s"
               (Position.show r.position);
             self#_on_req_references ~notify_back ~id ~pos:r.position
               ~uri:r.textDocument.uri
-        | Lsp.Client_request.SelectionRange (r : SelectionRangeParams.t) ->
+        | C.SelectionRange (r : SelectionRangeParams.t) ->
             log_info ~notify_back "Requested selection range at positions: %s"
               (L.to_string Position.show r.positions);
             self#_on_req_selection_range ~notify_back ~r
-        | Lsp.Client_request.TextDocumentFormatting
-            (r : DocumentFormattingParams.t) ->
+        | C.TextDocumentFormatting (r : DocumentFormattingParams.t) ->
             log_info ~notify_back "Requested document formatting";
             self#_on_req_document_formatting ~notify_back ~r
         | _ -> Lwt.fail_with "Unhandled request type"
@@ -260,6 +275,15 @@ class lsp_server =
             ~mll_handler:(Mll.show_impl ?pos >=> showDoc)
           |> O.flatten
       | _ -> None
+
+    method private _on_req_folding_range ~(notify_back : notify_back)
+        (uri : uri) =
+      let open O in
+      Lwt.return
+      @@
+      let* doc = self#get_text_document ~uri in
+      let ext = Uri.to_path uri |> Filename.extension in
+      match ext with ".messages" -> Some (Msg.folding_ranges ~doc) | _ -> None
 
     method private _on_req_document_formatting ~notify_back
         ~r:
@@ -398,6 +422,8 @@ class lsp_server =
       | ".mly" ->
           go mly_buffers Mly.load_state_from_contents
             (Mly.diagnostics ~notify_back ~uri)
+      | ".messages" ->
+          go msg_buffers Msg.load_state_from_contents (fun state -> [])
       | ext -> log_error' ~notify_back "Unhandled document type: %s" ext
 
     (* We now override the [on_notify_doc_did_open] method that will be called

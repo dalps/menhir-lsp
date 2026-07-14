@@ -15,6 +15,7 @@ type notify_back = Linol_lwt.Jsonrpc2.notify_back
 type word = { v : string; p : Range.t; offset : int; td : Text_document.t }
 
 let notify_back_ref : notify_back option ref = ref None
+let set_notify_back nb = notify_back_ref := Some nb
 let guard flag f s = if flag then f s
 let guard' flag f s = if%lwt flag then f s
 
@@ -386,10 +387,10 @@ let get_source_map uri =
     that is characterized by a section with the following format:
 
     {v
-# l "path/to/source.(mly|mll)"
-                             v'
-\_______ c columns _________/
-# m' "path/to/source.ml"
+    # l "path/to/source.(mly|mll)"
+                                 v'
+    \_______ c columns _________/
+    # m' "path/to/source.ml"
     v} *)
 let lookup_source (sourcemap : Line_directives.source_mapping list)
     ((startp, endp) as src_pos : lexing_range) (src_text : string) :

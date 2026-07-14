@@ -35,6 +35,7 @@ export function activate(context: vscode.ExtensionContext) {
     outputChannel,
     documentSelector: [
       { scheme: "file", language: "ocaml.menhir" },
+      { scheme: "file", language: "ocaml.menhir.messages" },
       { scheme: "file", language: "ocaml.ocamllex" },
     ],
     synchronize: {
