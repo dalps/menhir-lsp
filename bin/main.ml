@@ -44,15 +44,17 @@ class lsp_server =
         Some { v = word; p = range; offset = ofs; td }
 
     method private _dispatch : type r.
+        ?msg_handler:(Msg.state -> r) ->
         uri ->
         notify_back:Linol_lwt.Jsonrpc2.notify_back ->
         mll_handler:(Mll.state -> r) ->
         mly_handler:(Mly.state -> r) ->
         r option =
-      fun uri ~notify_back ~mll_handler ~mly_handler ->
+      fun ?msg_handler uri ~notify_back ~mll_handler ~mly_handler ->
         let filename = DocumentUri.to_path uri in
         let open O in
         match Filename.extension filename with
+        | ".messages" -> msg_handler <*> Hashtbl.find_opt msg_buffers uri
         | ".mll" -> Hashtbl.find_opt mll_buffers uri >|= mll_handler
         | ".mly" -> Hashtbl.find_opt mly_buffers uri >|= mly_handler
         | ext ->
@@ -92,8 +94,8 @@ class lsp_server =
         @@
         let open O in
         let+ syms =
-          self#_dispatch uri ~notify_back ~mll_handler:Mll.document_symbols
-            ~mly_handler:Mly.document_symbols
+          self#_dispatch uri ~notify_back ~msg_handler:Msg.document_symbols
+            ~mll_handler:Mll.document_symbols ~mly_handler:Mly.document_symbols
         in
         log_info ~notify_back "# symbols: %d" (List.length syms);
         `DocumentSymbol syms

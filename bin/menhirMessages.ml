@@ -154,9 +154,42 @@ let previous_message state : Range.t = _
 
 *)
 
+let fold_entries (f : 'a -> 'b) (elems : 'a OrComment.t list) : 'b list =
+  L.filter_map
+    (fun (elem : 'a OrComment.t) ->
+      match elem with
+      | OrComment.Thing x -> Some (f x)
+      | OrComment.Comment _ -> None)
+    elems
+
+let document_symbols (state : state) : DocumentSymbol.t list =
+  fold_entries
+    (fun { elements; delimiter; message } ->
+      (* We use the first line of the entry's message as the symbol name. *)
+      let name =
+        CCString.lines message.v |> L.head_opt |> O.get_or ~default:message.v
+      in
+      (* We use the first sentence of the entry as the symbol detail. *)
+      let detail =
+        let open O in
+        elements |> L.head_opt
+        >>= OrComment.fold
+              (fun _ (_, (nonterminal, terminals)) ->
+                let pp_option = Format.pp_print_option in
+                let pp_raw_symbol out (text, _, _) = pp_string out text in
+                some
+                @@ spr "%a: %a" (pp_option pp_raw_symbol) nonterminal
+                     (pp_list pp_raw_symbol) terminals)
+              None
+      in
+      let range = Utils.Range.of_lexical_positions message.p in
+      DocumentSymbol.create ?detail ~name ~kind:Constant ~range
+        ~selectionRange:range ())
+    state.segments
+
 let folding_ranges ~(doc : document) (state : state) : FoldingRange.t list =
-  OrComment.things state.segments
-  |> L.map (fun { elements; delimiter; message } ->
+  fold_entries
+    (fun { elements; delimiter; message } ->
       let sentences = OrComment.things elements in
       let startp =
         O.(
@@ -171,3 +204,4 @@ let folding_ranges ~(doc : document) (state : state) : FoldingRange.t list =
         (endp.pos_lnum - 1, endp.pos_cnum - endp.pos_bol + 1)
       in
       FoldingRange.create ~startLine ~startCharacter ~endLine ~endCharacter ())
+    state.segments
