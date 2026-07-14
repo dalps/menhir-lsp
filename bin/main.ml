@@ -101,7 +101,9 @@ class lsp_server =
         `DocumentSymbol syms
 
     method! config_definition = Some (`Bool true)
-    method! config_list_commands = [ "getAst"; "gotoImplementation" ]
+
+    method! config_list_commands =
+      [ "getAst"; "gotoImplementation"; "echoErrors"; "nextMessage" ]
 
     method! config_modify_capabilities (default : ServerCapabilities.t) =
       {
@@ -220,6 +222,9 @@ class lsp_server =
         (command : string) (args : Yojson.Safe.t list option) : Json.t Lwt.t =
       notify_back_ref := Some notify_back;
       let open O in
+      log "Command %s invoked with args: %a" command
+        (pp_option @@ pp_list Json.pp)
+        args;
       Lwt.return @@ O.get_or ~default:`Null
       @@
       match command with
@@ -276,6 +281,20 @@ class lsp_server =
             ~mly_handler:(Mly.show_impl ?pos >=> showDoc)
             ~mll_handler:(Mll.show_impl ?pos >=> showDoc)
           |> O.flatten
+      | "echoErrors" ->
+          let log s = log_src "echoErrors" s in
+          let* uri =
+            match args with
+            | Some [ `String uri ] -> Some (Uri.of_string uri)
+            | _ ->
+                log "Failed to read uri argument";
+                None
+          in
+          log "Client requested stats of %a" pp_uri uri;
+          let+ state = Hashtbl.find_opt msg_buffers uri in
+          log "found.";
+          let stats = Msg.stats state in
+          `String stats
       | _ -> None
 
     method private _on_req_folding_range ~(notify_back : notify_back)

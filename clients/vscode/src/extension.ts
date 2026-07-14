@@ -12,15 +12,44 @@ import {
   TransportKind,
 } from "vscode-languageclient/node";
 import { ASTPanel, getWebviewOptions } from "./astPanel";
+import { activateStatusBar } from "./status";
 
 let client: LanguageClient;
 
 const serverName = "menhir-lsp";
 const clientName = "menhir-lsp-client";
+
+////////////////////////////////////////////////////////////////////////////////
+// Helpers for defining commands
+//
+
 const commandName = (name: string) => `${clientName}.${name}`;
 
+const registerCmd = (name: string, callback: (...args: any[]) => any) =>
+  vscode.commands.registerCommand(commandName(name), callback);
+
+export const execServerCmd = async <T>(command: string, ...args: any[]) =>
+  await client.sendRequest<T>(
+    "workspace/executeCommand",
+    { command, arguments: args } as ExecuteCommandParams,
+    CancellationToken.None,
+  );
+
+/** Register a new command that runs in the server. The server receives as
+ * arguments the uri and the current cursor position of the active editor. */
+const serverCmdWithActiveEditor = (command: string) =>
+  registerCmd(command, () => {
+    const editor = vscode.window.activeTextEditor;
+
+    if (!editor) return;
+
+    execServerCmd(command, editor.document.uri, editor.selection.active);
+  });
+
+////////////////////////////////////////////////////////////////////////////////
+
 export function activate(context: vscode.ExtensionContext) {
-  const _extId = context.extension.packageJSON.name;
+  const _extId: string = context.extension.packageJSON.name;
 
   const serverOptions: ServerOptions = {
     command: serverName,
@@ -150,6 +179,22 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   // vscode.window.showInformationMessage("Starting Menhir Client...");
+
+  //////////////////////////////////////////////////////////////////////////////
+  // .messages file features
+  //
+
+  activateStatusBar(context);
+
+  context.subscriptions.push(
+    serverCmdWithActiveEditor("nextMessage"),
+    serverCmdWithActiveEditor("nextAutoMessage"),
+    serverCmdWithActiveEditor("previousMessage"),
+    serverCmdWithActiveEditor("previousAutoMessage"),
+    serverCmdWithActiveEditor("statMessages"),
+  );
+
+  //////////////////////////////////////////////////////////////////////////////
 }
 
 export const liftRange = (r: Range): vscode.Range => {

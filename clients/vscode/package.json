@@ -74,6 +74,28 @@
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "menhir-lsp-client.nextMessage",
+        "when": "editorTextFocus && editorLangId == ocaml.menhir.messages",
+        "key": "alt+n"
+      },
+      {
+        "command": "menhir-lsp-client.nextAutoMessage",
+        "when": "editorTextFocus && editorLangId == ocaml.menhir.messages",
+        "key": "alt+shift+n"
+      },
+      {
+        "command": "menhir-lsp-client.previousMessage",
+        "when": "editorTextFocus && editorLangId == ocaml.menhir.messages",
+        "key": "alt+p"
+      },
+      {
+        "command": "menhir-lsp-client.previousAutoMessage",
+        "when": "editorTextFocus && editorLangId == ocaml.menhir.messages",
+        "key": "alt+shift+p"
+      }
+    ],
     "commands": [
       {
         "title": "Menhir: Go To Implementation",
@@ -98,9 +120,14 @@
         "command": "menhir-lsp-client.revealAstNode"
       },
       {
-        "title": "Menhir: prompt for an alias",
+        "title": "",
         "enablement": "never",
         "command": "menhir-lsp-client.promptAlias"
+      },
+      {
+        "title": "",
+        "enablement": "never",
+        "command": "menhir-lsp-client.echoErrors"
       }
     ],
     "configuration": {
