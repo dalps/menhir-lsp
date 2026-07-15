@@ -372,7 +372,8 @@ lax_actual:
 | /* leading bar disallowed */
   branches = located(branches)
     { locate' $loc @@ ParamAnonymous branches }|};
-  [%expect {|
+  [%expect
+    {|
     %%
 
     %inline generic_actual(A, B):
