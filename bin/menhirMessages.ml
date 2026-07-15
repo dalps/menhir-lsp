@@ -72,27 +72,27 @@ let stats (oruns : oruns) : string =
 let mkcomment c accu =
   if String.length c = 0 then accu else OrComment.Comment c :: accu
 
-let read_messages mode filename : oruns =
-  Report.monitor mode @@ fun c ->
+let read_messages filename : (oruns, Range.ranges * string) result =
   let open MenhirSyntax in
   let open Segment in
   (* Read and segment the file. *)
   let segments : (tag * string located * Lexing.lexbuf) list =
     segment filename
   in
+  let error ranges msg = Error (ranges, msg) in
   (* Process the segments, two by two. We expect one segment to contain
                 a non-empty series of sentences, and the next segment to contain
                 free-form text. *)
   let rec loop accu segments =
     match segments with
-    | [] -> List.rev accu
+    | [] -> Ok (List.rev accu)
     | (Whitespace, comments, _) :: segments ->
         loop (mkcomment comments.v accu) segments
     | (Segment, _, lexbuf) :: segments -> (
         (* Read a series of raw sentences. *)
         match RawSentenceParser.entry RawSentenceLexer.lex lexbuf with
         | exception Parsing.Parse_error ->
-            Report.error c [ Range.current lexbuf ] "ill-formed sentence."
+            error [ Range.current lexbuf ] "ill-formed sentence."
         | elements -> (
             (* [elements] is a list of raw sentences or comments. Validate it.
                 Any sentences that do not pass validation are removed (and
@@ -119,7 +119,7 @@ let read_messages mode filename : oruns =
                   let run = { elements; delimiter; message } in
                   loop (Thing run :: accu) segments
             | [] | [ _ ] ->
-                Report.error c
+                error
                   [ Range.current lexbuf ]
                   "missing a final message. I may be desynchronized."
             | (Segment, _, _) :: _
@@ -128,9 +128,7 @@ let read_messages mode filename : oruns =
                 two kinds of segments. *)
                 assert false))
   in
-  let oruns = loop [] segments in
-  log "%s" @@ stats oruns;
-  oruns
+  loop [] segments
 
 (** End of code grabbed from menhir/middle/Messages.ml *)
 (* --------------------------------------------------------------------------- *)
@@ -151,10 +149,20 @@ let load_state_from_contents (uri : uri) contents :
     (state, Diagnostic.t list) result =
   let open MenhirSyntax in
   let input_file = Uri.to_path uri in
-  try
-    let segments = read_messages Report.(`SignalIsWarning) input_file in
-    Ok { segments; entries = OrComment.things segments }
-  with _ -> Error []
+  match read_messages input_file with
+  | Ok segments ->
+      log "%s" (stats segments);
+      Ok { segments; entries = OrComment.things segments }
+  | Error (ranges, message) ->
+      let diags =
+        L.map
+          (fun range ->
+            Diagnostic.create ~message:(`String message)
+              ~range:(Utils.Range.of_lexical_positions range)
+              ())
+          ranges
+      in
+      Error diags
 
 (* A few commands that make up the message-editing UI *)
 let stats state = stats state.segments
