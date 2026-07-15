@@ -18,13 +18,15 @@ export function activateStatusBar(context: vscode.ExtensionContext) {
 
   async function toggle(editor?: vscode.TextEditor) {
     if (editor && editor.document.languageId === "ocaml.menhir.messages") {
-      bar.show();
+      // Expand the "Outline" panel on click
+      bar.command = "outline.focus";
 
       bar.text = await execServerCmd<string>(
         "echoErrors",
         editor.document.uri.toString(),
       );
-      bar.command = ""
+
+      bar.show();
     } else {
       bar.hide();
     }

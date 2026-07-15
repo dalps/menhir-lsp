@@ -103,7 +103,15 @@ class lsp_server =
     method! config_definition = Some (`Bool true)
 
     method! config_list_commands =
-      [ "getAst"; "gotoImplementation"; "echoErrors"; "nextMessage" ]
+      [
+        "getAst";
+        "gotoImplementation";
+        "echoErrors";
+        "nextMessage";
+        "nextAutoMessage";
+        "previousMessage";
+        "previousAutoMessage";
+      ]
 
     method! config_modify_capabilities (default : ServerCapabilities.t) =
       {
@@ -220,8 +228,42 @@ class lsp_server =
     (* Wasted a lot of time thinking this request was not handled natively by Linol *)
     method! on_req_execute_command ~notify_back ~id:_ ~workDoneToken:_
         (command : string) (args : Yojson.Safe.t list option) : Json.t Lwt.t =
-      notify_back_ref := Some notify_back;
+      set_notify_back notify_back;
       let open O in
+      let showDoc (doc_uri, selection) =
+        let _ =
+          notify_back#send_request
+            (ShowDocumentRequest
+               {
+                 external_ = None;
+                 selection;
+                 takeFocus = Some true;
+                 uri = doc_uri;
+               })
+            (fun result ->
+              match result with
+              | Ok success -> Lwt.return ()
+              | Error { code; message; data } ->
+                  notify_back#send_notification
+                    (ShowMessage { message; type_ = Error }))
+        in
+        None
+      in
+      let uri_and_pos_of_args args =
+        match args with
+        | Some [ `String uri; pos ] ->
+            Some (Uri.of_string uri, Position.t_of_yojson pos)
+        | _ ->
+            log "Failed to read uri argument";
+            None
+      in
+      let focus f : Json.t option =
+        let* uri, pos = uri_and_pos_of_args args in
+        let* state = Hashtbl.find_opt msg_buffers uri in
+        let selection = f state ~pos in
+        log "Next selection: %a" (pp_option Range.pp) selection;
+        showDoc (uri, selection)
+      in
       log "Command %s invoked with args: %a" command
         (pp_option @@ pp_list Json.pp)
         args;
@@ -258,25 +300,6 @@ class lsp_server =
                 log "Failed to read uri argument";
                 None
           in
-          let showDoc (doc_uri, selection) =
-            let _ =
-              notify_back#send_request
-                (ShowDocumentRequest
-                   {
-                     external_ = None;
-                     selection;
-                     takeFocus = Some true;
-                     uri = doc_uri;
-                   })
-                (fun result ->
-                  match result with
-                  | Ok success -> Lwt.return ()
-                  | Error { code; message; data } ->
-                      notify_back#send_notification
-                        (ShowMessage { message; type_ = Error }))
-            in
-            None
-          in
           self#_dispatch uri ~notify_back
             ~mly_handler:(Mly.show_impl ?pos >=> showDoc)
             ~mll_handler:(Mll.show_impl ?pos >=> showDoc)
@@ -292,9 +315,12 @@ class lsp_server =
           in
           log "Client requested stats of %a" pp_uri uri;
           let+ state = Hashtbl.find_opt msg_buffers uri in
-          log "found.";
           let stats = Msg.stats state in
           `String stats
+      | "nextMessage" -> focus Msg.next_message
+      | "nextAutoMessage" -> focus Msg.next_auto_message
+      | "previousMessage" -> focus Msg.previous_message
+      | "previousAutoMessage" -> focus Msg.previous_auto_message
       | _ -> None
 
     method private _on_req_folding_range ~(notify_back : notify_back)
@@ -380,7 +406,7 @@ class lsp_server =
     method! on_req_hover =
       fun ~notify_back ~id:_ ~uri ~pos ~workDoneToken:_ _doc_state ->
         let open O in
-        notify_back_ref := Some notify_back;
+        set_notify_back notify_back;
         Lwt.return
         @@
         let* doc = self#get_text_document ~uri in
@@ -422,7 +448,7 @@ class lsp_server =
         (uri : uri) (contents : string) : unit Lwt.t =
       let filename = DocumentUri.to_path uri in
       log_info ~notify_back "Processing document %s" filename;
-      notify_back_ref := Some notify_back;
+      set_notify_back notify_back;
       let go buffers loader diagnose =
         let new_state, new_diags =
           match loader uri contents with

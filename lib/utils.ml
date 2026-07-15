@@ -3,6 +3,24 @@ module F = CCFun
 module L = struct
   include CCList
 
+  let filter_mapi filter =
+    let rec aux idx acc = function
+      | [] -> rev acc
+      | x :: l ->
+          let acc' =
+            match filter idx x with None -> acc | Some y -> y :: acc
+          in
+          aux (idx + 1) acc' l
+    in
+    aux 0 []
+
+  let find_predi pred =
+    let rec aux idx = function
+      | [] -> None
+      | x :: l -> if pred idx x then Some x else aux (idx + 1) l
+    in
+    aux 0
+
   (** Like [let*] but also supplies the index. *)
   let ( let@+ ) (x : 'a t) (f : int * 'a -> 'b) : 'b t = mapi (F.curry f) x
 

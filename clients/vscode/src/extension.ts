@@ -43,7 +43,11 @@ const serverCmdWithActiveEditor = (command: string) =>
 
     if (!editor) return;
 
-    execServerCmd(command, editor.document.uri, editor.selection.active);
+    execServerCmd(
+      command,
+      editor.document.uri.toString(),
+      editor.selection.active,
+    );
   });
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -191,7 +195,6 @@ export function activate(context: vscode.ExtensionContext) {
     serverCmdWithActiveEditor("nextAutoMessage"),
     serverCmdWithActiveEditor("previousMessage"),
     serverCmdWithActiveEditor("previousAutoMessage"),
-    serverCmdWithActiveEditor("statMessages"),
   );
 
   //////////////////////////////////////////////////////////////////////////////
