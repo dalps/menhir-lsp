@@ -5,6 +5,18 @@ module Mly = Menhir
 module Msg = MenhirMessages
 module MF = Menhirformat_lib
 
+type doc_type = Mll | Mly | Messages
+
+let doc_type_of_uri uri : doc_type option =
+  let filename = Uri.to_path uri in
+  match Filename.extension filename with
+  | ".mll" -> Some Mll
+  | ".mly" -> Some Mly
+  | ".messages" -> Some Messages
+  | ext ->
+      log_error "Unhandled document type: %s" ext;
+      None
+
 let formatter_config : MF.Utils.Config.t option ref = ref None
 
 (* Based on Linol's Lwt template: https://github.com/c-cube/linol/blob/main/example/template-lwt/main.ml *)
@@ -18,11 +30,12 @@ class lsp_server =
     val mll_buffers : (uri, Mll.state) Hashtbl.t = Hashtbl.create 32
     method spawn_query_handler f = Linol_lwt.spawn f
 
-    method private get_text_document ~(uri : uri) : Text_document.t option =
+    method private get_text_document (uri : uri) : Text_document.t option =
       let open O in
       let+ { languageId; version; content = text; _ } = self#find_doc uri in
       TD.create ~position_encoding:positionEncoding ~text ~version ~languageId
         uri
+    (** Turns Linol's [find_doc] result into a more useful [Text_document.t] *)
 
     method private _word_at_position :
         notify_back:Linol_lwt.Jsonrpc2.notify_back ->
@@ -31,7 +44,7 @@ class lsp_server =
         word option =
       fun ~notify_back ~pos ~uri ->
         let open O in
-        let* td = self#get_text_document ~uri in
+        let* td = self#get_text_document uri in
         let text = Text_document.text td in
         let ofs = Text_document.absolute_position td pos in
         let start_ofs, length, word = Utils.find_prefix text ofs in
@@ -45,21 +58,17 @@ class lsp_server =
 
     method private _dispatch : type r.
         ?msg_handler:(Msg.state -> r) ->
-        uri ->
+        ?mll_handler:(Mll.state -> r) ->
+        ?mly_handler:(Mly.state -> r) ->
         notify_back:Linol_lwt.Jsonrpc2.notify_back ->
-        mll_handler:(Mll.state -> r) ->
-        mly_handler:(Mly.state -> r) ->
+        uri ->
         r option =
-      fun ?msg_handler uri ~notify_back ~mll_handler ~mly_handler ->
-        let filename = DocumentUri.to_path uri in
+      fun ?msg_handler ?mll_handler ?mly_handler ~notify_back uri ->
         let open O in
-        match Filename.extension filename with
-        | ".messages" -> msg_handler <*> Hashtbl.find_opt msg_buffers uri
-        | ".mll" -> Hashtbl.find_opt mll_buffers uri >|= mll_handler
-        | ".mly" -> Hashtbl.find_opt mly_buffers uri >|= mly_handler
-        | ext ->
-            log_error ~notify_back "Unhandled document type: %s" ext;
-            None
+        doc_type_of_uri uri >>= function
+        | Mll -> mll_handler <*> Hashtbl.find_opt mll_buffers uri
+        | Mly -> mly_handler <*> Hashtbl.find_opt mly_buffers uri
+        | Messages -> msg_handler <*> Hashtbl.find_opt msg_buffers uri
 
     method! config_completion =
       Some
@@ -124,6 +133,11 @@ class lsp_server =
         selectionRangeProvider = Some (`Bool true);
         documentFormattingProvider = Some (`Bool true);
         foldingRangeProvider = Some (`Bool true);
+        diagnosticProvider =
+          Some
+            (`DiagnosticOptions
+               (DiagnosticOptions.create ~interFileDependencies:false
+                  ~workspaceDiagnostics:false ()));
       }
 
     method! on_notification_unhandled ~notify_back =
@@ -191,37 +205,27 @@ class lsp_server =
         set_notify_back notify_back;
         let module C = Lsp.Client_request in
         match t with
+        | C.TextDocumentDiagnostic (r : DocumentDiagnosticParams.t) ->
+            self#_on_req_document_diagnostic ~notify_back r.textDocument.uri
         | C.TextDocumentPrepareRename (r : PrepareRenameParams.t) ->
             self#_on_req_prepare_rename ~notify_back ~id ~uri:r.textDocument.uri
               ~pos:r.position
-        | C.TextDocumentFoldingRange (r : FoldingRangeParams.t) -> (
-            let open O in
-            let uri = r.textDocument.uri in
-            Lwt.return
-            @@
-            let _ = log "Requested folding ranges for: %a" pp_uri uri in
-            let* state = Hashtbl.find_opt msg_buffers uri in
-            let* doc = self#get_text_document ~uri in
-            let ext = Uri.to_path uri |> Filename.extension in
-            match ext with
-            | ".messages" -> Some (Msg.folding_ranges state ~doc)
-            | _ -> None)
+        | C.TextDocumentFoldingRange (r : FoldingRangeParams.t) ->
+            self#_on_req_folding_range ~notify_back r.textDocument.uri
         | C.TextDocumentRename (r : RenameParams.t) ->
-            log_info ~notify_back "Requested rename at position: %s"
-              (Position.show r.position);
+            log "Requested rename at position: %a" Position.pp r.position;
             self#_on_req_rename ~notify_back r.newName ~pos:r.position ~id
               ~uri:r.textDocument.uri
         | C.TextDocumentReferences (r : ReferenceParams.t) ->
-            log_info ~notify_back "Requested references at position: %s"
-              (Position.show r.position);
+            log "Requested references at position: %a" Position.pp r.position;
             self#_on_req_references ~notify_back ~id ~pos:r.position
               ~uri:r.textDocument.uri
         | C.SelectionRange (r : SelectionRangeParams.t) ->
-            log_info ~notify_back "Requested selection range at positions: %s"
-              (L.to_string Position.show r.positions);
+            log "Requested selection range at positions: %a"
+              (pp_list Position.pp) r.positions;
             self#_on_req_selection_range ~notify_back ~r
         | C.TextDocumentFormatting (r : DocumentFormattingParams.t) ->
-            log_info ~notify_back "Requested document formatting";
+            log "Requested document formatting";
             self#_on_req_document_formatting ~notify_back ~r
         | _ -> Lwt.fail_with "Unhandled request type"
 
@@ -241,7 +245,7 @@ class lsp_server =
         |> ignore;
         None
       in
-      (* Some commands also take a position, which is always in second argument. *)
+      (* Some commands also take a position, which we always pass as the second argument. *)
       let pos_of_args args =
         match args with
         | Some [ _; pos ] -> Some (Position.t_of_yojson pos)
@@ -294,13 +298,12 @@ class lsp_server =
       | _ -> None
 
     method private _on_req_folding_range ~(notify_back : notify_back)
-        (uri : uri) =
-      let open O in
+        (uri : uri) : FoldingRange.t list option Lwt.t =
       Lwt.return
       @@
-      let* doc = self#get_text_document ~uri in
-      let ext = Uri.to_path uri |> Filename.extension in
-      match ext with ".messages" -> Some (Msg.folding_ranges ~doc) | _ -> None
+      let open O in
+      let* doc = self#get_text_document uri in
+      self#_dispatch ~notify_back ~msg_handler:(Msg.folding_ranges ~doc) uri
 
     method private _on_req_document_formatting ~notify_back
         ~r:
@@ -310,7 +313,7 @@ class lsp_server =
       Lwt.return
       @@
       let open O in
-      let* doc = self#get_text_document ~uri in
+      let* doc = self#get_text_document uri in
       let config =
         let open MF.Utils.Config in
         let cfg = O.get_or ~default:default_config !formatter_config in
@@ -364,7 +367,7 @@ class lsp_server =
         Lwt.return
         @@
         let open O in
-        let* doc = self#get_text_document ~uri in
+        let* doc = self#get_text_document uri in
         log_info ~notify_back "Requested definition at pos %s"
           (Position.show pos);
         self#_dispatch uri ~notify_back
@@ -379,7 +382,7 @@ class lsp_server =
         set_notify_back notify_back;
         Lwt.return
         @@
-        let* doc = self#get_text_document ~uri in
+        let* doc = self#get_text_document uri in
         self#_dispatch uri ~notify_back ~mly_handler:(Mly.hover ~doc ~pos)
           ~mll_handler:(Mll.hover ~doc ~pos)
         |> O.flatten
@@ -397,7 +400,7 @@ class lsp_server =
         self#_dispatch uri ~notify_back
           ~mly_handler:(Mly.code_actions ~uri ~range) ~mll_handler:(fun state ->
             let open O in
-            let* doc = self#get_text_document ~uri in
+            let* doc = self#get_text_document uri in
             Mll.code_actions ~doc ~range ~notify_back state)
         |> O.flatten |> Lwt.return
 
@@ -409,39 +412,55 @@ class lsp_server =
         ~mly_handler:(Mly.selection_range ~notify_back ~positions)
       |> O.to_list |> L.flatten |> Lwt.return
 
+    method private _on_req_document_diagnostic ~notify_back (uri : uri) :
+        DocumentDiagnosticReport.t Lwt.t =
+      let%lwt items =
+        match self#get_text_document uri with
+        | None -> Lwt.return_nil
+        | Some doc ->
+            let contents = TD.text doc in
+            self#_on_doc ~notify_back uri contents
+      in
+      Lwt.return
+        (`RelatedFullDocumentDiagnosticReport
+           (RelatedFullDocumentDiagnosticReport.create ~items ()))
+
     (* We define here a helper method that will:
             - process a document
             - store the state resulting from the processing
        - return the diagnostics from the new state
     *)
     method private _on_doc ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
-        (uri : uri) (contents : string) : unit Lwt.t =
-      let filename = DocumentUri.to_path uri in
-      log_info ~notify_back "Processing document %s" filename;
+        (uri : uri) (contents : string) : Diagnostic.t list Lwt.t =
+      let log s = log_src "_on_doc" s in
+      log "Processing file %a" pp_uri uri;
       set_notify_back notify_back;
+
+      (* Update or register for the first time the state of a server buffer if [contents] is valid, otherwise notify any problem found within [contents] through diagnostics. *)
       let go buffers loader diagnose =
-        let new_state, new_diags =
-          match loader uri contents with
-          | Ok new_state ->
-              Hashtbl.replace buffers uri new_state;
-              (Some new_state, [])
-          | Error diags -> (Hashtbl.find_opt buffers uri, diags)
-        in
-        (* diagnoses for the new state (empty) *)
-        let diags = O.map_or ~default:[] diagnose new_state in
-        notify_back#send_diagnostic (diags @ new_diags)
+        match loader uri contents with
+        | Ok new_state ->
+            Hashtbl.replace buffers uri new_state;
+            (* Syntax is OK, compute additional diagnostics regarding the semantics of the document. *)
+            diagnose new_state
+        | Error syntax_errors -> syntax_errors
       in
-      (* consider matching on TextDocumentItem.languageId *)
-      match Filename.extension filename with
-      | ".mll" ->
-          go mll_buffers Mll.load_state_from_contents
-            (Mll.diagnostics ~notify_back ~uri)
-      | ".mly" ->
-          go mly_buffers Mly.load_state_from_contents
-            (Mly.diagnostics ~notify_back ~uri)
-      | ".messages" ->
-          go msg_buffers Msg.load_state_from_contents (fun state -> [])
-      | ext -> log_error' ~notify_back "Unhandled document type: %s" ext
+
+      let open O in
+      let diags =
+        doc_type_of_uri uri >|= function
+        | Mll ->
+            go mll_buffers Mll.load_state_from_contents
+              (Mll.diagnostics ~notify_back ~uri)
+        | Mly ->
+            go mly_buffers Mly.load_state_from_contents
+              (Mly.diagnostics ~notify_back ~uri)
+        | Messages ->
+            go msg_buffers Msg.load_state_from_contents (fun state -> [])
+      in
+      let diags = O.get_or_nil diags in
+      notify_back#send_diagnostic diags |> ignore;
+      Lwt.return diags
 
     (* We now override the [on_notify_doc_did_open] method that will be called
             by the server each time a new document is opened. *)
@@ -469,13 +488,15 @@ class lsp_server =
                 | Error _ -> error ())
             | _ -> error ())
       in
-      self#_on_doc ~notify_back d.uri content
+      let _ = self#_on_doc ~notify_back d.uri content in
+      Lwt.return ()
 
     (* Similarly, we also override the [on_notify_doc_did_change] method that will be called
       by the server each time a new document is opened. *)
     method on_notif_doc_did_change ~notify_back d _c ~old_content:_old
         ~new_content =
-      self#_on_doc ~notify_back d.uri new_content
+      let _ = self#_on_doc ~notify_back d.uri new_content in
+      Lwt.return ()
 
     (* On document closes, we remove the state associated to the file from the global
       hashtable state, to avoid leaking memory. *)
