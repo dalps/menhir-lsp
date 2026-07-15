@@ -81,7 +81,7 @@
         "key": "alt+n"
       },
       {
-        "command": "menhir-lsp-client.nextAutoMessage",
+        "command": "menhir-lsp-client.nextDummyMessage",
         "when": "editorTextFocus && editorLangId == ocaml.menhir.messages",
         "key": "alt+shift+n"
       },
@@ -91,7 +91,7 @@
         "key": "alt+p"
       },
       {
-        "command": "menhir-lsp-client.previousAutoMessage",
+        "command": "menhir-lsp-client.previousDummyMessage",
         "when": "editorTextFocus && editorLangId == ocaml.menhir.messages",
         "key": "alt+shift+p"
       }
@@ -120,12 +120,32 @@
         "command": "menhir-lsp-client.revealAstNode"
       },
       {
-        "title": "",
+        "title": "Menhir: Focus Next Message",
+        "command": "menhir-lsp-client.nextMessage",
+        "enablement": "editorLangId == ocaml.menhir.messages"
+      },
+      {
+        "title": "Menhir: Focus Next Dummy Message",
+        "command": "menhir-lsp-client.nextDummyMessage",
+        "enablement": "editorLangId == ocaml.menhir.messages"
+      },
+      {
+        "title": "Menhir: Focus Previous Message",
+        "command": "menhir-lsp-client.previousMessage",
+        "enablement": "editorLangId == ocaml.menhir.messages"
+      },
+      {
+        "title": "Menhir: Focus Previous Dummy Message",
+        "command": "menhir-lsp-client.previousDummyMessage",
+        "enablement": "editorLangId == ocaml.menhir.messages"
+      },
+      {
+        "title": "Menhir: prompt for an alias",
         "enablement": "never",
         "command": "menhir-lsp-client.promptAlias"
       },
       {
-        "title": "",
+        "title": "echo errors",
         "enablement": "never",
         "command": "menhir-lsp-client.echoErrors"
       }

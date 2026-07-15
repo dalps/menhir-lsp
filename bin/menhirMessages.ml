@@ -138,6 +138,15 @@ let read_messages mode filename : oruns =
 type state = { segments : oruns; entries : run list }
 (** [segments] includes comments inbetween entries, [entries] does not. *)
 
+let entry_range ({ elements; delimiter; message } : run) =
+  let sentences = OrComment.things elements in
+  let startp =
+    O.(L.head_opt sentences >|= fst >|= fst <+> Some (Located.startp message))
+    |> O.get_exn_or "startp"
+  in
+  let endp = Located.endp message in
+  (startp, endp)
+
 let load_state_from_contents (uri : uri) contents :
     (state, Diagnostic.t list) result =
   let open MenhirSyntax in
@@ -149,14 +158,6 @@ let load_state_from_contents (uri : uri) contents :
 
 (* A few commands that make up the message-editing UI *)
 let stats state = stats state.segments
-
-(*
-
-let next_message state : Range.t = _
-let next_unhandled_message state : Range.t = _
-let previous_message state : Range.t = _
-
-*)
 
 let fold_entries (f : int -> 'acc -> 'a -> 'acc) (accu : 'acc)
     (elems : 'a OrComment.t list) : 'acc =
@@ -171,41 +172,40 @@ let map_entries (f : 'a -> 'b) (elems : 'a OrComment.t list) : 'b list =
     elems
 
 let document_symbols (state : state) : DocumentSymbol.t list =
-  map_entries
-    (fun { elements; delimiter; message } ->
-      (* We use the first line of the entry's message as the symbol name. *)
-      let name =
-        CCString.lines message.v |> L.head_opt |> O.get_or ~default:message.v
-      in
-      (* If there's one sentence, show that, otherwise report a generic count. *)
-      let detail =
-        let open O in
-        match elements with
-        | [] -> None
-        | [ elem ] ->
-            OrComment.fold
-              (fun _ (_, (nonterminal, terminals)) ->
-                let pp_option = Format.pp_print_option in
-                let pp_raw_symbol out (text, _, _) = pp_string out text in
-                some
-                @@ spr "%a: %a" (pp_option pp_raw_symbol) nonterminal
-                     (pp_list pp_raw_symbol) terminals)
-              None elem
-        | many -> Some (spr "(%d sentences)" (OrComment.count elements))
-      in
-      let range = Utils.Range.of_lexical_positions message.p in
-      DocumentSymbol.create ?detail ~name ~kind:Constant ~range
-        ~selectionRange:range ())
-    state.segments
-
-let entry_range ({ elements; delimiter; message } : run) =
-  let sentences = OrComment.things elements in
-  let startp =
-    O.(L.head_opt sentences >|= fst >|= fst <+> Some (Located.startp message))
-    |> O.get_exn_or "startp"
+  let open L in
+  let@+ idx, ({ elements; delimiter; message } as run) = state.entries in
+  (* We use the first line of the entry's message as the symbol name. *)
+  let name =
+    let first_line =
+      CCString.lines message.v |> L.head_opt |> O.get_or ~default:message.v
+    in
+    spr "%d. %s" (idx + 1) first_line
   in
-  let endp = Located.endp message in
-  (startp, endp)
+  let pp_sentence out ((nonterminal, terminals) : RawSentence.raw_sentence) =
+    let pp_option = Format.pp_print_option in
+    let pp_raw_symbol out (text, _, _) = pp_string out text in
+    pf out "%a: %a" (pp_option pp_raw_symbol) nonterminal
+      (pp_list ~pp_sep:(fun out () -> pf out " ") pp_raw_symbol)
+      terminals
+  in
+  (* We display a summary of the sentences that trigger the message next to it. *)
+  let detail =
+    let open O in
+    match OrComment.things elements with
+    | [] -> None
+    | [ (_, s) ] -> Some (spr "%a" pp_sentence s)
+    | (_, s) :: ss -> Some (spr "%a and %d other" pp_sentence s (L.length ss))
+  in
+  let open Utils.Range in
+  (*
+    - [entry_range] is used to determine if the cursor is inside a database entry.
+    - [msg_range] is used to place the cursor on the message when the user selects an entry from the outline.
+    *)
+  let entry_range = of_lexical_positions (entry_range run) in
+  let msg_range = of_lexical_positions message.p in
+  (* assert (compare_inclusion entry_range msg_range = `Contain); *)
+  DocumentSymbol.create ?detail ~name ~kind:Constant ~range:entry_range
+    ~selectionRange:msg_range ()
 
 let folding_ranges ~(doc : document) (state : state) : FoldingRange.t list =
   map_entries
@@ -247,12 +247,12 @@ let next_message =
 let previous_message =
   focus_message (fun current -> search_forward (fun i _ -> i = current - 1))
 
-let next_auto_message =
+let next_dummy_message =
   focus_message (fun current ->
       search_forward (fun i { message; _ } ->
           i > current && message.v = default_message))
 
-let previous_auto_message =
+let previous_dummy_message =
   focus_message (fun current ->
       search_backward (fun i { message; _ } ->
           i < current && message.v = default_message))

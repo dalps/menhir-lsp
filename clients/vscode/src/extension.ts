@@ -192,9 +192,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(
     serverCmdWithActiveEditor("nextMessage"),
-    serverCmdWithActiveEditor("nextAutoMessage"),
+    serverCmdWithActiveEditor("nextDummyMessage"),
     serverCmdWithActiveEditor("previousMessage"),
-    serverCmdWithActiveEditor("previousAutoMessage"),
+    serverCmdWithActiveEditor("previousDummyMessage"),
   );
 
   //////////////////////////////////////////////////////////////////////////////

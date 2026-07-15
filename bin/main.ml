@@ -225,102 +225,72 @@ class lsp_server =
             self#_on_req_document_formatting ~notify_back ~r
         | _ -> Lwt.fail_with "Unhandled request type"
 
-    (* Wasted a lot of time thinking this request was not handled natively by Linol *)
     method! on_req_execute_command ~notify_back ~id:_ ~workDoneToken:_
         (command : string) (args : Yojson.Safe.t list option) : Json.t Lwt.t =
       set_notify_back notify_back;
       let open O in
-      let showDoc (doc_uri, selection) =
-        let _ =
-          notify_back#send_request
-            (ShowDocumentRequest
-               {
-                 external_ = None;
-                 selection;
-                 takeFocus = Some true;
-                 uri = doc_uri;
-               })
-            (fun result ->
-              match result with
-              | Ok success -> Lwt.return ()
-              | Error { code; message; data } ->
-                  notify_back#send_notification
-                    (ShowMessage { message; type_ = Error }))
-        in
+      let showDoc (uri, selection) =
+        notify_back#send_request
+          (ShowDocumentRequest
+             (ShowDocumentParams.create ~uri ?selection ~takeFocus:true ()))
+          (function
+            | Ok success -> Lwt.return ()
+            | Error { code; message; data } ->
+                notify_back#send_notification
+                  (ShowMessage { message; type_ = Error }))
+        |> ignore;
         None
       in
-      let uri_and_pos_of_args args =
+      (* Some commands also take a position, which is always in second argument. *)
+      let pos_of_args args =
         match args with
-        | Some [ `String uri; pos ] ->
-            Some (Uri.of_string uri, Position.t_of_yojson pos)
+        | Some [ _; pos ] -> Some (Position.t_of_yojson pos)
         | _ ->
             log "Failed to read uri argument";
             None
-      in
-      let focus f : Json.t option =
-        let* uri, pos = uri_and_pos_of_args args in
-        let* state = Hashtbl.find_opt msg_buffers uri in
-        let selection = f state ~pos in
-        log "Next selection: %a" (pp_option Range.pp) selection;
-        showDoc (uri, selection)
       in
       log "Command %s invoked with args: %a" command
         (pp_option @@ pp_list Json.pp)
         args;
       Lwt.return @@ O.get_or ~default:`Null
       @@
+      (* All the commands we define carry a uri as the first argument, which we extract right away and exit early if not found. *)
+      let* uri =
+        match args with
+        | Some (`String uri :: _) -> Some (Uri.of_string uri)
+        | _ ->
+            log "Failed to read uri argument";
+            None
+      in
+      (* Helper for handling .messages commands *)
+      let focus f =
+        let* pos = pos_of_args args in
+        let* state = Hashtbl.find_opt msg_buffers uri in
+        let selection = f state ~pos in
+        log "Next selection: %a" (pp_option Range.pp) selection;
+        showDoc (uri, selection)
+      in
       match command with
       | "getAst" ->
-          let log s = log_src "getAst" s in
-          let* uri =
-            match args with
-            | Some [ `String uri ] ->
-                log "Client requested AST of %s" uri;
-                Some (Uri.of_string uri)
-            | _ ->
-                log "Failed to read uri argument";
-                None
-          in
           self#_dispatch uri ~notify_back
             ~mly_handler:(fun state -> Mly.yojson_of_ast state.grammar)
             ~mll_handler:(fun state -> Mll.yojson_of_ast state.grammar)
       | "gotoImplementation" ->
-          let log s = log_src "gotoImplementation" s in
-          let* uri, pos =
-            match args with
-            | Some [ `String uri; pos ] ->
-                let pos = Position.t_of_yojson pos in
-                log "Client requested implementation of %s at position %a" uri
-                  Position.pp pos;
-                Some (Uri.of_string uri, Some pos)
-            | Some [ `String uri ] ->
-                log "Client requested implementation of %s" uri;
-                Some (Uri.of_string uri, None)
-            | _ ->
-                log "Failed to read uri argument";
-                None
-          in
+          let pos = pos_of_args args in
+          log "Client requested implementation of %a at position %a" pp_uri uri
+            (pp_option Position.pp) pos;
           self#_dispatch uri ~notify_back
             ~mly_handler:(Mly.show_impl ?pos >=> showDoc)
             ~mll_handler:(Mll.show_impl ?pos >=> showDoc)
           |> O.flatten
       | "echoErrors" ->
-          let log s = log_src "echoErrors" s in
-          let* uri =
-            match args with
-            | Some [ `String uri ] -> Some (Uri.of_string uri)
-            | _ ->
-                log "Failed to read uri argument";
-                None
-          in
-          log "Client requested stats of %a" pp_uri uri;
           let+ state = Hashtbl.find_opt msg_buffers uri in
           let stats = Msg.stats state in
           `String stats
       | "nextMessage" -> focus Msg.next_message
-      | "nextAutoMessage" -> focus Msg.next_auto_message
+      | "nextAutoMessage" -> focus Msg.next_dummy_message
       | "previousMessage" -> focus Msg.previous_message
-      | "previousAutoMessage" -> focus Msg.previous_auto_message
+      | "previousAutoMessage" -> focus Msg.previous_dummy_message
       | _ -> None
 
     method private _on_req_folding_range ~(notify_back : notify_back)
