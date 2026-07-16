@@ -32,7 +32,7 @@
         "--extensionTestsPath=${workspaceRoot}/out/test/index",
         "${workspaceRoot}/samples"
       ],
-      "outFiles": ["${workspaceRoot}/client/out/test/**/*.js"]
+      "outFiles": ["${workspaceRoot}/out/test/**/*.js"]
     }
   ]
 }
