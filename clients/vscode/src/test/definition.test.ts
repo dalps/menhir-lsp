@@ -54,7 +54,7 @@ suite("should provide definitions in a lexer", () => {
   test("jumps to the definition of an OCaml symbol local to the action", async () => {
     await testDefinition(uri, P(581, 34), {
       uri,
-      range: wordAt(P(578, 11), "identchar"),
+      range: wordAt(P(578, 11), "startp"),
     });
   });
 

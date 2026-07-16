@@ -3,6 +3,24 @@ module F = CCFun
 module L = struct
   include CCList
 
+  let filter_mapi filter =
+    let rec aux idx acc = function
+      | [] -> rev acc
+      | x :: l ->
+          let acc' =
+            match filter idx x with None -> acc | Some y -> y :: acc
+          in
+          aux (idx + 1) acc' l
+    in
+    aux 0 []
+
+  let find_predi pred =
+    let rec aux idx = function
+      | [] -> None
+      | x :: l -> if pred idx x then Some x else aux (idx + 1) l
+    in
+    aux 0
+
   (** Like [let*] but also supplies the index. *)
   let ( let@+ ) (x : 'a t) (f : int * 'a -> 'b) : 'b t = mapi (F.curry f) x
 
@@ -31,6 +49,13 @@ module O = struct
   let ( <|> ) (a : 'a option) (b : unit -> 'a option) =
     match (a, b) with Some a, _ -> Some a | None, f -> f ()
 
+  let pair (o : ('a * 'b) t) : 'a t * 'b t =
+    match o with None -> (None, None) | Some (a, b) -> (Some a, Some b)
+
+  let flatten_pair (o : ('a t * 'b t) t) : 'a t * 'b t =
+    match o with None -> (None, None) | Some (a, b) -> (a, b)
+
+  let guard b = if b then Some () else None
   let get_or_nil (t : 'a list t) : 'a list = get_or ~default:[] t
   let get_string = get_or ~default:""
 end
@@ -50,7 +75,16 @@ module LSP = Lsp.Types
 include Lsp.Types
 module Uri = DocumentUri
 module Text_document = Lsp.Text_document
-module TD = Text_document
+
+module TD = struct
+  include Text_document
+
+  let create ?(position_encoding = `UTF8) ?(version = 0) ?(languageId = "")
+      ~text uri =
+    make ~position_encoding
+      (DidOpenTextDocumentParams.create
+         ~textDocument:{ text; version; languageId; uri })
+end
 
 let pr = Format.printf
 let spr = Format.asprintf
@@ -68,6 +102,10 @@ let log s = Format.kasprintf prerr_endline s
     Set the [debug] flag to false to mute the messages from this source. *)
 let log_src ?(debug = true) src s =
   Format.kasprintf (fun s -> if debug then log "[%s] %s" src s) s
+
+let pp_position out
+    ({ pos_fname; pos_lnum; pos_bol; pos_cnum } : Lexing.position) =
+  pf out "{lnum = %d; bol = %d; cnum = %d}" pos_lnum pos_bol pos_cnum
 
 (** Adapted from
     https://github.com/ocaml/ocaml-lsp/blob/master/ocaml-lsp-server/src/position.ml
@@ -91,12 +129,25 @@ module Position = struct
       let character = max character 0 in
       Some { line; character }
 
+  let pp out ({ character; line } : t) = pf out "%d:%d" line character
+  let show = spr "%a" pp
+
   let of_lexical_position (lex_position : Lexing.position) : t =
     of_lexical_position_opt lex_position |> O.get_or ~default:start
 
-  let pp out ({ character; line } : t) = pf out "%d:%d" line character
+  let to_lexical_position ~(doc : Text_document.t) (pos : Position.t) :
+      Lexing.position =
+    let log s = log_src "to_lexical_position" s in
+    let pos_fname = TD.documentUri doc |> Uri.to_path in
+    let pos_cnum = TD.absolute_position doc pos in
+    let pos_bol = pos_cnum - pos.character in
+    let res =
+      Lexing.{ pos_fname; pos_lnum = pos.line + 1; pos_bol; pos_cnum }
+    in
+    log "%a -> %a" pp pos pp_position res;
+    res
+
   let pp_lexing out = of_lexical_position >> pf out "%a" pp
-  let show = spr "%a" pp
   let show_lexing = spr "%a" pp_lexing
 
   let ( - ) ({ line; character } : t) (t : t) : t =
@@ -144,6 +195,10 @@ module Range = struct
     create
       ~start:(Position.of_lexical_position start)
       ~end_:(Position.of_lexical_position end_)
+
+  let to_lexical_positions ~doc ({ end_; start } : t) =
+    ( Position.to_lexical_position ~doc start,
+      Position.to_lexical_position ~doc end_ )
 
   let pp out ({ end_; start } : t) =
     pf out "[ %a, %a ]" Position.pp start Position.pp end_
@@ -294,9 +349,7 @@ let find_prefix text ofs =
 
   (start_ofs, length, prefix)
 
-let pp_position out
-    ({ pos_fname; pos_lnum; pos_bol; pos_cnum } : Lexing.position) =
-  pf out "{lnum = %d; bol = %d; cnum = %d}" pos_lnum pos_bol pos_cnum
+type lexing_range = Lexing.position * Lexing.position
 
 module Lexing = struct
   include Lexing
@@ -311,3 +364,9 @@ let pp_option pp_v out (o : 'a option) =
     out o
 
 let pp_string = Format.pp_print_string
+let pp_stropt = Format.pp_print_option pp_string
+
+let pp_list ?(pp_sep = fun out unit -> pf out ", ") out pp_v =
+  Format.pp_print_list out ~pp_sep pp_v
+
+let pp_fenced out a = pf out "```\n%a\n```" a

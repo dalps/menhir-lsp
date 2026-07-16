@@ -11,7 +11,16 @@
 
 (copy_files ../common/*.ml)
 
-(ocamllex Lexer Lex Lexpointfree LineCount DecodeString)
+(ocamllex
+ Lexer
+ Lex
+ Lexpointfree
+ LineCount
+ DecodeString
+ RawSentenceLexer
+ Segment)
 
 (menhir
  (modules Parser))
+
+(ocamlyacc RawSentenceParser)

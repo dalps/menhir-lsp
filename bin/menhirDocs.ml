@@ -1,11 +1,13 @@
 open Utils
-module C = Lsp.Types.CompletionItem
 
 let manual_ref section =
   spr "[Manual](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec%s)"
     section
 
-let declarations ?(range : Range.t option) () =
+type stropt = string option
+type doc = string * stropt * stropt * string list
+
+let declarations : doc list =
   let assoc_decl_doc =
     {|assigns both a priority level and an associativity status to the symbols `uid_1`, ..., `uid_n`.
 
@@ -114,10 +116,9 @@ If a quoted identifier `qid_i` is present, then it is considered an alias for th
         manual_ref "%3Aparameter";
       ] );
   ]
-  |> compile_completions ?range ~kind:Keyword
 
 (** https://cambium.inria.fr/~fpottier/menhir/manual.html#fig%3Asugar *)
-let ebnf_operators =
+let ebnf_operators : doc list =
   [
     ( "?",
       None,
@@ -133,9 +134,8 @@ let ebnf_operators =
       None,
       [ md_fenced "actual *"; "is syntactic sugar for `list(actual)`" ] );
   ]
-  |> compile_completions ~kind:Operator
 
-let position_keywords ?(range : Range.t option) () =
+let position_keywords : doc list =
   let manual_ref =
     "[Manual](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec52)"
   in
@@ -220,4 +220,23 @@ let position_keywords ?(range : Range.t option) () =
       None,
       [ {|stands for the pair `($symbolstartpos, $endpos)`|}; manual_ref ] );
   ]
-  |> compile_completions ?range ~kind:Value
+
+let help_dict : (string, stropt * stropt * string list) Hashtbl.t =
+  Hashtbl.create 99
+
+let _ =
+  let add_dict =
+    List.iter (fun (k, a, b, c) -> Hashtbl.add help_dict k (a, b, c))
+  in
+  add_dict declarations;
+  add_dict ebnf_operators;
+  add_dict position_keywords
+
+let ebnf_operator_completions =
+  compile_completions ~kind:Operator ebnf_operators
+
+let declarations_completions ?range () =
+  compile_completions ?range ~kind:Keyword declarations
+
+let position_keywords_completions ?range () =
+  compile_completions ?range ~kind:Value position_keywords

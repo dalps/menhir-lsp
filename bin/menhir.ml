@@ -7,12 +7,23 @@ open MenhirDocs
 open MenhirStdlib
 module Range = Utils.Range
 
+let pp_strloc out ({ p; v; _ } : string located) =
+  pf out "`%s`%a" v Range.pp_lexing p
+
 type zone =
   | OCaml
   | Declaration
   | Rule of symbol located list
   (* Carries a list of the variables bound by the branch(es) the action is tied to. *)
   | Action of (symbol located * parameter located option) list
+
+let pp_zone out zone =
+  pf out "%s"
+    (match zone with
+    | OCaml -> "Ocaml"
+    | Declaration -> "Declaration"
+    | Rule params -> spr "Rule (params: %a)" (pp_list pp_strloc) params
+    | Action _ -> "Action")
 
 type token = {
   ocamltype : ocamltype option;
@@ -28,6 +39,8 @@ type state = {
   tokens : token located list;
   symbols : string located list;
   intervals : zone Ivl_map.t;
+  implementation : Text_document.t option;
+  sourcemap : Line_directives.source_mapping list;
 }
 
 let pp_state out state =
@@ -37,13 +50,24 @@ let pp_state out state =
        (Located.pp (fun out tok -> pf out "%s" tok.terminal)))
     state.tokens
 
-let string_of_zone = function
-  | OCaml -> "ocaml"
-  | Declaration -> "decl"
-  | Rule params ->
-      spr "rule (params: %s)"
-        (params |> List.map Located.value |> String.concat ", ")
-  | Action _ -> "action"
+(** Given a document [doc] and a position into [doc], returns the stack of
+    logical zones around [pos], from most to least local. Used for completions
+    and hovers. *)
+let skewer ?offset (state : state) ~doc ~pos : zone =
+  let open O in
+  let offset = get_lazy (fun _ -> TD.absolute_position doc pos) offset in
+  let query = Ivl.create (Included offset) (Included offset) in
+  let res = Ivl_map.query_interval_list query state.intervals in
+  log "Position %a is contained in %d zones: %a" Position.pp pos (L.length res)
+    (pp_list (fun out (ivl, zs) -> pf out "[%a]" (pp_list pp_zone) zs))
+    res;
+  let res = Ivl_map.query_interval ~order:Desc query state.intervals in
+  (* Get the first value of the first result *)
+  match Ivl_map.Gen.next res with
+  | Some ((ivl, innermost_zone :: _), gen') ->
+      log "%a --> %a" pp_interval ivl pp_zone innermost_zone;
+      innermost_zone
+  | _ -> Declaration
 
 let get_cmly_file = fetch_build_dir ~ext:".cmly"
 let get_conflicts_file = fetch_build_dir ~ext:".conflicts"
@@ -144,6 +168,10 @@ let located_of_ppxloc ~(from : Lexing.position) ({ txt; loc } : 'v Ppxlib.Loc.t)
 
 let process_symbols : partial_grammar -> symbol located list =
   let aliases : (string, string) Hashtbl.t = Hashtbl.create 99 in
+  let ocaml_vars text =
+    parse_ocaml_impl text.v |> OcamlSymbols.get_vars
+    |> L.map (located_of_ppxloc ~from:(Located.startp text))
+  in
   let v =
     object
       inherit [_] ast_reduce as super
@@ -154,10 +182,11 @@ let process_symbols : partial_grammar -> symbol located list =
         fun _ action ->
           (* extract the free variables of this OCaml snippet *)
           match action.expr with
-          | IL.ETextual text ->
-              parse_ocaml_impl text.v |> OcamlSymbols.get_fvars
-              |> L.map (located_of_ppxloc ~from:(Located.startp text))
+          | IL.ETextual text -> ocaml_vars text
           | _ -> []
+
+      method! visit_DCode _ = ocaml_vars
+      method! visit_Declared _ = ocaml_vars
 
       method! visit_DToken =
         fun _ _option ts ->
@@ -205,7 +234,8 @@ let process_symbols : partial_grammar -> symbol located list =
   in
   v#visit_partial_grammar ()
 
-let load_state_from_partial_grammar (grammar : partial_grammar) =
+let load_state_from_partial_grammar ?(implementation = None) ?(sourcemap = [])
+    (grammar : partial_grammar) =
   let symbols = process_symbols grammar in
   let map_ref = ref Ivl_map.empty in
   let add_interval : 'a. zone -> Ivl.t -> unit =
@@ -313,18 +343,20 @@ let load_state_from_partial_grammar (grammar : partial_grammar) =
         | _ -> [])
       grammar.pg_declarations
   in
-  { grammar; tokens; symbols; intervals = !map_ref }
+  { grammar; tokens; symbols; intervals = !map_ref; implementation; sourcemap }
 
-let load_state_from_contents (file_name : string) (file_contents : string) :
+let load_state_from_contents (uri : uri) (file_contents : string) :
     (state, Diagnostic.t list) result =
   let open R in
   let mk_diag msg range =
     Diagnostic.create ~message:(`String msg) ~range () ~source:server_name
   in
+  let implementation, sourcemap = get_source_map uri in
+  let file_name = Uri.to_path uri in
   M.Main.load_grammar_from_contents 0 file_name file_contents
   |> map_err (fun (msg, rng) ->
       mk_diag msg (Range.of_lexical_positions rng) :: [])
-  |> map load_state_from_partial_grammar
+  |> map (load_state_from_partial_grammar ~implementation ~sourcemap)
 
 let standard_lib =
   menhir_standard_library_grammar |> R.get_exn
@@ -460,31 +492,44 @@ let symbol_at_position ?(notify_back : notify_back option) (state : state)
 (** Produce hover information at a particular position. For:
     - token aliases, we display their full name;
     - standard library rules, their documentation; *)
-let hover (state : state) ~(pos : Position.t) : Hover.t option =
+let hover (state : state) ~(doc : document) ~(pos : Position.t) : Hover.t option
+    =
   let open O in
-  let* rng, sym = symbol_at_position state pos in
-  let+ contents, range =
-    (let+ stdlib_doc = Hashtbl.find_opt menhir_standard_library_doc sym.v in
-     (stdlib_doc, rng))
-    <+> L.find_map
-          (fun ({ v = t; _ } : token located) ->
-            if_
-              (fun _ -> t.alias = Some sym.v || t.terminal = sym.v)
-              ( O.map_or ~default:""
-                  (function
-                    | M.BaseTypes.Declared { v; _ } | M.BaseTypes.Inferred v ->
-                        spr "<%s> " v)
-                  t.ocamltype
-                ^ t.terminal
-                |> md_fenced,
-                rng ))
-          state.tokens
+  let log s = log_src "mly.hover" s in
+  log "Requested hover at %a" Position.pp pos;
+  let+ sym_range, sym = symbol_at_position state pos in
+  let zone = skewer state ~doc ~pos in
+  let info_type, info_docs =
+    O.flatten_pair
+    @@
+    match zone with
+    | OCaml | Action _ ->
+        let* answer = lookup_source state.sourcemap sym.p sym.v in
+        let* doc = state.implementation in
+        let pos = Position.of_lexical_position (fst answer) in
+        let typ = get_merlin_type ~doc ~pos sym.v
+        and docs = get_merlin_docs ~expression:(Some sym.v) ~doc ~pos in
+        Some (typ >|= md_fenced, docs >|= odoc_to_md)
+    | _ -> None
   in
-  Hover.create
-    ~contents:
-      (`MarkupContent
-         (MarkupContent.create ~kind:MarkupKind.Markdown ~value:contents))
-    ~range ()
+  let info_stdlib = Hashtbl.find_opt menhir_standard_library_doc sym.v in
+  let info_token =
+    L.find_map
+      (fun ({ v = t; _ } : token located) ->
+        if_
+          (fun _ -> t.alias = Some sym.v || t.terminal = sym.v)
+          (spr "%a%s"
+             (Format.pp_print_option
+                ~none:(fun out () -> pf out "")
+                (fun out -> pf out "<%s> "))
+             M.BaseTypes.(
+               t.ocamltype >|= function Declared { v; _ } | Inferred v -> v)
+             t.terminal
+          |> md_fenced))
+      state.tokens
+  in
+  make_md_hover ~range:sym_range
+    (L.keep_some [ info_token; info_stdlib; info_type; info_docs ])
 
 let diagnostics ~(notify_back : notify_back) ~(uri : uri) (_s : state) :
     Diagnostic.t list =
@@ -543,6 +588,16 @@ let diagnostics ~(notify_back : notify_back) ~(uri : uri) (_s : state) :
           | toks, current_diag, diags -> (toks, chop line :: current_diag, diags))
         lines ([], [], [])
       |> fun (_, _, diags) -> Ok diags)
+
+let show_impl ?(pos : Position.t option) state =
+  let open O in
+  let+ doc = state.implementation in
+  let doc_uri = TD.documentUri doc in
+  let selection =
+    pos >>= symbol_at_position state >>= fun (_, { v; p }) ->
+    lookup_source state.sourcemap p v >|= Range.of_lexical_positions
+  in
+  (doc_uri, selection)
 
 let references (state : state) ~uri ~(pos : Position.t) : Location.t list =
   (let open O in
@@ -630,34 +685,20 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
   let log s = log_src ~notify_back "mly.completions" s in
   let grammar_completions () =
     default_completions ?range state
-    @ standard_lib_completions @ declarations ?range ()
+    @ standard_lib_completions
+    @ declarations_completions ?range ()
   in
   get_lazy grammar_completions
   @@
   let* { p = rng; offset; _ } = word in
-  let query = Ivl.create (Included offset) (Included offset) in
-  let merlin_compls () =
+  let merlin_completions () =
     (let* word = word in
-     get_merlin_compls ~notify_back ~uri ~pos word)
+     get_merlin_compls ~uri ~pos word)
     |> get_or_nil
   in
-  let res = Ivl_map.query_interval_list query state.intervals in
-  log "for %a produced %d results" pp_interval query @@ L.length res;
-  let string_of_zone = function
-    | OCaml -> "ocaml"
-    | Declaration -> "decl"
-    | Rule params ->
-        spr "rule (params: %s)"
-          (params |> List.map Located.value |> String.concat ", ")
-    | Action _ -> "action"
-  in
-  log "innermost zone:";
-  let res = Ivl_map.query_interval ~order:Desc query state.intervals in
-  let* (ivl, zones), gen = Ivl_map.Gen.next res in
-  let+ innermost_zone = L.head_opt zones in
-  log "%a --> %s" pp_interval ivl (string_of_zone innermost_zone);
-  match innermost_zone with
-  | OCaml -> merlin_compls ()
+  let+ { p = rng; offset; td = doc } = word in
+  match skewer state ~offset ~doc ~pos with
+  | OCaml -> merlin_completions ()
   | Declaration -> grammar_completions ()
   | Rule params ->
       grammar_completions ()
@@ -679,8 +720,8 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
             ~textEdit:(`TextEdit TextEdit.{ newText = name; range = rng })
             ())
         binders
-      @ merlin_compls ()
-      @ position_keywords ~range:rng ()
+      @ merlin_completions ()
+      @ position_keywords_completions ~range:rng ()
 
 let prepare_rename (state : state) ~(pos : Position.t) : Range.t option =
   let open O in

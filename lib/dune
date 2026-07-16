@@ -2,3 +2,5 @@
  (name menhir_lsp_lib)
  (libraries containers linol ordering re ppxlib ppxlib.ast)
  (flags -w -27))
+
+(ocamllex line_directives)

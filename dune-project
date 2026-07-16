@@ -15,9 +15,9 @@
 
 (package
  (name menhir-lsp)
- (synopsis "Language Server for Menhir and Ocamllex")
+ (synopsis "Language server for Menhir and ocamllex")
  (description
-  "Implementation of the Language Server Protocol for Menhir and Ocamllex, providing editors with navigation hints and completions in .mly and .mll files.")
+  "Implementation of the Language Server Protocol for Menhir and ocamllex, providing client editors with code browsing and completions in .mly and .mll files.")
  (depends
   ("ocaml"
    (>= "4.14"))
@@ -80,5 +80,19 @@
   ("format" "menhir" "ocamllex")))
 
 (using menhir 3.0)
+
+(dialect
+ (name menhir)
+ (implementation
+  (extension mly)
+  (format
+   (run menhirformat --indent-once %{input-file}))))
+
+(dialect
+ (name ocamllex)
+ (implementation
+  (extension mll)
+  (format
+   (run menhirformat --indent-once %{input-file}))))
 
 ; See the complete stanza docs at https://dune.readthedocs.io/en/stable/reference/dune-project/index.html
