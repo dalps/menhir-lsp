@@ -35,8 +35,8 @@ export const execServerCmd = async <T>(command: string, ...args: any[]) =>
     CancellationToken.None,
   );
 
-/** Register a new command that runs in the server. The server receives as
- * arguments the uri and the current cursor position of the active editor. */
+/** Register a new command with zero arguments that runs in the server.
+ * The server is passed the uri and the current cursor position of the active editor. */
 const serverCmdWithActiveEditor = (command: string) =>
   registerCmd(command, () => {
     const editor = vscode.window.activeTextEditor;

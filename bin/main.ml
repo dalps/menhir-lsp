@@ -7,6 +7,18 @@ module MF = Menhirformat_lib
 
 type doc_type = Mll | Mly | Messages
 
+(* This spares us having to pattern-match strings and prevents bugs caused by typos.*)
+let command_dict =
+  [
+    ("getAst", `GetAst);
+    ("gotoImplementation", `GotoImplementation);
+    ("echoErrors", `EchoErrors);
+    ("nextMessage", `NextMessage);
+    ("nextDummyMessage", `NextDummyMessage);
+    ("previousMessage", `PreviousMessage);
+    ("previousDummyMessage", `PreviousDummyMessage);
+  ]
+
 let doc_type_of_uri uri : doc_type option =
   let filename = Uri.to_path uri in
   match Filename.extension filename with
@@ -110,17 +122,7 @@ class lsp_server =
         `DocumentSymbol syms
 
     method! config_definition = Some (`Bool true)
-
-    method! config_list_commands =
-      [
-        "getAst";
-        "gotoImplementation";
-        "echoErrors";
-        "nextMessage";
-        "nextAutoMessage";
-        "previousMessage";
-        "previousAutoMessage";
-      ]
+    method! config_list_commands = L.map fst command_dict
 
     method! config_modify_capabilities (default : ServerCapabilities.t) =
       {
@@ -274,12 +276,12 @@ class lsp_server =
         log "Next selection: %a" (pp_option Range.pp) selection;
         showDoc (uri, selection)
       in
-      match command with
-      | "getAst" ->
+      match L.assoc ~eq:String.equal command command_dict with
+      | `GetAst ->
           self#_dispatch uri ~notify_back
             ~mly_handler:(fun state -> Mly.yojson_of_ast state.grammar)
             ~mll_handler:(fun state -> Mll.yojson_of_ast state.grammar)
-      | "gotoImplementation" ->
+      | `GotoImplementation ->
           let pos = pos_of_args args in
           log "Client requested implementation of %a at position %a" pp_uri uri
             (pp_option Position.pp) pos;
@@ -287,15 +289,15 @@ class lsp_server =
             ~mly_handler:(Mly.show_impl ?pos >=> showDoc)
             ~mll_handler:(Mll.show_impl ?pos >=> showDoc)
           |> O.flatten
-      | "echoErrors" ->
+      | `EchoErrors ->
           let+ state = Hashtbl.find_opt msg_buffers uri in
           let stats = Msg.stats state in
           `String stats
-      | "nextMessage" -> focus Msg.next_message
-      | "nextAutoMessage" -> focus Msg.next_dummy_message
-      | "previousMessage" -> focus Msg.previous_message
-      | "previousAutoMessage" -> focus Msg.previous_dummy_message
-      | _ -> None
+      | `NextMessage -> focus Msg.next_message
+      | `NextDummyMessage -> focus Msg.next_dummy_message
+      | `PreviousMessage -> focus Msg.previous_message
+      | `PreviousDummyMessage -> focus Msg.previous_dummy_message
+      | exception _ -> None
 
     method private _on_req_folding_range ~(notify_back : notify_back)
         (uri : uri) : FoldingRange.t list option Lwt.t =

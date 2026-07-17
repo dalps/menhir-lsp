@@ -22,11 +22,11 @@ Enjoy ease of navigation and *rock*-solid language support in your grammars!
 * Hover types and documentation for token aliases and Menhir's standard library rules
 * Document Symbols (Ctrl+Shift+O)
 * Rename Symbol (F2 on a rule name or a token name)
-* Refactorings for Menhir tokens and Ocamllex regular expressions (Cltr+.)
-* Selection Ranges (Shift+Alt+← / Shift+Alt+→ to respectively shrink / expand your selection on a regular expression)
+* Refactorings for Menhir tokens and Ocamllex regular expressions (Ctrl+.)
+* Selection Ranges (Shift+Alt+← / Shift+Alt+→ to respectively shrink / expand your selection along syntactic nodes)
 * Document Formatting (Shift+Alt+F) powered by `ocamlformat`
 * Fancy file icons
-* Syntax highlighting, entries utline and folding ranges for Menhir [.messages files](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec73)
+* Syntax highlighting, entries outline and folding ranges for Menhir [.messages files](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec73)
 
 ### Code Actions
 
@@ -36,7 +36,7 @@ Enjoy ease of navigation and *rock*-solid language support in your grammars!
 
 #### ocamllex Refactorings
 
-* **Extract named regexp**: extract a named regular expression out of a valid regexp selection. The original regexp is replaced with reference to a new named regular expression placed at the top of your lexer.
+* **Extract named regexp**: extract a named regular expression out of a valid regexp selection. The original regexp is replaced with a reference to a new named regular expression placed at the top of your lexer.
 
 ### Commands
 
@@ -44,9 +44,9 @@ Open the command palette (F1) and type `Menhir` to view the available commands.
 
 ### .messages Features
 
-When the active editor is a `.messages` database, the counts of sentences and error messages is shown in the status bar.
+When the active editor is a `.messages` database, the counts of sentences and error messages is shown in the status bar below the editor. Clicking on it will bring focus the Outline view where one can see a summary of the entries laid out in a indexed list.
 
-Plus, the following commands are avaiable to quickly navigate the entries.
+Plus, the following commands are available to quickly navigate the entries.
 Each command moves focus relatively to the current cursor position:
 
 * `menhir-lsp-client.nextMessage` (Alt+N): Focus the next message

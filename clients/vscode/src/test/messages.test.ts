@@ -1,15 +1,17 @@
 import assert from "assert";
 import * as vscode from "vscode";
-import { activate, getDocUri, P, R, rangeEqual } from "./helper";
+import { Range } from "vscode";
+import { activate, getDocUri, P, R, rangeEqual, showRange } from "./helper";
 
 suite("should provide navigational facilities in .messages files", () => {
-  const uri = getDocUri("ParserMessages.messages");
+  const uriParserMessages = getDocUri("ParserMessages.messages");
+  const uriOriginalParser = getDocUri("original_parser.messages");
 
   test("produces folding ranges for every entry", async () => {
-    await activate(uri);
+    await activate(uriParserMessages);
     const folds = (await vscode.commands.executeCommand(
       "vscode.executeFoldingRangeProvider",
-      uri,
+      uriParserMessages,
     )) as vscode.FoldingRange[];
 
     assert.equal(folds.length, 50);
@@ -20,10 +22,10 @@ suite("should provide navigational facilities in .messages files", () => {
   });
 
   test("provides document symbols", async () => {
-    await activate(uri);
+    await activate(uriParserMessages);
     const symbols = (await vscode.commands.executeCommand(
       "vscode.executeDocumentSymbolProvider",
-      uri,
+      uriParserMessages,
     )) as vscode.DocumentSymbol[];
 
     assert.equal(
@@ -38,22 +40,67 @@ suite("should provide navigational facilities in .messages files", () => {
     assert.ok(rangeEqual(symbols[44].selectionRange, R(P(583, 1), P(589, 1))));
   });
 
-  test("can jump to the next entry", async () => {
-    await activate(uri);
-    await vscode.commands.executeCommand(
+  test("can jump to the next entry", () =>
+    testJumpCommand(
       "menhir-lsp-client.nextMessage",
-      uri,
-      P(576, 26),
-    );
+      uriParserMessages,
+      P(575, 26),
+      R(P(594, 1), P(598, 1)),
+    ));
 
-    const selection = vscode.window.activeTextEditor?.selection;
+  test("can jump to the previous entry", () =>
+    testJumpCommand(
+      "menhir-lsp-client.previousMessage",
+      uriParserMessages,
+      P(575, 26),
+      R(P(561, 1), P(567, 1)),
+    ));
 
-    assert.ok(
-      selection,
-      "Should have moved the seleciton onto the next message",
-    );
-    assert.ok(
-      selection && (R(selection.start, selection.end), R(P(594, 1), P(598, 1))),
-    );
-  });
+  test("can jump to the next dummy entry", () =>
+    testJumpCommand(
+      "menhir-lsp-client.nextDummyMessage",
+      uriOriginalParser,
+      P(25, 15),
+      R(P(53, 1), P(54, 1)),
+    ));
+
+  test("can jump to the previous dummy entry", () =>
+    testJumpCommand(
+      "menhir-lsp-client.previousDummyMessage",
+      uriOriginalParser,
+      P(121, 3),
+      R(P(53, 1), P(54, 1)),
+    ));
 });
+
+async function testJumpCommand(
+  command: string,
+  uri: vscode.Uri,
+  pos: vscode.Position,
+  expected: Range,
+  msg?: string | Error,
+) {
+  await activate(uri);
+
+  if (!vscode.window.activeTextEditor) throw Error("No active editor!");
+
+  vscode.window.activeTextEditor.selection = new vscode.Selection(pos, pos);
+
+  await vscode.commands.executeCommand(command);
+
+  // Remove this by making the server wait for the request to fulfill
+  await new Promise((resolve, _reject) => {
+    setTimeout(resolve, 2000);
+  });
+
+  // The command should have moved the selection, let's inspect it.
+  const selection = vscode.window.activeTextEditor.selection;
+
+  assert.ok(selection, msg);
+
+  const actual = R(selection.start, selection.end);
+  assert.ok(
+    selection && rangeEqual(expected, actual),
+    `Range mismatch: ${showRange(expected)} vs ${showRange(actual)}`,
+  );
+}
