@@ -19,7 +19,7 @@ let parse get_lexbuf =
         Range.make Lexing.(lexeme_start_p lexbuf, lexeme_end_p lexbuf)
       in
       Error
-        ( Printf.sprintf "Syntax error near '%s':\n%s" (Lexing.lexeme lexbuf)
+        ( Printf.sprintf "Syntax error near '%s'\n%s" (Lexing.lexeme lexbuf)
             message,
           range )
   | Syntax.SyntaxError { v; p; _ } | Lexer.Lexical_error { v; p; _ } ->
@@ -30,6 +30,8 @@ let parse_file file =
   let get_lexbuf () =
     seek_in inp 0;
     let lexbuf = Lexing.from_channel inp in
+    Location.input_name := file;
+    Location.input_lexbuf := Some lexbuf;
     Lexing.set_filename lexbuf file;
     lexbuf
   in

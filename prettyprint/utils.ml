@@ -130,7 +130,7 @@ struct
   let format_file ~config input_file =
     let contents = read_file_contents input_file in
     let doc = doc_of_string ~input_file contents in
-    parse_string contents |> Result.map (format_doc ~config ~doc)
+    parse_file input_file |> Result.map (format_doc ~config ~doc)
 end
 
 let heredoc () =

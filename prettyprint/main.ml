@@ -1,3 +1,4 @@
+module OcamlLocation = Location
 open Menhir_lsp_lib.Utils
 open Menhirformat_lib.Utils
 
@@ -91,12 +92,12 @@ let main ?(lang = "") ~config (input_file : string) =
     | _, `Mll -> Ocamllex.format_file ~config input_file
     | _, `Mly -> Menhir.format_file ~config input_file
   in
-  let input_file =
-    if input_file = "-" then "<standard input>" else input_file
-  in
   res
-  |> R.map_err (fun (msg, rng) ->
-      log "Failed to format %s: at %a: %s" input_file Range.pp_lexing rng msg;
+  |> R.map_err (fun (msg, (loc_start, loc_end)) ->
+      let loc = Warnings.{ loc_start; loc_end; loc_ghost = false } in
+      let report : OcamlLocation.report = OcamlLocation.errorf ~loc "%s" msg in
+      epr "menhirformat: ignoring %S (syntax error)\n%!" input_file;
+      epr "%a" OcamlLocation.print_report report;
       exit 1)
   |> R.iter print_endline
 
@@ -122,6 +123,9 @@ let cmd =
      and+ breakRegexpsGroups = breakRegexpsGroups *)
      and+ semiAfterProducer = semiAfterProducer
      and+ lang = lang in
+     let input_file =
+       if input_file = "-" then "<standard input>" else input_file
+     in
      let config =
        Config.make ~tabsize ~indentOnce ~noLeadingBar ~semiAfterProducer
          ~maxWidth ~breakLongRegexps:true ()
