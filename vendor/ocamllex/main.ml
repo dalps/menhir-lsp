@@ -1,7 +1,9 @@
-let parse get_lexbuf =
+let parse ?(file = "") get_lexbuf =
   Lexer.init ();
   Hashtbl.reset Syntax.named_regexps;
   let lexbuf = get_lexbuf () in
+  Location.input_name := file; (* Very important setting this, even to an empty string, to get source code highlighting. *)
+  Location.input_lexbuf := Some lexbuf;
   try
     Original_parser.lexer_definition Lexer.main lexbuf;
     let lexbuf = get_lexbuf () in
@@ -27,16 +29,13 @@ let parse get_lexbuf =
 
 let parse_file file =
   let inp = open_in file in
+  Fun.protect ~finally:(fun () -> close_in inp) @@ fun () ->
   let get_lexbuf () =
     seek_in inp 0;
     let lexbuf = Lexing.from_channel inp in
-    Location.input_name := file;
-    Location.input_lexbuf := Some lexbuf;
     Lexing.set_filename lexbuf file;
     lexbuf
   in
-  let ast = parse get_lexbuf in
-  close_in inp;
-  ast
+  parse ~file get_lexbuf
 
 let parse_string s = parse (fun () -> Lexing.from_string s)
