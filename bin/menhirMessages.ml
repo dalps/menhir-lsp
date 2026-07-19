@@ -91,7 +91,8 @@ let read_messages filename : (oruns, Range.ranges * string) result =
     | (Segment, _, lexbuf) :: segments -> (
         (* Read a series of raw sentences. *)
         match RawSentenceParser.entry RawSentenceLexer.lex lexbuf with
-        | exception Parsing.Parse_error ->
+        | (exception RawSentenceLexer.Error) | (exception Parsing.Parse_error)
+          ->
             error [ Range.current lexbuf ] "ill-formed sentence."
         | elements -> (
             (* [elements] is a list of raw sentences or comments. Validate it.
@@ -245,7 +246,7 @@ let focus_message search_fun state ~pos : Utils.Range.t option =
   let* _ = guard (Position.is_inside pos msg_range) in
   (* 2. Search for the entry that satisfies [search_fun], which is given the index of the current entry.
     Return the message range of the target entry if found. *)
-  log "We're inside %s %a" run.message.v Range.pp msg_range;
+  log ~debug:false "We're inside %s %a" run.message.v Range.pp msg_range;
   let+ target = search_fun idx state in
   Range.of_lexical_positions target.message.p
 

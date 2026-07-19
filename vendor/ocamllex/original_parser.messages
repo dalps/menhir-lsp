@@ -22,7 +22,7 @@ lexer_definition: Taction Tunderscore
 ## header named_regexps
 ##
 
-A lexer may start with an OCaml header or a series of `let` definitions, and must include at least one rule.
+A lexer may start with an OCaml header `{ .. }` followed by a series of regexp declarations `let .. = ..` and at least one entrypoint.
 
 lexer_definition: Trefill Tunderscore
 ##
@@ -64,6 +64,7 @@ lexer_definition: Tlet Tident Tunderscore
 ## named_regexps Tlet Tident
 ##
 
+Ill-formed regexp definition.
 After the identifier, `=` followed by a regexp is expected.
 
 lexer_definition: Tlet Tident Tequal Tstar
@@ -78,7 +79,8 @@ lexer_definition: Tlet Tident Tequal Tstar
 ## named_regexps Tlet Tident Tequal
 ##
 
-After the `=` sign, a valid regexp is expected.
+Ill-formed regexp definition.
+After `=` a valid regexp is expected.
 
 lexer_definition: Tlet Tident Tequal Tlparen Tstar
 ##
