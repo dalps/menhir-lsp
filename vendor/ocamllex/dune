@@ -8,9 +8,22 @@
 
 (env
  (dev
-  (flags :standard -warn-error -7-17 -w -27)))
+  (flags :standard -warn-error -7-17 -w -27-32)))
 
 (ocamllex lexer)
 
 (menhir
  (modules parser))
+
+(menhir
+ (modules original_parser)
+ (flags --cmly --exn-carries-state --require-aliases --external-tokens Parser)) ; Token sharing. Source: menhir/demos/calc-syntax-errors/dune:35
+
+; Compile the error messages automatically. Source: menhir/driver/stage2/dune:69
+(rule
+ (deps original_parser.messages)
+ (targets original_parser_messages.ml)
+ (action
+  (with-stdout-to
+   original_parser_messages.ml
+   (run menhir original_parser.mly --compile-errors original_parser.messages))))

@@ -14,67 +14,25 @@
 /**************************************************************************/
 
 /* The grammar for lexer definitions */
+(* [menhir-lsp] *with token aliases and no semantics. *)
 
-%{
-open Syntax
-
-(* Auxiliaries for the parser. *)
-
-let named_regexps =
-  (Hashtbl.create 13 : (string, regular_expression) Hashtbl.t)
-
-let regexp_for_string s =
-  let rec re_string n =
-    if n >= String.length s then Epsilon
-    else if succ n = String.length s then
-      Characters (Cset.singleton (Char.code s.[n]))
-    else
-      Sequence
-        (Characters(Cset.singleton (Char.code s.[n])),
-         re_string (succ n))
-  in re_string 0
-
-let rec remove_as = function
-  | Bind (e,_) -> remove_as e
-  | Epsilon|Eof|Characters _ as e -> e
-  | Sequence (e1, e2) -> Sequence (remove_as e1, remove_as e2)
-  | Alternative (e1, e2) -> Alternative (remove_as e1, remove_as e2)
-  | Repetition e -> Repetition (remove_as e)
-
-let rec as_cset = function
-  | Characters s -> s
-  | Alternative (e1, e2) -> Cset.union (as_cset e1) (as_cset e2)
-  | _ -> raise Cset.Bad
-
-(* Extract the end of the last closing '}' to be used in the location
-   of the rule body. *)
-let finalize_clauses xs =
-  let end_pos =
-    match List.rev xs with
-    | (_clause, curly_end_pos) :: _ -> curly_end_pos
-    | [] -> (* syntax ensures at least one clause *) assert false
-  in
-  let clauses_without_location = List.map (fun (x, _pos) -> x) xs in
-  (clauses_without_location, end_pos)
-%}
-
-%token <string> Tident
-%token <int> Tchar
-%token <string> Tstring
+%token <string> Tident "x"
+%token <int> Tchar "'c'"
+%token <string> Tstring "\"foo\""
 
 /* We consider this position to be the beginning of the rule body
    (list of clauses). It's used when reporting non-exhaustive rules. */
-%token <Lexing.position> Tparse Tparse_shortest
+%token (* <Lexing.position> *) Tparse "parse" Tparse_shortest "shortest"
 
 /* An action is represented as (loc, end_pos)
    where loc is the location of the user-defined OCaml code within
    curly braces and end_pos is the position of the closing brace
    that will be used as the end delimiter of the rule body. */
-%token <Syntax.location * Lexing.position> Taction
+%token <string Located.located> (* <Syntax.location * Lexing.position> *) Taction "{ .. }"
 
-%token Trule Tand Tequal Tend Tor Tunderscore Teof
-       Tlbracket Trbracket Trefill
-%token Tstar Tmaybe Tplus Tlparen Trparen Tcaret Tdash Tlet Tas Thash
+%token Trule "rule" Tand "and" Tequal "=" Tend "EOF" Tor "|" Tunderscore "_" Teof "eof"
+       Tlbracket "[" Trbracket "]" Trefill "refill"
+%token Tstar "*" Tmaybe "?" Tplus "+" Tlparen "(" Trparen ")" Tcaret "^" Tdash "-" Tlet "let" Tas "as" Thash "#"
 
 %right Tas
 %left Tor
@@ -84,144 +42,115 @@ let finalize_clauses xs =
 %nonassoc Tident Tchar Tstring Tunderscore Teof Tlbracket Tlparen
 
 %start lexer_definition
-%type <Syntax.lexer_definition> lexer_definition
+%type <unit> lexer_definition
 
 %%
 
 lexer_definition:
     header named_regexps refill_handler Trule definition other_definitions
     header Tend
-        { {header = $1;
-           refill_handler = $3;
-           entrypoints = $5 :: List.rev $6;
-           trailer = $7} }
+        { () }
 ;
 header:
     Taction
-        { fst $1 }
+        { () }
   | /*epsilon*/
-        { { loc_file = "";
-            start_pos = 0; end_pos = 0;
-            start_line = 1; end_line = 1;
-            start_col = 0; end_col = 0 } }
+        { () }
 ;
 named_regexps:
     named_regexps Tlet Tident Tequal regexp
-        { Hashtbl.add named_regexps $3 $5 }
+        { () }
   | /*epsilon*/
         { () }
 ;
 other_definitions:
     other_definitions Tand definition
-        { $3::$1 }
+        { () }
   | /*epsilon*/
-        { [] }
+        { () }
 ;
 refill_handler:
-  | Trefill Taction { Some (fst $2) }
-  | /*empty*/ { None }
+  | Trefill Taction { () }
+  | /*empty*/ { () }
 ;
 definition:
     Tident arguments Tequal Tparse entry
-        { let start_p = $4 in
-          let clauses, end_p = finalize_clauses $5 in
-          let body_location = location_of_positions start_p end_p in
-          {name=$1 ; shortest=false ; args=$2 ; body_location ; clauses} }
+        { () }
   |  Tident arguments Tequal Tparse_shortest entry
-        { let start_p = $4 in
-          let clauses, end_p = finalize_clauses $5 in
-          let body_location = location_of_positions start_p end_p in
-          {name=$1 ; shortest=true ; args=$2 ; body_location ; clauses} }
+        { () }
 ;
 
 arguments:
-    Tident arguments        { $1::$2 }
-|     /*epsilon*/           { [] }
+    Tident arguments        { () }
+|     /*epsilon*/           { () }
 ;
 
 
 entry:
     case rest_of_entry
-        { $1::List.rev $2 }
+        { () }
 |   Tor case rest_of_entry
-        { $2::List.rev $3 }
+        { () }
 ;
 
 rest_of_entry:
     rest_of_entry Tor case
-        { $3::$1 }
+        { () }
   |
-        { [] }
+        { () }
 ;
 case:
     regexp Taction
-        { let action_code_location, end_pos = $2 in
-          (($1, action_code_location), end_pos) }
+        { () }
 ;
 regexp:
     Tunderscore
-        { Characters Cset.all_chars }
+        { () }
   | Teof
-        { Eof }
+        { () }
   | Tchar
-        { Characters (Cset.singleton $1) }
+        { () }
   | Tstring
-        { regexp_for_string $1 }
+        { () }
   | Tlbracket char_class Trbracket
-        { Characters $2 }
+        { () }
   | regexp Tstar
-        { Repetition $1 }
+        { () }
   | regexp Tmaybe
-        { Alternative(Epsilon, $1) }
+        { () }
   | regexp Tplus
-        { Sequence(Repetition (remove_as $1), $1) }
+        { () }
   | regexp Thash regexp
-        {
-          let s1 = as_cset $1
-          and s2 = as_cset $3 in
-          Characters (Cset.diff s1 s2)
-        }
+        { () }
   | regexp Tor regexp
-        { Alternative($1,$3) }
+        { () }
   | regexp regexp %prec CONCAT
-        { Sequence($1,$2) }
+        { () }
   | Tlparen regexp Trparen
-        { $2 }
+        { () }
   | Tident
-        { try
-            Hashtbl.find named_regexps $1
-          with Not_found ->
-            let p = Parsing.symbol_start_pos () in
-            Printf.eprintf "File \"%s\", line %d, character %d:\n\
-                             Reference to unbound regexp name `%s'.\n"
-                           p.Lexing.pos_fname p.Lexing.pos_lnum
-                           (p.Lexing.pos_cnum - p.Lexing.pos_bol)
-                           $1;
-            exit 2 }
+        { () }
   | regexp Tas ident
-        {let p1 = Parsing.rhs_start_pos 3
-         and p2 = Parsing.rhs_end_pos 3 in
-         let p = Syntax.location_of_positions p1 p2 in
-         Bind ($1, ($3, p))}
+        { () }
 ;
 
 ident:
-  Tident {$1}
+  Tident { () }
 ;
 
 char_class:
     Tcaret char_class1
-        { Cset.complement $2 }
+        { () }
   | char_class1
-        { $1 }
+        { () }
 ;
 char_class1:
     Tchar Tdash Tchar
-        { Cset.interval $1 $3 }
+        { () }
   | Tchar
-        { Cset.singleton $1 }
+        { () }
   | char_class1 char_class1 %prec CONCAT
-        { Cset.union $1 $2 }
+        { () }
 ;
 
 %%

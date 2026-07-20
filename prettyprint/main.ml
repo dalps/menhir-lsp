@@ -1,7 +1,9 @@
+module OcamlLocation = Location
 open Menhir_lsp_lib.Utils
 open Menhirformat_lib.Utils
 
 let version = "0.1.0"
+let standard_input = "<standard input>"
 
 open Cmdliner
 open Cmdliner.Term.Syntax
@@ -59,44 +61,71 @@ let input_file =
 
 let lang =
   let doc =
-    "Specify the syntax of the document. Useful only when FILE has no \
-     extension or when reading from stdin."
+    "Specify the language of the source code when FILE has no extension or \
+     when reading from stdin."
   in
   (* Arg.(value & vflag `Mly [ (`Mly, info [ "mly" ]); (`Mll, info [ "mll" ])  ]) *)
   Arg.(
-    value & opt string ""
+    value
+    & opt
+        (Arg.Conv.make ~docv:"LANG"
+           ~pp:(fun out lang ->
+             pf out "%s"
+               (match lang with
+               | Some `Mll -> "mll"
+               | Some `Mly -> "mly"
+               | None -> ""))
+           ~parser:(function
+             | "mll" -> Ok (Some `Mll)
+             | "mly" -> Ok (Some `Mly)
+             | _ -> Error "Must be 'mll' or 'mly'")
+           ())
+        None
     & info [ "lang" ] ~docv:"mll|mly" ~doc
         ~absent:"inferred from file extension")
 
-let log s = Format.kasprintf (log "menhirformat: %s") s
+let error s = Format.eprintf ("menhirformat: " ^^ s ^^ "\n%!")
 
-let main ?(lang = "") ~config (input_file : string) =
+let main ~config lang (input_file : [> `File of string | `Stdin ]) =
   let open R in
   let open Menhirformat_lib in
-  if String.length input_file = 0 then (
-    log "Please provide an input file or `-` to read input from stdin.";
-    exit 2);
-  let lang : [> `Mll | `Mly ] =
-    match (Filename.extension input_file, lang) with
-    | ".mll", _ | _, "mll" -> `Mll
-    | ".mly", _ | _, "mly" -> `Mly
-    | _ ->
-        log "Unrecognized file extension: must be either `.mll` or `.mly`.";
-        exit 2
+  let lang : [ `Mll | `Mly ] =
+    match input_file with
+    | `Stdin -> (
+        (* OcamlLocation.input_name := standard_input; *)
+        match lang with
+        | None ->
+            error
+              "When reading from stdin the language mode must be specified via the \
+               '--lang' switch.";
+            exit 2
+        | Some lang -> lang)
+    | `File input_file -> (
+        match (Filename.extension input_file, lang) with
+        | ".mll", _ -> `Mll
+        | ".mly", _ -> `Mly
+        | _, Some lang -> lang
+        | _ ->
+            error
+              "Could not determine the language mode from the file extension. \
+               Please specify it via the '--lang' switch.";
+            exit 2)
   in
-  let res =
+  let filename, res =
     match (input_file, lang) with
-    | "-", `Mll -> heredoc () |> Ocamllex.format_string ~config
-    | "-", `Mly -> heredoc () |> Menhir.format_string ~config
-    | _, `Mll -> Ocamllex.format_file ~config input_file
-    | _, `Mly -> Menhir.format_file ~config input_file
-  in
-  let input_file =
-    if input_file = "-" then "<standard input>" else input_file
+    | `Stdin, `Mll ->
+        (standard_input, heredoc () |> Ocamllex.format_string ~config)
+    | `Stdin, `Mly ->
+        (standard_input, heredoc () |> Menhir.format_string ~config)
+    | `File name, `Mll -> (name, Ocamllex.format_file ~config name)
+    | `File name, `Mly -> (name, Menhir.format_file ~config name)
   in
   res
-  |> R.map_err (fun (msg, rng) ->
-      log "Failed to format %s: at %a: %s" input_file Range.pp_lexing rng msg;
+  |> R.map_err (fun (msg, (loc_start, loc_end)) ->
+      let loc = Warnings.{ loc_start; loc_end; loc_ghost = false } in
+      let report : OcamlLocation.report = OcamlLocation.errorf ~loc "%s" msg in
+      error "ignoring %S (syntax error)" filename;
+      epr "%a" OcamlLocation.print_report report;
       exit 1)
   |> R.iter print_endline
 
@@ -122,10 +151,16 @@ let cmd =
      and+ breakRegexpsGroups = breakRegexpsGroups *)
      and+ semiAfterProducer = semiAfterProducer
      and+ lang = lang in
+     if String.length input_file = 0 then (
+       error
+         "Please specify the input file, or alternatively '-' to read from the \
+          standard input.";
+       exit 2);
+     let input_file = if input_file = "-" then `Stdin else `File input_file in
      let config =
        Config.make ~tabsize ~indentOnce ~noLeadingBar ~semiAfterProducer
          ~maxWidth ~breakLongRegexps:true ()
      in
-     main ~lang ~config input_file
+     main ~config lang input_file
 
 let () = if !Sys.interactive then () else exit (Cmd.eval cmd)

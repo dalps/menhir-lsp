@@ -1,0 +1,536 @@
+lexer_definition: Tunderscore
+##
+## Concrete syntax: _
+##
+## Ends in an error in state: 0.
+##
+## lexer_definition' -> . lexer_definition [ # ]
+##
+## The known suffix of the stack is as follows:
+##
+##
+lexer_definition: Taction Tunderscore
+##
+## Concrete syntax: { .. } _
+##
+## Ends in an error in state: 4.
+##
+## lexer_definition -> header named_regexps . refill_handler Trule definition other_definitions header Tend [ # ]
+## named_regexps -> named_regexps . Tlet Tident Tequal regexp [ Trule Trefill Tlet ]
+##
+## The known suffix of the stack is as follows:
+## header named_regexps
+##
+
+A lexer may start with an OCaml header `{ .. }` followed by a series of regexp declarations `let .. = ..` and at least one entrypoint.
+
+lexer_definition: Trefill Tunderscore
+##
+## Concrete syntax: refill _
+##
+## Ends in an error in state: 5.
+##
+## refill_handler -> Trefill . Taction [ Trule ]
+##
+## The known suffix of the stack is as follows:
+## Trefill
+##
+
+`refill` should be followed with an action surrounded by braces.
+
+lexer_definition: Tlet Tunderscore
+##
+## Concrete syntax: let _
+##
+## Ends in an error in state: 7.
+##
+## named_regexps -> named_regexps Tlet . Tident Tequal regexp [ Trule Trefill Tlet ]
+##
+## The known suffix of the stack is as follows:
+## named_regexps Tlet
+##
+
+After the `let` keyword, an identifier is expected.
+
+lexer_definition: Tlet Tident Tunderscore
+##
+## Concrete syntax: let x _
+##
+## Ends in an error in state: 8.
+##
+## named_regexps -> named_regexps Tlet Tident . Tequal regexp [ Trule Trefill Tlet ]
+##
+## The known suffix of the stack is as follows:
+## named_regexps Tlet Tident
+##
+
+Ill-formed regexp definition.
+After the identifier, `=` followed by a regexp is expected.
+
+lexer_definition: Tlet Tident Tequal Tstar
+##
+## Concrete syntax: let x = *
+##
+## Ends in an error in state: 9.
+##
+## named_regexps -> named_regexps Tlet Tident Tequal . regexp [ Trule Trefill Tlet ]
+##
+## The known suffix of the stack is as follows:
+## named_regexps Tlet Tident Tequal
+##
+
+Ill-formed regexp definition.
+After `=` a valid regexp is expected.
+
+lexer_definition: Tlet Tident Tequal Tlparen Tstar
+##
+## Concrete syntax: let x = ( *
+##
+## Ends in an error in state: 12.
+##
+## regexp -> Tlparen . regexp Trparen [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+##
+## The known suffix of the stack is as follows:
+## Tlparen
+##
+
+A regexp group was started, and a valid regexp is expected at this point.
+
+lexer_definition: Tlet Tident Tequal Tlbracket Tunderscore
+##
+## Concrete syntax: let x = [ _
+##
+## Ends in an error in state: 13.
+##
+## regexp -> Tlbracket . char_class Trbracket [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+##
+## The known suffix of the stack is as follows:
+## Tlbracket
+##
+
+Ill-formed character inside character class.
+
+lexer_definition: Tlet Tident Tequal Tlbracket Tchar Tunderscore
+##
+## Concrete syntax: let x = [ 'c' _
+##
+## Ends in an error in state: 14.
+##
+## char_class1 -> Tchar . Tdash Tchar [ Trbracket Tchar ]
+## char_class1 -> Tchar . [ Trbracket Tchar ]
+##
+## The known suffix of the stack is as follows:
+## Tchar
+##
+
+Read a character inside a character class. Either a closing bracket `]` or the second term of a range `- '.'` is expected.
+
+lexer_definition: Tlet Tident Tequal Tlbracket Tchar Tdash Tunderscore
+##
+## Concrete syntax: let x = [ 'c' - _
+##
+## Ends in an error in state: 15.
+##
+## char_class1 -> Tchar Tdash . Tchar [ Trbracket Tchar ]
+##
+## The known suffix of the stack is as follows:
+## Tchar Tdash
+##
+
+The second term of a character range must be a character.
+
+lexer_definition: Tlet Tident Tequal Tlbracket Tcaret Tunderscore
+##
+## Concrete syntax: let x = [ ^ _
+##
+## Ends in an error in state: 17.
+##
+## char_class -> Tcaret . char_class1 [ Trbracket ]
+##
+## The known suffix of the stack is as follows:
+## Tcaret
+##
+
+Ill-formed character class. A sequence of characters and character ranges is expected at this point.
+Example of well-formed character class: `['a'-'z' 'A'-'Z' '_']`
+
+lexer_definition: Tlet Tident Tequal Tlbracket Tcaret Tchar Tdash Tchar Tunderscore
+##
+## Concrete syntax: let x = [ ^ 'c' - 'c' _
+##
+## Ends in an error in state: 18.
+##
+## char_class -> Tcaret char_class1 . [ Trbracket ]
+## char_class1 -> char_class1 . char_class1 [ Trbracket Tchar ]
+##
+## The known suffix of the stack is as follows:
+## Tcaret char_class1
+##
+lexer_definition: Tlet Tident Tequal Tlbracket Tchar Tchar Tdash Tchar Tunderscore
+##
+## Concrete syntax: let x = [ 'c' 'c' - 'c' _
+##
+## Ends in an error in state: 19.
+##
+## char_class1 -> char_class1 . char_class1 [ Trbracket Tchar ]
+## char_class1 -> char_class1 char_class1 . [ Trbracket Tchar ]
+##
+## The known suffix of the stack is as follows:
+## char_class1 char_class1
+##
+lexer_definition: Tlet Tident Tequal Tlbracket Tchar Tdash Tchar Tunderscore
+##
+## Concrete syntax: let x = [ 'c' - 'c' _
+##
+## Ends in an error in state: 20.
+##
+## char_class -> char_class1 . [ Trbracket ]
+## char_class1 -> char_class1 . char_class1 [ Trbracket Tchar ]
+##
+## The known suffix of the stack is as follows:
+## char_class1
+##
+
+Ill-formed character class. A sequence of characters and character ranges or a closing bracket is expected at this point.
+Example of well-formed character class: `['a'-'z' 'A'-'Z' '_']`
+
+lexer_definition: Tlet Tident Tequal Tlparen Tchar Trbracket
+##
+## Concrete syntax: let x = ( 'c' ]
+##
+## Ends in an error in state: 26.
+##
+## regexp -> regexp . Tstar [ Tunderscore Tstring Tstar Trparen Tplus Tor Tmaybe Tlparen Tlbracket Tident Thash Teof Tchar Tas ]
+## regexp -> regexp . Tmaybe [ Tunderscore Tstring Tstar Trparen Tplus Tor Tmaybe Tlparen Tlbracket Tident Thash Teof Tchar Tas ]
+## regexp -> regexp . Tplus [ Tunderscore Tstring Tstar Trparen Tplus Tor Tmaybe Tlparen Tlbracket Tident Thash Teof Tchar Tas ]
+## regexp -> regexp . Thash regexp [ Tunderscore Tstring Tstar Trparen Tplus Tor Tmaybe Tlparen Tlbracket Tident Thash Teof Tchar Tas ]
+## regexp -> regexp . Tor regexp [ Tunderscore Tstring Tstar Trparen Tplus Tor Tmaybe Tlparen Tlbracket Tident Thash Teof Tchar Tas ]
+## regexp -> regexp . regexp [ Tunderscore Tstring Tstar Trparen Tplus Tor Tmaybe Tlparen Tlbracket Tident Thash Teof Tchar Tas ]
+## regexp -> Tlparen regexp . Trparen [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tas ident [ Tunderscore Tstring Tstar Trparen Tplus Tor Tmaybe Tlparen Tlbracket Tident Thash Teof Tchar Tas ]
+##
+## The known suffix of the stack is as follows:
+## Tlparen regexp
+##
+
+Read the start of a group and a regexp. Either continue the regexp or wrap up the group with `)`.
+
+lexer_definition: Tlet Tident Tequal Tchar Tor Tstar
+##
+## Concrete syntax: let x = 'c' | *
+##
+## Ends in an error in state: 30.
+##
+## regexp -> regexp Tor . regexp [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+##
+## The known suffix of the stack is as follows:
+## regexp Tor
+##
+
+Ill-formed regexp after alternation operator `|`.
+
+lexer_definition: Tlet Tident Tequal Tchar Trbracket
+##
+## Concrete syntax: let x = 'c' ]
+##
+## Ends in an error in state: 39.
+##
+## named_regexps -> named_regexps Tlet Tident Tequal regexp . [ Trule Trefill Tlet ]
+## regexp -> regexp . Tstar [ Tunderscore Tstring Tstar Trule Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas ]
+## regexp -> regexp . Tmaybe [ Tunderscore Tstring Tstar Trule Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas ]
+## regexp -> regexp . Tplus [ Tunderscore Tstring Tstar Trule Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas ]
+## regexp -> regexp . Thash regexp [ Tunderscore Tstring Tstar Trule Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas ]
+## regexp -> regexp . Tor regexp [ Tunderscore Tstring Tstar Trule Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas ]
+## regexp -> regexp . regexp [ Tunderscore Tstring Tstar Trule Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas ]
+## regexp -> regexp . Tas ident [ Tunderscore Tstring Tstar Trule Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas ]
+##
+## The known suffix of the stack is as follows:
+## named_regexps Tlet Tident Tequal regexp
+##
+lexer_definition: Tlet Tident Tequal Tchar Tor Tchar Trbracket
+##
+## Concrete syntax: let x = 'c' | 'c' ]
+##
+## Ends in an error in state: 31.
+##
+## regexp -> regexp . Tstar [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tmaybe [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tplus [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Thash regexp [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tor regexp [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp Tor regexp . [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . regexp [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tas ident [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+##
+## The known suffix of the stack is as follows:
+## regexp Tor regexp
+##
+lexer_definition: Tlet Tident Tequal Tchar Thash Tchar Trbracket
+##
+## Concrete syntax: let x = 'c' # 'c' ]
+##
+## Ends in an error in state: 34.
+##
+## regexp -> regexp . Tstar [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tmaybe [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tplus [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Thash regexp [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp Thash regexp . [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tor regexp [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . regexp [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tas ident [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+##
+## The known suffix of the stack is as follows:
+## regexp Thash regexp
+##
+lexer_definition: Tlet Tident Tequal Tchar Tchar Trbracket
+##
+## Concrete syntax: let x = 'c' 'c' ]
+##
+## Ends in an error in state: 35.
+##
+## regexp -> regexp . Tstar [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tmaybe [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tplus [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Thash regexp [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tor regexp [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . regexp [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp regexp . [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tas ident [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+##
+## The known suffix of the stack is as follows:
+## regexp regexp
+##
+
+# We know we're in the `named_regexps` context of the lexer definition.
+# We assume the regexp the user meant to type is complete and suggest to move on to the next construct. It's over-approximated, we should analyze the rejected input.
+
+# This message may be TMI:
+# A complete named regexp definition was read. Another `let` definition or a rule is expected at this point.
+
+Unrecognized operator or keyword at the end of named regexp definition.
+Possible recovery options:
+* Start another regexp definition `let .. = ..`
+* Start the main rule `rule .. = parse ..`
+* Build on the last regexp using unary operators `*` `+` `?`, binary operators `|` `#`, or concatenation `<regexp> <regexp>`.
+
+lexer_definition: Tlet Tident Tequal Tchar Thash Tstar
+##
+## Concrete syntax: let x = 'c' # *
+##
+## Ends in an error in state: 33.
+##
+## regexp -> regexp Thash . regexp [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+##
+## The known suffix of the stack is as follows:
+## regexp Thash
+##
+
+Ill-formed regexp after charset difference operator `#`. At this point a second regexp representing a character set is expected.
+Example: `_ # [ 'a' - 'z' ]`
+
+lexer_definition: Tlet Tident Tequal Tchar Tas Tunderscore
+##
+## Concrete syntax: let x = 'c' as _
+##
+## Ends in an error in state: 36.
+##
+## regexp -> regexp Tas . ident [ Tunderscore Tstring Tstar Trule Trparen Trefill Tplus Tor Tmaybe Tlparen Tlet Tlbracket Tident Thash Teof Tchar Tas Taction ]
+##
+## The known suffix of the stack is as follows:
+## regexp Tas
+##
+
+`as` must be followed by an identifier.
+
+lexer_definition: Trefill Taction Tunderscore
+##
+## Concrete syntax: refill { .. } _
+##
+## Ends in an error in state: 40.
+##
+## lexer_definition -> header named_regexps refill_handler . Trule definition other_definitions header Tend [ # ]
+##
+## The known suffix of the stack is as follows:
+## header named_regexps refill_handler
+##
+
+A `refill` action was read. A rule definition is expected at this point.
+
+lexer_definition: Trule Tunderscore
+##
+## Concrete syntax: rule _
+##
+## Ends in an error in state: 41.
+##
+## lexer_definition -> header named_regexps refill_handler Trule . definition other_definitions header Tend [ # ]
+##
+## The known suffix of the stack is as follows:
+## header named_regexps refill_handler Trule
+##
+lexer_definition: Trule Tident Tunderscore
+##
+## Concrete syntax: rule x _
+##
+## Ends in an error in state: 42.
+##
+## definition -> Tident . arguments Tequal Tparse entry [ Tend Tand Taction ]
+## definition -> Tident . arguments Tequal Tparse_shortest entry [ Tend Tand Taction ]
+##
+## The known suffix of the stack is as follows:
+## Tident
+##
+lexer_definition: Trule Tident Tident Tunderscore
+##
+## Concrete syntax: rule x x _
+##
+## Ends in an error in state: 43.
+##
+## arguments -> Tident . arguments [ Tequal ]
+##
+## The known suffix of the stack is as follows:
+## Tident
+##
+lexer_definition: Trule Tident Tequal Tparse Tchar Taction Tand Tunderscore
+##
+## Concrete syntax: rule x = parse 'c' { .. } and _
+##
+## Ends in an error in state: 62.
+##
+## other_definitions -> other_definitions Tand . definition [ Tend Tand Taction ]
+##
+## The known suffix of the stack is as follows:
+## other_definitions Tand
+##
+
+Ill-formed rule. The `rule` and `and` keywords must be followed by the entrypoint's name and a possibly empty sequence of parameters.
+
+lexer_definition: Trule Tident Tequal Tunderscore
+##
+## Concrete syntax: rule x = _
+##
+## Ends in an error in state: 46.
+##
+## definition -> Tident arguments Tequal . Tparse entry [ Tend Tand Taction ]
+## definition -> Tident arguments Tequal . Tparse_shortest entry [ Tend Tand Taction ]
+##
+## The known suffix of the stack is as follows:
+## Tident arguments Tequal
+##
+
+After the `=` sign, either `parse` or `shortest` is expected.
+
+lexer_definition: Trule Tident Tequal Tparse_shortest Tstar
+##
+## Concrete syntax: rule x = shortest *
+##
+## Ends in an error in state: 47.
+##
+## definition -> Tident arguments Tequal Tparse_shortest . entry [ Tend Tand Taction ]
+##
+## The known suffix of the stack is as follows:
+## Tident arguments Tequal Tparse_shortest
+##
+lexer_definition: Trule Tident Tequal Tparse_shortest Tor Tstar
+##
+## Concrete syntax: rule x = shortest | *
+##
+## Ends in an error in state: 48.
+##
+## entry -> Tor . case rest_of_entry [ Tend Tand Taction ]
+##
+## The known suffix of the stack is as follows:
+## Tor
+##
+
+A sequence of clauses `| <regexp> { <action> }` is expected at this opint.
+
+lexer_definition: Trule Tident Tequal Tparse_shortest Tchar Trbracket
+##
+## Concrete syntax: rule x = shortest 'c' ]
+##
+## Ends in an error in state: 49.
+##
+## case -> regexp . Taction [ Tor Tend Tand Taction ]
+## regexp -> regexp . Tstar [ Tunderscore Tstring Tstar Tplus Tor Tmaybe Tlparen Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tmaybe [ Tunderscore Tstring Tstar Tplus Tor Tmaybe Tlparen Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tplus [ Tunderscore Tstring Tstar Tplus Tor Tmaybe Tlparen Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Thash regexp [ Tunderscore Tstring Tstar Tplus Tor Tmaybe Tlparen Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tor regexp [ Tunderscore Tstring Tstar Tplus Tor Tmaybe Tlparen Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . regexp [ Tunderscore Tstring Tstar Tplus Tor Tmaybe Tlparen Tlbracket Tident Thash Teof Tchar Tas Taction ]
+## regexp -> regexp . Tas ident [ Tunderscore Tstring Tstar Tplus Tor Tmaybe Tlparen Tlbracket Tident Thash Teof Tchar Tas Taction ]
+##
+## The known suffix of the stack is as follows:
+## regexp
+##
+
+Ill-formed clause. After the regexp, an action `{ .. }` is expected.
+
+lexer_definition: Trule Tident Tequal Tparse_shortest Tor Tchar Taction Tunderscore
+##
+## Concrete syntax: rule x = shortest | 'c' { .. } _
+##
+## Ends in an error in state: 52.
+##
+## entry -> Tor case rest_of_entry . [ Tend Tand Taction ]
+## rest_of_entry -> rest_of_entry . Tor case [ Tor Tend Tand Taction ]
+##
+## The known suffix of the stack is as follows:
+## Tor case rest_of_entry
+##
+lexer_definition: Trule Tident Tequal Tparse_shortest Tchar Taction Tunderscore
+##
+## Concrete syntax: rule x = shortest 'c' { .. } _
+##
+## Ends in an error in state: 57.
+##
+## entry -> case rest_of_entry . [ Tend Tand Taction ]
+## rest_of_entry -> rest_of_entry . Tor case [ Tor Tend Tand Taction ]
+##
+## The known suffix of the stack is as follows:
+## case rest_of_entry
+##
+
+A complete rule was read. Either write more clauses for this rule, start another rule with `and` or let it be the end of the lexer.
+
+lexer_definition: Trule Tident Tequal Tparse_shortest Tchar Taction Tor Tstar
+##
+## Concrete syntax: rule x = shortest 'c' { .. } | *
+##
+## Ends in an error in state: 53.
+##
+## rest_of_entry -> rest_of_entry Tor . case [ Tor Tend Tand Taction ]
+##
+## The known suffix of the stack is as follows:
+## rest_of_entry Tor
+##
+
+Another rule branch was started by `|`. At this point, a regexp followed by an action is exprected.
+
+lexer_definition: Trule Tident Tequal Tparse Tstar
+##
+## Concrete syntax: rule x = parse *
+##
+## Ends in an error in state: 58.
+##
+## definition -> Tident arguments Tequal Tparse . entry [ Tend Tand Taction ]
+##
+## The known suffix of the stack is as follows:
+## Tident arguments Tequal Tparse
+##
+
+After `parse` the first clause `<regexp> { <action> }` is expected, optionally preceded by `|`.
+
+lexer_definition: Trule Tident Tequal Tparse Tchar Taction Taction Tunderscore
+##
+## Concrete syntax: rule x = parse 'c' { .. } { .. } _
+##
+## Ends in an error in state: 64.
+##
+## lexer_definition -> header named_regexps refill_handler Trule definition other_definitions header . Tend [ # ]
+##
+## The known suffix of the stack is as follows:
+## header named_regexps refill_handler Trule definition other_definitions header
+##
+
+An OCaml trailer was read. The end of file is expected at this point.

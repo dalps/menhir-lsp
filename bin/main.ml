@@ -34,12 +34,21 @@ let formatter_config : MF.Utils.Config.t option ref = ref None
 (* Based on Linol's Lwt template: https://github.com/c-cube/linol/blob/main/example/template-lwt/main.ml *)
 class lsp_server =
   object (self)
-    inherit Linol_lwt.Jsonrpc2.server
+    inherit Linol_lwt.Jsonrpc2.server as super
 
     (* one env per document *)
     val msg_buffers : (uri, Msg.state) Hashtbl.t = Hashtbl.create 32
     val mly_buffers : (uri, Mly.state) Hashtbl.t = Hashtbl.create 32
     val mll_buffers : (uri, Mll.state) Hashtbl.t = Hashtbl.create 32
+    val client_capabilities : ClientCapabilities.t option ref = ref None
+
+    val client_markdown_support : MarkdownClientCapabilities.t option ref =
+      ref None
+
+    val client_diagnostic_pull_support
+        : DiagnosticClientCapabilities.t option ref =
+      ref None
+
     method spawn_query_handler f = Linol_lwt.spawn f
 
     method private get_text_document (uri : uri) : Text_document.t option =
@@ -123,6 +132,35 @@ class lsp_server =
 
     method! config_definition = Some (`Bool true)
     method! config_list_commands = L.map fst command_dict
+
+    (* We override this to store the client's capabilities for later inspection. *)
+    method! on_req_initialize ~notify_back (i : InitializeParams.t) =
+      let log s = log_src "on_req_initialize" s in
+      client_capabilities := Some i.capabilities;
+      set_notify_back notify_back;
+      log "Workspace folders: %a"
+        (pp_option @@ pp_option
+        @@ pp_list (fun out WorkspaceFolder.{ name; uri } ->
+            pf out "name: %s, uri: %a" name pp_uri uri))
+        i.workspaceFolders;
+      (client_markdown_support :=
+         match i.capabilities.general with
+         | Some { markdown; _ } -> markdown
+         | _ -> None);
+      (client_diagnostic_pull_support :=
+         match i.capabilities.textDocument with
+         | Some { diagnostic; _ } -> diagnostic
+         | _ -> None);
+      log "markdown parser: %a, diagnostic pull: %a"
+        (pp_option (fun out t ->
+             pf out "%s" t.MarkdownClientCapabilities.parser))
+        !client_markdown_support
+        (pp_option (fun formatter t ->
+             pf formatter "markup support: %a"
+               (pp_option Format.pp_print_bool)
+               t.DiagnosticClientCapabilities.markupMessageSupport))
+        !client_diagnostic_pull_support;
+      super#on_req_initialize ~notify_back i
 
     method! config_modify_capabilities (default : ServerCapabilities.t) =
       {
@@ -461,7 +499,14 @@ class lsp_server =
             go msg_buffers Msg.load_state_from_contents (fun state -> [])
       in
       let diags = O.get_or_nil diags in
-      notify_back#send_diagnostic diags |> ignore;
+
+      (* We send diagnostics here only if the client doesn't support the pull model.
+        This prevents duplicate diagnostics showing up in the editor.
+        *)
+      (match !client_diagnostic_pull_support with
+      | None -> notify_back#send_diagnostic diags |> ignore
+      | Some _ -> ());
+
       Lwt.return diags
 
     (* We now override the [on_notify_doc_did_open] method that will be called
