@@ -115,6 +115,16 @@ If a quoted identifier `qid_i` is present, then it is considered an alias for th
         {|causes the entire parser to become parameterized over the OCaml module `uid`, that is, to become an OCaml functor.|};
         manual_ref "%3Aparameter";
       ] );
+    ( "%merge",
+      None,
+      Some "%merge { $0 }",
+      [
+        md_fenced "%merge { OCaml function }";
+        {|In GLR parsing, provides a _merge function_ for the nonterminal symbol _A_ when placed after the definition of this symbol, or a _default merge function_ when placed in the declarations section.|};
+        {|The merge function should be an OCaml function of type _A → A → A_, where we write _A_ to mean “the type of the semantic values associated with the symbol _A_”.|};
+        {|The default merge function receives one more argument, which is the name of a nonterminal symbol _A_ whose semantic values must be merged. A default merge function must be polymorphic: its type must be _∀v. string → v → v → v_.|};
+        manual_ref "92";
+      ] );
   ]
 
 (** https://cambium.inria.fr/~fpottier/menhir/manual.html#fig%3Asugar *)

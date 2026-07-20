@@ -273,9 +273,13 @@ let load_state_from_partial_grammar ?(implementation = None) ?(sourcemap = [])
       method! visit_DCode _ = ocaml_zone
       method! visit_Declared _ = ocaml_zone
       method! visit_DParameter _ = ocaml_zone
+      method! visit_DDefaultMergeFunction _ = ocaml_zone
 
       method! visit_action _ { expr; _ } =
         match expr with ETextual loc -> action_zone loc | _ -> ()
+
+      method! visit_merge_fun _ { expr; _ } =
+        match expr with ETextual loc -> ocaml_zone loc | _ -> ()
 
       method! visit_partial_grammar =
         fun _ ({ pg_declarations; pg_rules; pg_postlude; _ } as grammar) ->
@@ -296,13 +300,11 @@ let load_state_from_partial_grammar ?(implementation = None) ?(sourcemap = [])
           super#visit_partial_grammar () grammar
 
       (* -- Collecting producers in the old syntax -- *)
-      method! visit_old_rule =
-        fun _ { pr_branches; _ } ->
-          List.iter
-            (fun b ->
-              branch_vars_ref := [];
-              self#visit_parameterized_branch () b.v)
-            pr_branches
+
+      method! visit_parameterized_branch =
+        fun _ pb ->
+          branch_vars_ref := [];
+          super#visit_parameterized_branch () pb
 
       method! visit_early_producer =
         fun _ (id, par, _) ->
@@ -310,13 +312,10 @@ let load_state_from_partial_grammar ?(implementation = None) ?(sourcemap = [])
 
       (* -- Collecting producers in the new syntax -- *)
 
-      method! visit_choice_expression =
-        fun _ (EChoice branches) ->
-          List.iter
-            (fun b ->
-              branch_vars_ref := [];
-              self#visit_branch () b.v)
-            branches
+      method! visit_branch =
+        fun _ branch ->
+          branch_vars_ref := [];
+          super#visit_branch () branch
 
       method! visit_SemPatVar _ loc = add_branch_var (loc, None)
 
