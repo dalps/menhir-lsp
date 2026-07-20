@@ -15,16 +15,7 @@ end
 
 include Comment_location.Make (S)
 
-(* Keep this to query the reducer's type. *)
-(* let v =
-  object
-    inherit [_] Syntax.ast_reduce
-    method zero : document = empty
-    method plus = ( ^^ )
-  end *)
-
 class formatter ({ tabsize; _ } as cfg : Config.t) =
-  let open S in
   let open MenhirSyntax.Syntax in
   let tabsize = max 2 tabsize in
   let barspace = bar ^^ blank 1 in
@@ -73,7 +64,12 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
             | DSymbolAttributes _ ->
                 { acc with dSymbolAttributes = d :: acc.dSymbolAttributes }
             | DOnErrorReduce _ ->
-                { acc with dOnErrorReduce = d :: acc.dOnErrorReduce })
+                { acc with dOnErrorReduce = d :: acc.dOnErrorReduce }
+            | DDefaultMergeFunction _ ->
+                {
+                  acc with
+                  dDefaultMergeFunction = d :: acc.dDefaultMergeFunction;
+                })
           decls DBuckets.init
       in
       let v =
@@ -100,6 +96,19 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
         ^-^ flow_map (break 1)
               (self#with_located @@ self#visit_parameter ())
               parameters
+
+    method! visit_DDefaultMergeFunction _ =
+      self#with_located @@ self#visit_merge_fun ()
+
+    method! visit_merge_fun =
+      fun _ merge_fun ->
+        let code =
+          match merge_fun.expr with
+          | IL.ETextual code -> code.v
+          | _ -> assert false
+        in
+        text "%merge"
+        ^-^ surround tabsize 1 lbrace (self#visit_ocaml code) rbrace
 
     method! visit_NonAssoc _ = text "%nonassoc"
     method! visit_LeftAssoc _ = text "%left"
@@ -209,6 +218,7 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
             pr_attributes;
             pr_parameters;
             pr_branches;
+            pr_merge;
           } ->
         (if_ pr_public ~then_:(text "%public")
         ^-^ if_ pr_inline ~then_:(text "%inline")
@@ -218,7 +228,9 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
         ^^ (fun doc -> if cfg.indentOnce then nest tabsize doc else doc)
              (hardline
              ^^ self#visit_old_rule_branches pr_branches
-             ^/^ self#visit_attributes () pr_attributes)
+             ^/^ self#visit_attributes () pr_attributes
+             ^/^ optional (self#with_located (self#visit_merge_fun ())) pr_merge
+             )
 
     method private visit_rule_args =
       surround_separate_map tabsize 0 empty lparen
@@ -293,6 +305,7 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
             pr_attributes;
             pr_parameters;
             pr_branches;
+            pr_merge;
           } ->
         (if_ pr_public ~then_:(text "%public")
         ^-^ text "let"
@@ -301,7 +314,9 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
         ^^ nest tabsize
              (hardline ^^ twice space
              ^^ self#visit_expression () pr_branches
-             ^/^ self#visit_attributes () pr_attributes)
+             ^/^ self#visit_attributes () pr_attributes
+             ^/^ optional (self#with_located (self#visit_merge_fun ())) pr_merge
+             )
 
     method! visit_SemPatTilde _ _ = tilde
     method! visit_SemPatWildcard _ = underscore

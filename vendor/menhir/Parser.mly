@@ -75,6 +75,7 @@ let last_bar = ref None
   ON_ERROR_REDUCE  "%on_error_reduce"
   PERCENTATTRIBUTE "%attribute"
   SEMI             ";"
+  MERGE            "%merge"
 
 %token <string Located.located>
   LID              "lident"
@@ -200,6 +201,9 @@ declaration:
     { let prec = ParserAux.new_on_error_reduce_level() in
       locate' $loc @@ DOnErrorReduce (ss, prec) |> singleton }
 
+| mf = merge_function
+    { [ locate' $loc (DDefaultMergeFunction mf)]}
+
 | SEMI
     { [] }
 
@@ -299,6 +303,7 @@ old_rule:
   COLON
   optional_bar
   branches = branches
+  omf = merge_function?
   SEMI*
     {
       let public, inline = flags.v in
@@ -313,7 +318,8 @@ old_rule:
         pr_nt          = symbol;
         pr_attributes  = attributes;
         pr_parameters  = params; (* [menhir-lsp] change to located *)
-        pr_branches    = branches
+        pr_branches    = branches;
+        pr_merge       = omf;
       }
     }
 
@@ -528,6 +534,7 @@ new_rule:
   pr_parameters   = plist(symbol)
   pr_inline       = equality_symbol
   pr_branches     = expression
+  pr_merge        = merge_function?
     { (* [menhir-lsp] avoid using $loc here *)
       let startpos = if pr_public then $startpos(pr_public) else $startpos(_tk_let) in
       locate (startpos, $endpos) {
@@ -537,6 +544,7 @@ new_rule:
        pr_attributes;
        pr_parameters;
        pr_branches;
+       pr_merge
     }}
 
 /* A new rule is written [let foo := ...] or [let foo == ...].
@@ -699,6 +707,25 @@ pattern:
     { SemPatTilde (Range.make $loc) }
 | LPAREN ps = separated_list(COMMA, pattern) RPAREN
     { SemPatTuple ps }
+
+(* -------------------------------------------------------------------------- *)
+
+(* Merge functions are a new feature, introduced with the GLR back-end. *)
+
+(* The declaration of a merge function takes the form:
+     %merge { ... }
+   That is, the %merge keyword is followed with a fragment of OCaml code,
+   between curly braces.
+
+   A %merge function can appear as part of the declarations, before %%. It is
+   then interpreted as the declaration of a default merge function. A %merge
+   function can also follow a rule, after %%. It is then considered attached
+   to this rule. *)
+
+%inline merge_function:
+  MERGE raw_action = ACTION
+    { locate' $loc @@
+      raw_action `DollarsDisallowed [||] }
 
 (* -------------------------------------------------------------------------- *)
 (* -------------------------------------------------------------------------- *)
