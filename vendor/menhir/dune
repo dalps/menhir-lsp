@@ -23,4 +23,8 @@
 (menhir
  (modules Parser))
 
+(menhir
+ (modules OriginalParser)
+ (flags --exn-carries-state --external-tokens Parser))
+
 (ocamlyacc RawSentenceParser)
