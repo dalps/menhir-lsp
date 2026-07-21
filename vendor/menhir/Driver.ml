@@ -31,12 +31,26 @@ let parse_file filename =
 let parse priority lexbuf :
     (Syntax.partial_grammar, string * Range.range) result =
   Lexer.priority := priority;
-  let lexer = Lexer.main in
-  try Ok (Parser.grammar lexer lexbuf) with
-  | ParserAux.ParserError { v; p; _ } | Lexer.LexerError { v; p; _ } -> Error (v, p)
-  | _ ->
-      let range =
-        Range.make Lexing.(lexeme_start_p lexbuf, lexeme_end_p lexbuf)
-      in
-      Error
-        (Printf.sprintf "Syntax error near '%s'" @@ Lexing.lexeme lexbuf, range)
+  let module E = MenhirLib.ErrorReports in
+  let buffer, lexer = E.wrap Lexer.main in
+  try Ok (Parser.grammar lexer lexbuf)
+  with exn ->
+    let range =
+      match exn with
+      | Parser.Error state ->
+          Range.make Lexing.(lexeme_start_p lexbuf, lexeme_end_p lexbuf)
+      | ParserAux.ParserError loc | Lexer.LexerError loc -> Located.position loc
+      | _ -> Range.make Lexing.(dummy_pos, dummy_pos)
+    in
+    let message =
+      match exn with
+      | Parser.Error state ->
+          Printf.sprintf "Syntax error %s: %s"
+            (* Responsible for `after '%s' and before '%s'` message *)
+            (E.show InputFile.chunk buffer)
+            (ParserMessages.message state)
+      | ParserAux.ParserError loc | Lexer.LexerError loc ->
+          Printf.sprintf "Error: %s" (Located.value loc)
+      | _ -> "???"
+    in
+    Error (message, range)
