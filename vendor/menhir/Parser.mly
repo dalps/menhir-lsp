@@ -337,7 +337,7 @@ flags:
 | INLINE PUBLIC
     { true, true }
 
-mandatory_bar:
+%inline mandatory_bar:
   BAR { last_bar := Some $startpos }
 
 optional_bar:

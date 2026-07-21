@@ -21,10 +21,92 @@
  Segment)
 
 (menhir
- (modules Parser))
-
-(menhir
- (modules OriginalParser)
- (flags --exn-carries-state --external-tokens Parser))
+ (modules Parser)
+ (flags --exn-carries-state))
 
 (ocamlyacc RawSentenceParser)
+
+;; As a safety check, we verify that our modified parser has the same set of
+;; errors states as Menhir's official parser.
+
+;; The file OriginalParser.mly contains the upstream parser.
+;; Obtain a copy by running:
+;; wget https://gitlab.inria.fr/fpottier/menhir/-/raw/master/driver/stage2/Parser.mly -O vendor/menhir/OriginalParser.mly
+
+;; 1. Create a reference list of errors from the official parser.
+
+(rule
+ (action
+  (with-stdout-to
+   OriginalUnitActionsParser.mly
+   (run
+    menhir
+    --exn-carries-state
+    --no-pager
+    --require-aliases
+    --strict
+    %{dep:OriginalParser.mly}
+    --only-preprocess-u))))
+
+(rule
+ (with-stdout-to
+  OriginalParser.auto.messages
+  (run
+   menhir
+   --no-pager
+   --strict
+   %{dep:OriginalUnitActionsParser.mly}
+   --list-errors)))
+
+;; List the error states of our modified parser.
+
+(rule
+ (with-stdout-to
+  Parser.auto.messages
+  (run menhir --no-pager %{dep:Parser.mly} --list-errors)))
+
+;; 2. Check that the set of error states of our modified parser [Parser.mly] 
+;;    coincides with the official error states.
+;; We check both sides of the equality.
+
+(rule
+ (with-stdout-to
+  parserMessages.sub.check
+  (run
+   menhir
+   --no-pager
+   %{dep:Parser.mly}
+   --compare-errors
+   %{dep:Parser.auto.messages}
+   --compare-errors
+   %{dep:OriginalParser.auto.messages})))
+
+(rule
+ (with-stdout-to
+  parserMessages.super.check
+  (run
+   menhir
+   --no-pager
+   %{dep:Parser.mly}
+   --compare-errors
+   %{dep:OriginalParser.auto.messages}
+   --compare-errors
+   %{dep:Parser.auto.messages})))
+
+;; 3. Compile the .messages specification to an OCaml [int -> string] function. We re-use Menhir's upstream error messages spec.
+;; wget https://gitlab.inria.fr/fpottier/menhir/-/raw/master/driver/stage2/ParserMessages.messages -O vendor/menhir/ParserMessages.messages
+
+(rule
+ (deps parserMessages.sub.check parserMessages.super.check)
+ (action
+  (with-stdout-to
+   ParserMessages.ml
+   (run
+    menhir
+    --exn-carries-state
+    --no-pager
+    --require-aliases
+    --strict
+    %{dep:Parser.mly}
+    --compile-errors
+    %{dep:ParserMessages.messages}))))
