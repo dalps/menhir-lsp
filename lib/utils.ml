@@ -370,3 +370,16 @@ let pp_list ?(pp_sep = fun out unit -> pf out ", ") out pp_v =
   Format.pp_print_list out ~pp_sep pp_v
 
 let pp_fenced out a = pf out "```\n%a\n```" a
+
+(* Adapted from menhir/lib/LexerUtil.ml *)
+let pp_error_location out ((startp, endp) : Lexing.position * Lexing.position) =
+  let open Lexing in
+  if startp == dummy_pos || endp == dummy_pos then
+    pf out "At an unknown location"
+  else
+    let file = startp.pos_fname in
+    let line = startp.pos_lnum in
+    let char1 = startp.pos_cnum - startp.pos_bol + 1 in
+    let char2 = endp.pos_cnum - startp.pos_bol + 1 in
+    if file = "" then pf out "Line %d, characters %d-%d" line char1 char2
+    else pf out "File %S, line %d, characters %d-%d" file line char1 char2
