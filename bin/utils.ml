@@ -302,7 +302,10 @@ let get_merlin_compls ~uri ~pos word =
 
 let parse_ocaml_impl s =
   let lexbuf = Lexing.from_string s in
-  Ppxlib.Parse.implementation lexbuf
+  let msg = "OCaml syntax error" in
+  try Ok (Ppxlib.Parse.implementation lexbuf) with
+  | Syntaxerr.Error err -> Error (msg, Syntaxerr.location_of_error err)
+  | Lexer.Error (_, rng) -> Error (msg, rng)
 
 let parse_ocaml_type s =
   let lexbuf = Lexing.from_string s in

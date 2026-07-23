@@ -823,8 +823,9 @@ let selection_range ({ grammar; _ } as _state : state)
         match action.expr with
         | IL.ETextual { p; v; _ } ->
             parse_ocaml_impl v
-            |> OcamlSymbols.get_ranges_for_pos pos (fst p)
-            |> L.iter add_range
+            |> R.iter
+                 (OcamlSymbols.get_ranges_for_pos pos (fst p)
+                 >> L.iter add_range)
         | _ -> ()
 
       (* This would work out of the box if every default method would visit the location first and the contents after, but the result confirms that's not the case. *)

@@ -149,8 +149,10 @@ let regexp_bindings ?(resolve = false) :
 
 let process_symbols : lexer_definition -> string located list =
   let ocaml_vars text =
-    parse_ocaml_impl text.v |> OcamlSymbols.get_vars
-    |> L.map (located_of_ppxloc ~from:(Located.startp text))
+    let open R in
+    parse_ocaml_impl text.v >|= OcamlSymbols.get_vars
+    >|= L.map (located_of_ppxloc ~from:(Located.startp text))
+    |> R.get_or ~default:[]
   in
   let v =
     object
