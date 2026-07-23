@@ -169,8 +169,10 @@ let located_of_ppxloc ~(from : Lexing.position) ({ txt; loc } : 'v Ppxlib.Loc.t)
 let process_symbols : partial_grammar -> symbol located list =
   let aliases : (string, string) Hashtbl.t = Hashtbl.create 99 in
   let ocaml_vars text =
-    parse_ocaml_impl text.v |> OcamlSymbols.get_vars
-    |> L.map (located_of_ppxloc ~from:(Located.startp text))
+    let open R in
+    parse_ocaml_impl text.v >|= OcamlSymbols.get_vars
+    >|= L.map (located_of_ppxloc ~from:(Located.startp text))
+    |> R.get_or ~default:[]
   in
   let v =
     object
@@ -534,7 +536,8 @@ let diagnostics ~(notify_back : notify_back) ~(uri : uri) (_s : state) :
     Diagnostic.t list =
   let log s = log_src ~notify_back "mly.diagnostics" s in
   let open R in
-  get_or_nil
+  (match get_ocaml_impl uri with Ok _ -> [] | Error d -> [ d ])
+  @ get_or_nil
   @@
   let* conflicts_file = get_conflicts_file uri in
   log "conflicts_file: %s" conflicts_file;

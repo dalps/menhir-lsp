@@ -49,7 +49,7 @@ let decrement (pos : position) : position =
   let column = max 0 (column - 1) in
   { pos with pos_cnum = column }
 
-(* [menhir-lsp] we need this one too. *)
+(* [menhir-lsp] we defined this ourselves. *)
 let increment (pos : position) : position =
   { pos with pos_cnum = pos.pos_cnum + 1 }
 
