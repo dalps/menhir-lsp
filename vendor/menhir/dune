@@ -1,6 +1,6 @@
 (library
  (name menhirSyntax)
- (libraries unix menhir_lsp_lib)
+ (libraries unix menhir_lsp_lib menhirLib)
  (preprocess
   (pps visitors.ppx))
  (flags -w -7))

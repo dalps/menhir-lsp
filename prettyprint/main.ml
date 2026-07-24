@@ -54,7 +54,7 @@ let breakRegexpsGroups =
 let input_file =
   let doc =
     "The path to the file to format, preferably ending with the `.mly` or \
-     `.mll` file extension, or `-` to read from stdin until an end-of-file is \
+     `.mll` file extension, or `-` to read from stdin until end-of-file is \
      reached."
   in
   Arg.(value & pos 0 string "" & info [] ~docv:"FILE" ~doc)
@@ -96,8 +96,8 @@ let main ~config lang (input_file : [> `File of string | `Stdin ]) =
         match lang with
         | None ->
             error
-              "When reading from stdin the language mode must be specified via the \
-               '--lang' switch.";
+              "The language mode must be specified via the \
+               '--lang' option when reading from standard input.";
             exit 2
         | Some lang -> lang)
     | `File input_file -> (
@@ -108,7 +108,7 @@ let main ~config lang (input_file : [> `File of string | `Stdin ]) =
         | _ ->
             error
               "Could not determine the language mode from the file extension. \
-               Please specify it via the '--lang' switch.";
+               Please specify it via the '--lang' option.";
             exit 2)
   in
   let filename, res =
