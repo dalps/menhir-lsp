@@ -149,8 +149,10 @@ let regexp_bindings ?(resolve = false) :
 
 let process_symbols : lexer_definition -> string located list =
   let ocaml_vars text =
-    parse_ocaml_impl text.v |> OcamlSymbols.get_vars
-    |> L.map (located_of_ppxloc ~from:(Located.startp text))
+    let open R in
+    parse_ocaml_impl text.v >|= OcamlSymbols.get_vars
+    >|= L.map (located_of_ppxloc ~from:(Located.startp text))
+    |> R.get_or ~default:[]
   in
   let v =
     object
@@ -336,15 +338,7 @@ let document_symbols ({ grammar; _ } : state) : DocumentSymbol.t list =
       ~children:bindings ()
 
 let diagnostics _ ~(notify_back : notify_back) ~(uri : uri) =
-  match get_ocaml_impl uri with
-  | Ok impl -> []
-  | Error msg ->
-      [
-        Diagnostic.create
-          ~message:
-            (`MarkupContent (MarkupContent.create ~kind:PlainText ~value:msg))
-          ~range:Range.first_line ();
-      ]
+  match get_ocaml_impl uri with Ok _ -> [] | Error d -> [ d ]
 
 let references (state : state) ~uri ~(pos : Position.t) : Location.t list =
   (let open O in
@@ -472,8 +466,9 @@ let selection_range ({ grammar; _ } : state) ~(positions : Position.t list)
 
       method! visit_action _ action =
         parse_ocaml_impl action.v
-        |> OcamlSymbols.get_ranges_for_pos pos (fst action.p)
-        |> L.iter add_range
+        |> R.iter
+             (OcamlSymbols.get_ranges_for_pos pos (fst action.p)
+             >> L.iter add_range)
 
       method! visit_located =
         fun visit_a _env located ->

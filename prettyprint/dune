@@ -23,7 +23,6 @@
   pprint
   menhir_lsp_lib
   ppx_deriving_yojson.runtime)
- (modules utils comment_location comments ocamlformat_client ocamllex menhir)
- (flags -w +27+26))
+ (modules utils comment_location comments ocamlformat_client ocamllex menhir))
 
 (ocamllex comments)

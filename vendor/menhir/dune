@@ -1,6 +1,6 @@
 (library
  (name menhirSyntax)
- (libraries unix menhir_lsp_lib)
+ (libraries unix menhir_lsp_lib menhirLib)
  (preprocess
   (pps visitors.ppx))
  (flags -w -7))
@@ -20,7 +20,83 @@
  RawSentenceLexer
  Segment)
 
+;; To get accurate error messages, we must use the same set of 
+;; switches Menhir's official parser uses to compile its own grammar.
+
 (menhir
- (modules Parser))
+ (modules Parser)
+ (flags --exn-carries-state --no-pager --require-aliases --strict))
 
 (ocamlyacc RawSentenceParser)
+
+;; As a safety check, we verify that our modified parser has the same set of
+;; error states as Menhir's official parser.
+
+;; The file OriginalParser.mly contains the upstream parser.
+;; Obtain a copy by running:
+;; wget https://gitlab.inria.fr/fpottier/menhir/-/raw/master/driver/stage2/Parser.mly -O vendor/menhir/OriginalParser.mly
+
+;; 1. Create the reference list of errors from the official parser.
+
+(rule
+ (with-stdout-to
+  OriginalParser.auto.messages
+  (run menhir --no-pager --strict %{dep:OriginalParser.mly} --list-errors)))
+
+;; 2. List the error states of our modified parser.
+
+(rule
+ (with-stdout-to
+  Parser.auto.messages
+  (run menhir --no-pager %{dep:Parser.mly} --list-errors)))
+
+;; 3. Check that the set of error states of our modified parser [Parser.mly] 
+;; coincides with the official error states.
+;; We check both sides of the equality.
+
+;; The error states of our parser is a _subset_ of the upstream's error states.
+
+(rule
+ (with-stdout-to
+  parserMessages.sub.check
+  (run
+   menhir
+   --no-pager
+   %{dep:Parser.mly}
+   --compare-errors
+   %{dep:Parser.auto.messages}
+   --compare-errors
+   %{dep:OriginalParser.auto.messages})))
+
+;; The error states of our parser is a _superset_ of the upstream's error states.
+
+(rule
+ (with-stdout-to
+  parserMessages.super.check
+  (run
+   menhir
+   --no-pager
+   %{dep:Parser.mly}
+   --compare-errors
+   %{dep:OriginalParser.auto.messages}
+   --compare-errors
+   %{dep:Parser.auto.messages})))
+
+;; 4. Compile the .messages specification to an OCaml [int -> string] function.
+;; We re-use Menhir's upstream error messages specification, obtained with:
+;; wget https://gitlab.inria.fr/fpottier/menhir/-/raw/master/driver/stage2/ParserMessages.messages -O vendor/menhir/ParserMessages.messages
+
+(rule
+ (deps parserMessages.sub.check parserMessages.super.check)
+ (action
+  (with-stdout-to
+   ParserMessages.ml
+   (run
+    menhir
+    --exn-carries-state
+    --no-pager
+    --require-aliases
+    --strict
+    %{dep:Parser.mly}
+    --compile-errors
+    %{dep:ParserMessages.messages}))))

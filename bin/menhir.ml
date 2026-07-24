@@ -169,8 +169,10 @@ let located_of_ppxloc ~(from : Lexing.position) ({ txt; loc } : 'v Ppxlib.Loc.t)
 let process_symbols : partial_grammar -> symbol located list =
   let aliases : (string, string) Hashtbl.t = Hashtbl.create 99 in
   let ocaml_vars text =
-    parse_ocaml_impl text.v |> OcamlSymbols.get_vars
-    |> L.map (located_of_ppxloc ~from:(Located.startp text))
+    let open R in
+    parse_ocaml_impl text.v >|= OcamlSymbols.get_vars
+    >|= L.map (located_of_ppxloc ~from:(Located.startp text))
+    |> R.get_or ~default:[]
   in
   let v =
     object
@@ -273,9 +275,13 @@ let load_state_from_partial_grammar ?(implementation = None) ?(sourcemap = [])
       method! visit_DCode _ = ocaml_zone
       method! visit_Declared _ = ocaml_zone
       method! visit_DParameter _ = ocaml_zone
+      method! visit_DDefaultMergeFunction _ = ocaml_zone
 
       method! visit_action _ { expr; _ } =
         match expr with ETextual loc -> action_zone loc | _ -> ()
+
+      method! visit_merge_fun _ { expr; _ } =
+        match expr with ETextual loc -> ocaml_zone loc | _ -> ()
 
       method! visit_partial_grammar =
         fun _ ({ pg_declarations; pg_rules; pg_postlude; _ } as grammar) ->
@@ -296,13 +302,11 @@ let load_state_from_partial_grammar ?(implementation = None) ?(sourcemap = [])
           super#visit_partial_grammar () grammar
 
       (* -- Collecting producers in the old syntax -- *)
-      method! visit_old_rule =
-        fun _ { pr_branches; _ } ->
-          List.iter
-            (fun b ->
-              branch_vars_ref := [];
-              self#visit_parameterized_branch () b.v)
-            pr_branches
+
+      method! visit_parameterized_branch =
+        fun _ pb ->
+          branch_vars_ref := [];
+          super#visit_parameterized_branch () pb
 
       method! visit_early_producer =
         fun _ (id, par, _) ->
@@ -310,13 +314,10 @@ let load_state_from_partial_grammar ?(implementation = None) ?(sourcemap = [])
 
       (* -- Collecting producers in the new syntax -- *)
 
-      method! visit_choice_expression =
-        fun _ (EChoice branches) ->
-          List.iter
-            (fun b ->
-              branch_vars_ref := [];
-              self#visit_branch () b.v)
-            branches
+      method! visit_branch =
+        fun _ branch ->
+          branch_vars_ref := [];
+          super#visit_branch () branch
 
       method! visit_SemPatVar _ loc = add_branch_var (loc, None)
 
@@ -535,7 +536,8 @@ let diagnostics ~(notify_back : notify_back) ~(uri : uri) (_s : state) :
     Diagnostic.t list =
   let log s = log_src ~notify_back "mly.diagnostics" s in
   let open R in
-  get_or_nil
+  (match get_ocaml_impl uri with Ok _ -> [] | Error d -> [ d ])
+  @ get_or_nil
   @@
   let* conflicts_file = get_conflicts_file uri in
   log "conflicts_file: %s" conflicts_file;
@@ -824,8 +826,9 @@ let selection_range ({ grammar; _ } as _state : state)
         match action.expr with
         | IL.ETextual { p; v; _ } ->
             parse_ocaml_impl v
-            |> OcamlSymbols.get_ranges_for_pos pos (fst p)
-            |> L.iter add_range
+            |> R.iter
+                 (OcamlSymbols.get_ranges_for_pos pos (fst p)
+                 >> L.iter add_range)
         | _ -> ()
 
       (* This would work out of the box if every default method would visit the location first and the contents after, but the result confirms that's not the case. *)

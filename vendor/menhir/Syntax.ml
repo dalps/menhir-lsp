@@ -20,17 +20,9 @@
    differs from [partial_grammar] in that declarations are organized in a more
    useful way and a number of well-formedness checks have been performed. *)
 
-(* include FrontTypes [menhir-lsp]: hard-include *)
-
-(******************************************************************************)
-(*                                                                            *)
-(*                                    Menhir                                  *)
-(*                                                                            *)
-(*   Copyright Inria. All rights reserved. This file is distributed under     *)
-(*   the terms of the GNU General Public License version 2, as described in   *)
-(*   the file LICENSE.                                                        *)
-(*                                                                            *)
-(******************************************************************************)
+(* include FrontTypes
+   [menhir-lsp]: We hard-included [FrontTypes] here to allow us to have
+   one big recursive type from which we can derive the visitors. *)
 
 open Attribute
 include BaseTypes
@@ -82,7 +74,10 @@ and filename = string
 
 and action = (Action.t[@opaque])
 (**A semantic action. *)
-(* [menhir-lsp] was (Action.t[@opaque]) *)
+
+(**A %merge function is a fragment of OCaml code. *)
+and merge_fun =
+  (Action.t[@opaque])
 
 (**The associativity status of a terminal symbol. *)
 and associativity = LeftAssoc | RightAssoc | NonAssoc | UndefinedAssoc
@@ -233,6 +228,8 @@ and 'branches parameterized_rule = {
   pr_parameters : symbol located list;
       (**The parameters of this nonterminal symbol. *)
   pr_branches : 'branches;  (**The productions. *)
+  pr_merge      : merge_fun located option;
+    (**An optional merge function. Exploited in GLR mode only. *)
 }
 (**A rule is the definition of a nonterminal symbol.
 
@@ -312,6 +309,8 @@ and declaration =
       (**Attributes shared among multiple symbols, i.e., [%attribute]. *)
   | DOnErrorReduce of parameters * on_error_reduce_level
       (**On-error-reduce declaration. *)
+  | DDefaultMergeFunction of merge_fun located
+      (**A default %merge function. *)
 (* -------------------------------------------------------------------------- *)
 
 and partial_grammar = {
@@ -350,6 +349,7 @@ type grammar = {
   p_grammar_attributes : attributes;
   p_symbol_attributes : (parameter list * attributes) list;
   p_rules : rule StringMap.t;
+  p_default_merge : merge_fun located option;
 }
 (**A grammar. (Only after joining.)
 
@@ -376,6 +376,7 @@ module DBuckets = struct
     dGrammarAttribute : bucket;
     dSymbolAttributes : bucket;
     dOnErrorReduce : bucket;
+    dDefaultMergeFunction : bucket;
   }
   [@@deriving
     visitors
@@ -397,5 +398,6 @@ module DBuckets = struct
       dGrammarAttribute = [];
       dSymbolAttributes = [];
       dOnErrorReduce = [];
+      dDefaultMergeFunction = [];
     }
 end

@@ -419,6 +419,7 @@ let directives =
     "inline", INLINE;
     "attribute", PERCENTATTRIBUTE;
     "on_error_reduce", ON_ERROR_REDUCE;
+    "merge", MERGE;
   ]
 
 (* ------------------------------------------------------------------------ *)

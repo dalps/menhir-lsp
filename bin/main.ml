@@ -366,9 +366,9 @@ class lsp_server =
             [ TextEdit.create ~newText ~range:Range.(whole_document doc) ]
         | Error (msg, range) ->
             let message =
-              spr "menhirformat: ignoring \"%s\" (syntax error) %s %s" filename
-                (OcamllexSyntax.Range.show range)
-                msg
+              (* Note: VS Code replaces line breaks with blank in the notification popup. *)
+              spr "menhirformat: ignoring \"%s\" (syntax error)\n%a:\n%s"
+                filename pp_error_location range msg
             in
             notify_back#send_log_msg ~type_:Warning message |> ignore;
             notify_back#send_notification

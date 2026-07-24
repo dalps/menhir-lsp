@@ -8,6 +8,25 @@ module Ivl = Ivl_map.Interval
 
 type document = Text_document.t
 
+let no_implementation_hint uri =
+  let filename = Uri.to_path uri in
+  let base = Filename.basename filename in
+  let kind =
+    match Filename.extension filename with ".mll" -> `Mll | ".mly" | _ -> `Mly
+  in
+  let slug = base |> Filename.remove_extension in
+  spr
+    "Hint: did you declare the module '%s' in the '%s' stanza of the library's dune \
+     file? If not, add the following line and try calling 'dune build':\n\
+     %s\n"
+    slug
+    (match kind with `Mll -> "ocamllex" | `Mly -> "menhir")
+    (md_fenced
+    @@
+    match kind with
+    | `Mll -> spr "(ocamllex %s)" slug
+    | `Mly -> spr "(menhir (modules %s))" slug)
+
 let server_name = "menhir-lsp"
 
 type uri = Lsp.Types.DocumentUri.t
@@ -84,11 +103,11 @@ let compile_completions ?(range : Range.t option) ~(kind : CompletionItemKind.t)
                       ~value:(String.concat "\n\n" docs))))
         ())
 
-let _build_dir = ref (Error "")
+let _build_dir = ref None
 
-let get_build_dir _ =
+let get_build_dir () =
   let f () =
-    let err = Error "Failure: dune describe" in
+    let default_msg = "Failure: dune describe." in
     try
       let inp = Unix.open_process_in "dune describe workspace" in
       let s = CCSexp.parse_chan inp in
@@ -99,14 +118,19 @@ let get_build_dir _ =
              (`List [ `Atom "root"; `Atom root_dir ]
              :: `List [ `Atom "build_context"; `Atom context ]
              :: _)) ->
-          _build_dir := Ok (root_dir, context);
-          !_build_dir
-      | _ -> err
+          _build_dir := Some (root_dir, context);
+          Ok (root_dir, context)
+      | _ -> Error default_msg (* should never happen in practice *)
     with _ ->
       (* May fail due to 'A running dune (pid: ..) instance has locked the build directory.') *)
-      err
+      Error
+        (default_msg
+       ^ "\n\
+          Is dune running in watch mode?\n\
+          menhir-lsp cannot analyze your project because dune --watch locks \
+          the build directory.")
   in
-  match !_build_dir with Ok _ -> !_build_dir | Error _ -> f ()
+  match !_build_dir with Some dir -> Ok dir | None -> f ()
 
 (** e.g. if [uri] is
 
@@ -122,25 +146,18 @@ let fetch_build_dir ?(ext : string option) uri =
   let s_name = F.basename s_path in
   let s_slug = F.remove_extension s_name in
   let s_ext = O.get_or ~default:(F.extension s_name) ext in
+  let msg = spr "No config found for %s." s_name in
   let open R in
   let* root, ctx = get_build_dir () in
   let p_root = P.of_string root in
   let p_dir = P.of_string (F.dirname s_path) in
-  let error =
-    Error
-      (spr
-         "No implementation found for %s. Make sure your module is declared \
-          included in the library's dune file. e.g. (menhir (modules .. %s \
-          ..)) or (ocamllex .. %s ..) "
-         s_name s_slug s_slug)
-  in
   match P.drop_prefix p_dir ~prefix:p_root with
-  | None -> error
+  | None -> Error msg
   | Some p_rel ->
       let p_ctx = P.of_string (F.concat root ctx) in
       let p_res = P.append_local p_ctx p_rel in
       let res = F.concat (P.to_string p_res) (s_slug ^ s_ext) in
-      if Sys.file_exists res then Ok res else error
+      if Sys.file_exists res then Ok res else Error msg
 
 module MK = Merlin_kernel
 module QP = Query_protocol
@@ -302,7 +319,10 @@ let get_merlin_compls ~uri ~pos word =
 
 let parse_ocaml_impl s =
   let lexbuf = Lexing.from_string s in
-  Ppxlib.Parse.implementation lexbuf
+  let msg = "OCaml syntax error" in
+  try Ok (Ppxlib.Parse.implementation lexbuf) with
+  | Syntaxerr.Error err -> Error (msg, Syntaxerr.location_of_error err)
+  | Lexer.Error (_, rng) -> Error (msg, rng)
 
 let parse_ocaml_type s =
   let lexbuf = Lexing.from_string s in
@@ -355,7 +375,20 @@ let rec pp_selection_range (out : Format.formatter) (sr : SelectionRange.t) =
     (Format.pp_print_option (fun out p -> pf out " --> %a" pp_selection_range p))
     sr.parent
 
-let get_ocaml_impl = fetch_build_dir ~ext:".ml"
+let get_ocaml_impl uri =
+  fetch_build_dir ~ext:".ml" uri
+  |> R.map_err (fun msg ->
+      Diagnostic.create ~severity:Hint
+        ~message:
+          (`String
+             (msg
+             ^
+             (* todo: use variants *)
+             if String.starts_with ~prefix:"No config" msg then
+               "\n\n" ^ no_implementation_hint uri
+             else ""))
+        ~source:server_name ~range:Range.first_line ())
+
 let get_ocaml_intf = fetch_build_dir ~ext:".mli"
 
 let read_file_contents filename =
@@ -375,8 +408,8 @@ let get_source_map uri =
         |> Menhir_lsp_lib.Line_directives.read_line_directives []
       in
       (Some doc, sourcemap)
-  | Error msg ->
-      log "No source map for %a: %s" pp_short_uri uri msg;
+  | Error _ ->
+      log "No source map for %a" pp_short_uri uri;
       (None, [])
 
 (** Maps a location in a lexer / parser's source code to a symbol in the

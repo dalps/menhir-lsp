@@ -151,7 +151,7 @@ let heredoc () =
 let get_test_helpers format =
   let format ?(config = Config.default_config) text =
     text |> format ~config
-    |> R.get_lazy (fun (msg, range) -> spr "%s at %a" msg Range.pp_lexing range)
+    |> R.get_lazy (fun (msg, range) -> spr "%a:\n%s" pp_error_location range msg)
   in
   let format_and_print ?(config = Config.default_config) text : unit =
     text |> format ~config |> print_endline
