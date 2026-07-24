@@ -684,7 +684,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
     CompletionItem.t list =
   let open O in
   let range = O.map (fun ({ p; _ } : word) -> p) word in
-  let log s = log_src ~notify_back "mly.completions" s in
+  let _log s = log_src ~notify_back "mly.completions" s in
   let grammar_completions () =
     default_completions ?range state
     @ standard_lib_completions

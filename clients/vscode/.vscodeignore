@@ -9,3 +9,5 @@ vsc-extension-quickstart.md
 **/_build
 node_modules
 samples
+justfile
+eslint*

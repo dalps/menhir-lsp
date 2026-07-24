@@ -15,7 +15,7 @@ The server supports the following set of LSP feautres in `.mll` and `.mly` files
 * [Selection Range](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_selectionRange)
 * [Document Formatting](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_formatting)
 
-Moreover, `menhir-lsp` provides document symbols and folding ranges in Menhir `.messages` databases that store syntax error messages of your parsers. More info in the [extension's README](/clients/vscode/README.md#.messages).
+Moreover, `menhir-lsp` provides document symbols and folding ranges in Menhir `.messages` databases that store syntax error messages of your parsers. More info in the [extension's README](/clients/vscode/README.md#messages-features).
 
 ## Installation & Usage
 

@@ -1,7 +1,7 @@
 set allow-duplicate-recipes := true
 
 entrypoints := "src/extension.ts src/test/*.ts"
-common_opts := "--format=cjs --platform=node --bundle --external:vscode --external:mocha --outdir='out'"
+common_opts := "--format=cjs --platform=node --bundle --external:vscode --external:mocha --external:'@vscode/test-electron' --outdir='out'"
 
 default: build
 
