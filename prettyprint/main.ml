@@ -84,7 +84,7 @@ let lang =
     & info [ "lang" ] ~docv:"mll|mly" ~doc
         ~absent:"inferred from file extension")
 
-let error s = Format.eprintf ("menhirformat: " ^^ s ^^ "\n%!")
+let print_error s = Format.eprintf ("menhirformat: " ^^ s ^^ "\n%!")
 
 let main ~config lang (input_file : [> `File of string | `Stdin ]) =
   let open R in
@@ -95,7 +95,7 @@ let main ~config lang (input_file : [> `File of string | `Stdin ]) =
         (* OcamlLocation.input_name := standard_input; *)
         match lang with
         | None ->
-            error
+            print_error
               "The language mode must be specified via the \
                '--lang' option when reading from standard input.";
             exit 2
@@ -106,7 +106,7 @@ let main ~config lang (input_file : [> `File of string | `Stdin ]) =
         | ".mly", _ -> `Mly
         | _, Some lang -> lang
         | _ ->
-            error
+            print_error
               "Could not determine the language mode from the file extension. \
                Please specify it via the '--lang' option.";
             exit 2)
@@ -124,7 +124,7 @@ let main ~config lang (input_file : [> `File of string | `Stdin ]) =
   |> R.map_err (fun (msg, (loc_start, loc_end)) ->
       let loc = Warnings.{ loc_start; loc_end; loc_ghost = false } in
       let report : OcamlLocation.report = OcamlLocation.errorf ~loc "%s" msg in
-      error "ignoring %S (syntax error)" filename;
+      print_error "ignoring %S (syntax error)" filename;
       epr "%a" OcamlLocation.print_report report;
       exit 1)
   |> R.iter print_endline
@@ -152,7 +152,7 @@ let cmd =
      and+ semiAfterProducer = semiAfterProducer
      and+ lang = lang in
      if String.length input_file = 0 then (
-       error
+       print_error
          "Please specify the input file, or alternatively '-' to read from the \
           standard input.";
        exit 2);
