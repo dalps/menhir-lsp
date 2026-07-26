@@ -30,6 +30,7 @@ bump-fmt version: build
     gh release create 'menhirformat.{{ version }}' -t 'menhirformat.{{ version }}' --generate-notes
 
 # 1. check if tag arg is valid
+
 # 2. upload the executable
 upload-lsp-binary tag:
     git tag -l 'menhir-lsp.{{ tag }}'
@@ -56,3 +57,9 @@ download-menhir-stdlib:
 
 download-menhir-messages:
     wget gitlab.inria.fr/fpottier/menhir/-/raw/master/driver/stage2/ParserMessages.messages -O vendor/menhir/ParserMessages.messages
+
+publish-lsp msg-file version:
+    opam publish menhir-lsp --msg-file {{ msg-file }} --tag menhir-lsp.{{ version }} -v {{ version }}
+
+publish-fmt msg-file version:
+    opam publish menhirformat --msg-file {{ msg-file }} --tag menhirformat.{{ version }} -v {{ version }}
