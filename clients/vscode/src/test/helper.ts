@@ -46,6 +46,9 @@ export async function setTestContent(content: string): Promise<boolean> {
 export const uriEqual = (u1: Uri, u2: Uri) => u1.path === u2.path;
 export const rangeEqual = (r1: Range, r2: Range) => r1.isEqual(r2);
 
+export const wordAt = (pos: Position, word: string) =>
+  new Range(pos, new Position(pos.line, pos.character + word.length));
+
 /** Helper to specify one-based editor positions concisely. */
 export const P = (l: number, c: number) => new Position(l - 1, c - 1);
 
@@ -55,3 +58,6 @@ export const showPosition = ({ line, character }: Position) =>
   `${line}:${character}`;
 export const showRange = ({ start, end }: Range) =>
   `{${showPosition(start)}-${showPosition(end)}}`;
+
+export const L = (uri: vscode.Uri, range: Range) =>
+  new vscode.Location(uri, range);

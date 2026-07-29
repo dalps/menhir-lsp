@@ -1,10 +1,7 @@
 import * as vscode from "vscode";
 import { Position, Range } from "vscode";
-import { activate, getDocUri, P, rangeEqual, uriEqual } from "./helper";
+import { activate, getDocUri, P, rangeEqual, uriEqual, wordAt } from "./helper";
 import assert from "assert";
-
-const wordAt = (pos: Position, word: string) =>
-  new Range(pos, new Position(pos.line, pos.character + word.length));
 
 suite("should provide definitions in a lexer", () => {
   const uri = getDocUri("Lexer.mll");
