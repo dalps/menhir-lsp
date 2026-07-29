@@ -642,7 +642,7 @@ let definition ~(notify_back : notify_back) (state : state)
     (* It could also be a semantic binding (producer) inside a branch! *)
     log "Checking if we're inside an action...";
     let open O in
-    let* zone = query_position state.intervals offset in
+    let* zone = query_position ~doc state.intervals pos in
     (match zone with
       | Action lst ->
           log "It looks like we're inside an action!";

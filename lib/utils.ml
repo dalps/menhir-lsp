@@ -84,6 +84,14 @@ module TD = struct
     make ~position_encoding
       (DidOpenTextDocumentParams.create
          ~textDocument:{ text; version; languageId; uri })
+
+  let of_doc_state
+      ({ uri; languageId; version; content } : Linol.Server.doc_state) : t =
+    create ~languageId ~version ~text:content uri
+
+  let of_doc_item ({ languageId; text; uri; version } : TextDocumentItem.t) : t
+      =
+    create ~languageId ~version ~text uri
 end
 
 let pr = Format.printf

@@ -52,10 +52,7 @@ class lsp_server =
     method spawn_query_handler f = Linol_lwt.spawn f
 
     method private get_text_document (uri : uri) : Text_document.t option =
-      let open O in
-      let+ { languageId; version; content = text; _ } = self#find_doc uri in
-      TD.create ~position_encoding:positionEncoding ~text ~version ~languageId
-        uri
+      O.(self#find_doc uri >|= TD.of_doc_state)
     (** Turns Linol's [find_doc] result into a more useful [Text_document.t] *)
 
     method private _word_at_position :
@@ -384,7 +381,7 @@ class lsp_server =
     method private _on_req_references =
       fun ~notify_back ~id:_ ~uri ~pos : Location.t list option Lwt.t ->
         self#_dispatch uri ~notify_back ~mly_handler:(Mly.references ~uri ~pos)
-          ~mll_handler:(Mll.references ~uri ~pos)
+          ~mll_handler:(Mll.references ~pos)
         |> Lwt.return
 
     method private _on_req_prepare_rename =
@@ -412,7 +409,7 @@ class lsp_server =
           (Position.show pos);
         self#_dispatch uri ~notify_back
           ~mly_handler:(Mly.definition ~notify_back ~doc ~pos)
-          ~mll_handler:(Mll.definition ~notify_back ~doc ~pos)
+          ~mll_handler:(Mll.definition ~pos)
 
     method! config_hover = Some (`Bool true)
 
@@ -457,9 +454,7 @@ class lsp_server =
       let%lwt items =
         match self#get_text_document uri with
         | None -> Lwt.return_nil
-        | Some doc ->
-            let contents = TD.text doc in
-            self#_on_doc ~notify_back uri contents
+        | Some doc -> self#_on_doc ~notify_back doc
       in
       Lwt.return
         (`RelatedFullDocumentDiagnosticReport
@@ -471,8 +466,10 @@ class lsp_server =
        - return the diagnostics from the new state
     *)
     method private _on_doc ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
-        (uri : uri) (contents : string) : Diagnostic.t list Lwt.t =
+        (doc : document) : Diagnostic.t list Lwt.t =
       let log s = log_src "_on_doc" s in
+      let uri = TD.documentUri doc in
+      let contents = TD.text doc in
       log "Processing file %a" pp_uri uri;
       set_notify_back notify_back;
 
@@ -490,7 +487,8 @@ class lsp_server =
       let diags =
         doc_type_of_uri uri >|= function
         | Mll ->
-            go mll_buffers Mll.load_state_from_contents
+            go mll_buffers
+              (Mll.load_state_from_contents ~document:doc)
               (Mll.diagnostics ~notify_back ~uri)
         | Mly ->
             go mly_buffers Mly.load_state_from_contents
@@ -535,14 +533,19 @@ class lsp_server =
                 | Error _ -> error ())
             | _ -> error ())
       in
-      let _ = self#_on_doc ~notify_back d.uri content in
+      let _ = self#_on_doc ~notify_back (TD.of_doc_item d) in
       Lwt.return ()
 
     (* Similarly, we also override the [on_notify_doc_did_change] method that will be called
       by the server each time a new document is opened. *)
-    method on_notif_doc_did_change ~notify_back d _c ~old_content:_old
+    method on_notif_doc_did_change ~notify_back d changes ~old_content:_old
         ~new_content =
-      let _ = self#_on_doc ~notify_back d.uri new_content in
+      (* The document should be known at this point. *)
+      (match self#get_text_document d.uri with
+      | None -> ()
+      | Some doc ->
+          let doc' = TD.apply_content_changes doc changes in
+          self#_on_doc ~notify_back doc' |> ignore);
       Lwt.return ()
 
     (* On document closes, we remove the state associated to the file from the global

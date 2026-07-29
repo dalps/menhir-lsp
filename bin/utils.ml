@@ -338,13 +338,16 @@ let add_range ~parent_ref range =
   | Some p when Range.contains p.range range -> add ()
   | Some _ -> epr "Skipping bad selection range: %a." Range.pp range
 
-let query_position (intervals : 'zone Ivl_map.t) offset : 'zone option =
+let query_offset (intervals : 'a Ivl_map.t) offset : 'a option =
   let open O in
   let query = Ivl.create (Included offset) (Included offset) in
   let res = Ivl_map.query_interval ~order:Desc query intervals in
-  let* (ivl, zones), gen = Ivl_map.Gen.next res in
-  let+ innermost_zone = L.head_opt zones in
-  innermost_zone
+  let* (ivl, values), gen = Ivl_map.Gen.next res in
+  let+ first = L.head_opt values in
+  first
+
+let query_position ~doc intervals pos =
+  TD.absolute_position doc pos |> query_offset intervals
 
 let pp_interval out ({ low; high } : Ivl.t) =
   let open Ivl_map.Bound in
