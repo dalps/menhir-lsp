@@ -110,10 +110,7 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
 
     method! visit_Wildcard _ = self#with_located (fun _ -> text "_")
     method! visit_EOF _ = self#with_located (fun _ -> text "eof")
-
-    method! visit_Character _ =
-      self#with_located (char_of_int >> Char.escaped >> text >> squotes)
-
+    method! visit_Character _ = self#with_located (fun c -> text c.repr)
     method! visit_Char = self#visit_Character
     method! visit_String _ = self#with_located (text >> dquotes)
     method! visit_Ref _ = self#with_located text

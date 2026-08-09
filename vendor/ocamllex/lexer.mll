@@ -156,6 +156,10 @@ let init () =
   string_buffer#reset_string_buffer ();
   action_buffer#reset_string_buffer ();
   comment_buffer#reset_string_buffer ()
+
+let tchar lexbuf code =
+  let repr = Lexing.lexeme lexbuf in
+  Tchar {repr; code}
 }
 
 let identstart =
@@ -215,25 +219,25 @@ rule main = parse
     { string_buffer#reset_string_buffer ();
       let startp = Lexing.lexeme_start_p lexbuf in
       let endp = handle_lexical_error string Pattern lexbuf in
-      let content = string_buffer#get_stored_string () |> String.escaped in
+      let content = string_buffer#get_stored_string () in
       Tstring (Located.locate (startp, endp) content) } (* [menhir-lsp] located. *)
 (* note: ''' is a valid character literal (by contrast with the compiler) *)
   | "'" [^ '\\'] "'"
-    { Tchar(Char.code(Lexing.lexeme_char lexbuf 1)) }
+    { tchar lexbuf (Char.code(Lexing.lexeme_char lexbuf 1)) }
   | "'" '\\' backslash_escapes "'"
-    { Tchar(Char.code(char_for_backslash (Lexing.lexeme_char lexbuf 2))) }
+    { tchar lexbuf (Char.code(char_for_backslash (Lexing.lexeme_char lexbuf 2))) }
   | "'" '\\' (['0'-'9'] as c) (['0'-'9'] as d) (['0'-'9'] as u)"'"
     { let v = decimal_code c d u in
       if v > 255 then
         raise_lexical_error lexbuf
           (Printf.sprintf "illegal escape sequence \\%c%c%c" c d u)
       else
-        Tchar v }
+        tchar lexbuf v }
   | "'" '\\' 'o' (['0'-'3'] as c) (['0'-'7'] as d) (['0'-'7'] as u) "'"
-    { Tchar(Char.code(char_for_octal_code c d u)) }
+    { tchar lexbuf (Char.code(char_for_octal_code c d u)) }
   | "'" '\\' 'x'
        (['0'-'9' 'a'-'f' 'A'-'F'] as d) (['0'-'9' 'a'-'f' 'A'-'F'] as u) "'"
-       { Tchar(Char.code(char_for_hexadecimal_code d u)) }
+       { tchar lexbuf (Char.code(char_for_hexadecimal_code d u)) }
   | "'" '\\' (_ as c)
     { raise_lexical_error lexbuf
         (Printf.sprintf "illegal escape sequence \\%c" c)
@@ -272,7 +276,11 @@ and string in_pattern = parse
     { incr_loc lexbuf (String.length spaces);
       string in_pattern lexbuf }
   | '\\' (backslash_escapes as c)
-    { string_buffer#store_string_char (char_for_backslash c);
+    { (* [menhir-lsp] spaces can but don't need to be escaped. *)
+      if c = ' ' then
+        string_buffer#store_string_char (char_for_backslash c)
+      else
+        string_buffer#store_lexeme lexbuf;
       string in_pattern lexbuf }
   | '\\' (['0'-'9'] as c) (['0'-'9'] as d) (['0'-'9']  as u)
     { let v = decimal_code c d u in
@@ -280,15 +288,18 @@ and string in_pattern = parse
         if v > 255 then
           raise_lexical_error lexbuf
             (Printf.sprintf
-              "illegal backslash escape in string: '\\%c%c%c'" c d u)
-        else
-          string_buffer#store_string_char (Char.chr v);
+              "illegal backslash escape in string: '\\%c%c%c'" c d u);
+        (* else
+          string_buffer#store_string_char (Char.chr v); *)
+      string_buffer#store_lexeme lexbuf;
       string in_pattern lexbuf }
-  | '\\' 'o' (['0'-'3'] as c) (['0'-'7'] as d) (['0'-'7'] as u)
-    { string_buffer#store_string_char (char_for_octal_code c d u);
+  | '\\' 'o' (['0'-'3'] as _c) (['0'-'7'] as _d) (['0'-'7'] as _u)
+    { string_buffer#store_lexeme lexbuf;
       string in_pattern lexbuf }
-  | '\\' 'x' (['0'-'9' 'a'-'f' 'A'-'F'] as d) (['0'-'9' 'a'-'f' 'A'-'F'] as u)
-    { string_buffer#store_string_char (char_for_hexadecimal_code d u) ;
+  | '\\' 'x' (['0'-'9' 'a'-'f' 'A'-'F'] as _d) (['0'-'9' 'a'-'f' 'A'-'F'] as _u)
+    { 
+      (* string_buffer#store_string_char (char_for_hexadecimal_code d u) ; *)
+      string_buffer#store_lexeme lexbuf;
       string in_pattern lexbuf }
   | '\\' 'u' '{' (['0'-'9' 'a'-'f' 'A'-'F'] + as s) '}'
     { let v = hexadecimal_code s in
@@ -296,16 +307,18 @@ and string in_pattern = parse
         if not (Uchar.is_valid v) then
           raise_lexical_error lexbuf
             (Printf.sprintf
-              "illegal uchar escape in string: '\\u{%s}'" s)
-        else
-          string_buffer#store_string_utf_8_uchar (Uchar.unsafe_of_int v);
+              "illegal uchar escape in string: '\\u{%s}'" s);
+        (* else
+          string_buffer#store_string_utf_8_uchar (Uchar.unsafe_of_int v); *)
+      string_buffer#store_lexeme lexbuf;
       string in_pattern lexbuf }
   | '\\' (_ as c)
     { if in_pattern = Pattern then
         warning lexbuf
           (Printf.sprintf "illegal backslash escape in string: '\\%c'" c) ;
-      string_buffer#store_string_char '\\' ;
-      string_buffer#store_string_char c ;
+      (* string_buffer#store_string_char '\\' ;
+      string_buffer#store_string_char c ; *)
+      string_buffer#store_lexeme lexbuf;
       string in_pattern lexbuf }
   | eof
     { raise_lexical_error lexbuf "unterminated string" }
@@ -391,7 +404,7 @@ and action stk = parse
   | '"'
     { string_buffer#reset_string_buffer ();
       let _ = handle_lexical_error string Action lexbuf in
-      let content = string_buffer#get_stored_string () |> String.escaped in 
+      let content = string_buffer#get_stored_string () in 
       action_buffer#store_string @@ spr "\"%s\"" content;
       string_buffer#reset_string_buffer ();
       action stk lexbuf }
