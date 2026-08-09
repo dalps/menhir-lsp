@@ -822,8 +822,8 @@ and ocamlcomment openingrange = parse
       ocamlcomment openingrange lexbuf }
 | '"'
     { comment_buffer#store_lexeme lexbuf; (* The opening dquote *)
-      record_string (Range.current lexbuf) (Buffer.create 16) lexbuf |>
-      comment_buffer#store_string; (* [menhir-lsp] Used [record_string] instead of the original [string]. *)
+      string' (Range.current lexbuf) (Buffer.create 16) lexbuf |>
+      comment_buffer#store_string;
       comment_buffer#store_lexeme lexbuf; (* The closing dquote *)
       ocamlcomment openingrange lexbuf }
 | "'"
@@ -860,6 +860,27 @@ and string openingrange = parse
     { blame openingrange "unterminated OCaml string." }
 | _
     { string openingrange lexbuf }
+
+(* [menhir-lsp] Recognizes the same words of [string] but records the string and returns it. We use it to read strings inside [ocamlcomment].  *)
+
+and string' openingrange buffer = parse
+| '"'
+    { Buffer.contents buffer }
+| '\\' newline
+| newline
+    { new_line lexbuf;
+      Buffer.add_string buffer (Lexing.lexeme lexbuf);
+      string' openingrange buffer lexbuf }
+| '\\' _
+    (* Upon finding a backslash, skip the character that follows,
+       unless it is a newline. Pretty crude, but should work. *)
+    { Buffer.add_string buffer (Lexing.lexeme lexbuf);
+      string' openingrange buffer lexbuf }
+| eof
+    { blame openingrange "unterminated OCaml string." }
+| _ as c
+    { Buffer.add_char buffer c;
+      string' openingrange buffer lexbuf }
 
 (* ------------------------------------------------------------------------ *)
 
