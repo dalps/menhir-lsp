@@ -25,17 +25,23 @@ exception SyntaxError of string located
 
 type location = unit located
 
+and character = { repr : string; code : int }
+(** [menhir-lsp] A character (byte) can be written in many ways, for example
+    ['A'], ['\x41'], ['\065'] ['\o101'] all refer to the same byte. We store in
+    the AST the original representation typed by the user along with the byte so
+    that we can restore it during formatting. *)
+
 (* Syntax that can only appear within [ .. ] *)
 and character_class_syntax =
-  | Character of int located
-  | Range of int located * int located
+  | Character of character located
+  | Range of character located * character located
   | Union of character_class_syntax located * character_class_syntax located
   | Complement of character_class_syntax located
 
 and regular_expression_syntax =
   | Epsilon of location
   | Wildcard of location
-  | Char of int located
+  | Char of character located
   | CharSet of character_class_syntax located
   | String of string located
   | EOF of location
@@ -115,5 +121,7 @@ type regular_expression =
 
 (* [menhir-lsp] Added a third component that records the variables of the definition. *)
 let named_regexps :
-    (string, named_regexp located * regular_expression * string located list) Hashtbl.t =
+    ( string,
+      named_regexp located * regular_expression * string located list )
+    Hashtbl.t =
   Hashtbl.create 13

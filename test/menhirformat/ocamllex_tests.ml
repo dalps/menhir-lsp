@@ -410,8 +410,8 @@ let%expect_test "Comments can sit on top of regexp alternations (sibling cases)"
   [%expect
     {|
     rule skip_char = parse
-    | '\\'? ('\r'* '\n') "'" { incr_loc lexbuf 1 }
-    | [^'\\' '\'' '\n' '\r'] "'" (* regular character *)
+    | '\\'? ('\013'* '\010') "'" { incr_loc lexbuf 1 }
+    | [^'\\' '\'' '\010' '\013'] "'" (* regular character *)
     (* one character and numeric escape sequences *)
     | '\\' _ "'" | '\\' ['0'-'9'] ['0'-'9'] ['0'-'9'] "'"
     | '\\' 'o' ['0'-'7'] ['0'-'7'] ['0'-'7'] "'"
@@ -419,4 +419,206 @@ let%expect_test "Comments can sit on top of regexp alternations (sibling cases)"
       { () }
     (* Perilous *)
     | "" { () }
+    |}]
+
+let%expect_test "It preserves byte escape sequences" =
+  {|let crlf = "\r\n"
+
+let whitespace = [' ' '\t']
+
+(* Visual characters. *)
+let vchar = _ # whitespace # ['\r' '\n']
+
+let request_regexp =
+  ['G' 'g'] ['E' 'e'] ['T' 't'] whitespace+ (_* vchar as url) whitespace* '\r'
+
+let space = ' '
+
+let digit = ['0'-'9']
+
+let status_code = digit digit digit
+
+let arbitrary_text = (space | '\t' | vchar)+
+
+let http_version = "HTTP/1.1"
+
+let status_line =
+  http_version space (status_code as status_code) space (arbitrary_text as reason_phrase)? crlf
+
+let field_line =
+  ((vchar # ':')+ as field_name) whitespace* ':' whitespace* (arbitrary_text as field_value) crlf
+
+rule read_response_token = parse
+| crlf { Lexing.new_line lexbuf; log_res "CRLF"; CRLF }
+| status_line
+  {
+    let reason_phrase = Option.value ~default:"" reason_phrase in
+    log_res "STATUS_LINE \x1b[1;35m%s\x1b[0m \x1b[1;31m%s\x1b[0m" status_code
+      reason_phrase;
+    STATUS_LINE (int_of_string status_code, reason_phrase)
+  }
+| field_line
+  {
+    log_res "FIELD_LINE \x1b[1;34m%s:\x1b[0m \x1b[2m%S\x1b[0m" field_name field_value;
+    FIELD_LINE (field_name, field_value)
+  }
+
+and read_response = parse
+| status_line
+  {
+    let reason_phrase = Option.value ~default:"" reason_phrase in
+    log_res "STATUS_LINE \x1b[1;35m%s\x1b[0m \x1b[1;31m%s\x1b[0m" status_code
+      reason_phrase;
+    Lexing.new_line lexbuf;
+    let header = read_field_line lexbuf |> List.rev in
+    let content_length = List.assoc "Content-Length" header |> int_of_string in
+    let body = read_body_chars content_length lexbuf in
+      ({
+         status = int_of_string status_code;
+         message = reason_phrase;
+         header;
+         body = !body_acc;
+       }
+        : Http_V1_types.response)
+  }
+| _ { failwith "A response should start with a status line." }
+
+and read_bodyless_response = parse
+| status_line
+  {
+    let reason_phrase = Option.value ~default:"" reason_phrase in
+    log_res "STATUS_LINE \x1b[1;35m%s\x1b[0m \x1b[1;31m%s\x1b[0m" status_code
+      reason_phrase;
+    Lexing.new_line lexbuf;
+    let header = read_field_line lexbuf |> List.rev in
+    let content_length = List.assoc "Content-Length" header in
+    (int_of_string status_code, reason_phrase,header)
+  }
+| _ { failwith "A response should start with a status line." }
+
+and read_field_line = parse
+| field_line
+  {
+    Lexing.new_line lexbuf;
+    log_res "FIELD_LINE \x1b[1;34m%s:\x1b[0m \x1b[2m%S\x1b[0m" field_name field_value;
+    (field_name, field_value) :: read_field_line lexbuf
+  }
+| crlf { Lexing.new_line lexbuf; log_res "CRLF"; [] }
+
+and read_body_chars len = parse
+| _ as s {
+  (* log_res "Character #%-3d: %c \x1b[2;37m%3d\x1b[0m" len s (Char.code s); *)
+  body_acc := !body_acc ^ Char.escaped s;
+  if len > 1 then read_body_chars (len - 1) lexbuf
+  else log_res "BODY <..>" }
+  | eof { () }|}
+  |> format |> format |> helper;
+  [%expect {|
+    let crlf = "\r\n"
+
+    let whitespace = [' ' '\t']
+
+    (* Visual characters. *)
+    let vchar = _ # whitespace # ['\r' '\n']
+
+    let request_regexp =
+      ['G' 'g'] ['E' 'e'] ['T' 't'] whitespace+ (_* vchar as url) whitespace* '\r'
+
+    let space = ' '
+
+    let digit = ['0'-'9']
+
+    let status_code = digit digit digit
+
+    let arbitrary_text = (space | '\t' | vchar)+
+
+    let http_version = "HTTP/1.1"
+
+    let status_line =
+      http_version space (status_code as status_code) space (arbitrary_text as reason_phrase)? crlf
+
+    let field_line =
+      ((vchar # ':')+ as field_name) whitespace* ':' whitespace* (arbitrary_text as field_value) crlf
+
+    rule read_response_token = parse
+    | crlf { Lexing.new_line lexbuf; log_res "CRLF"; CRLF }
+    | status_line
+      {
+        let reason_phrase = Option.value ~default:"" reason_phrase in
+        log_res "STATUS_LINE \x1b[1;35m%s\x1b[0m \x1b[1;31m%s\x1b[0m" status_code
+          reason_phrase;
+        STATUS_LINE (int_of_string status_code, reason_phrase)
+      }
+    | field_line
+      {
+        log_res "FIELD_LINE \x1b[1;34m%s:\x1b[0m \x1b[2m%S\x1b[0m" field_name
+          field_value;
+        FIELD_LINE (field_name, field_value)
+      }
+
+    and read_response = parse
+    | status_line
+      {
+        let reason_phrase = Option.value ~default:"" reason_phrase in
+        log_res "STATUS_LINE \x1b[1;35m%s\x1b[0m \x1b[1;31m%s\x1b[0m" status_code
+          reason_phrase;
+        Lexing.new_line lexbuf;
+        let header = read_field_line lexbuf |> List.rev in
+        let content_length = List.assoc "Content-Length" header |> int_of_string in
+        let body = read_body_chars content_length lexbuf in
+        ({
+           status = int_of_string status_code;
+           message = reason_phrase;
+           header;
+           body = !body_acc;
+         }
+          : Http_V1_types.response)
+      }
+    | _ { failwith "A response should start with a status line." }
+
+    and read_bodyless_response = parse
+    | status_line
+      {
+        let reason_phrase = Option.value ~default:"" reason_phrase in
+        log_res "STATUS_LINE \x1b[1;35m%s\x1b[0m \x1b[1;31m%s\x1b[0m" status_code
+          reason_phrase;
+        Lexing.new_line lexbuf;
+        let header = read_field_line lexbuf |> List.rev in
+        let content_length = List.assoc "Content-Length" header in
+        (int_of_string status_code, reason_phrase, header)
+      }
+    | _ { failwith "A response should start with a status line." }
+
+    and read_field_line = parse
+    | field_line
+      {
+        Lexing.new_line lexbuf;
+        log_res "FIELD_LINE \x1b[1;34m%s:\x1b[0m \x1b[2m%S\x1b[0m" field_name
+          field_value;
+        (field_name, field_value) :: read_field_line lexbuf
+      }
+    | crlf { Lexing.new_line lexbuf; log_res "CRLF"; [] }
+
+    and read_body_chars len = parse
+    | _ as s
+      {
+        (* log_res Character #%-3d: %c \x1b[2;37m%3d\x1b[0m len s (Char.code s); *)
+        body_acc := !body_acc ^ Char.escaped s;
+        if len > 1 then read_body_chars (len - 1) lexbuf else log_res "BODY <..>"
+      }
+    | eof { () }
+    |}]
+
+let%expect_test "It preserves escapes codes used in various contexts" =
+  {|let ident = 'x' | 'y'
+
+rule pattern = parse '\x1b' { "escape \x1b = \027 \h", '\x1b', '\h' (* \x1b *) } | ident { "ident 🤔" } | 'k' { "\u{0138}" }|}
+  |> helper;
+  [%expect {|
+    let ident = 'x' | 'y'
+
+    rule pattern = parse
+    | '\x1b' { "escape \x1b = \027 \h", '\x1b', '\h' (* \x1b *) }
+    | ident { "ident 🤔" }
+    | 'k' { "\u{0138}" }
     |}]
