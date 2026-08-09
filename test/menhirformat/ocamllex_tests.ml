@@ -89,7 +89,8 @@ let%expect_test "Test breaking of alternations" =
       | eof { EOF }
       | _ { failwith "not a feng shui item" }
 
-    and green_item = parse green_series_item | "Leaf Bed" as g { g }
+    and green_item = parse
+      | green_series_item | "Leaf Bed" as g { g }
     |}]
 
 let long_regexp_demo =
@@ -513,7 +514,8 @@ and read_body_chars len = parse
   else log_res "BODY <..>" }
   | eof { () }|}
   |> format |> format |> helper;
-  [%expect {|
+  [%expect
+    {|
     let crlf = "\r\n"
 
     let whitespace = [' ' '\t']
@@ -614,11 +616,27 @@ let%expect_test "It preserves escapes codes used in various contexts" =
 
 rule pattern = parse '\x1b' { "escape \x1b = \027 \h", '\x1b', '\h' (* \x1b *) } | ident { "ident 🤔" } | 'k' { "\u{0138}" }|}
   |> helper;
-  [%expect {|
+  [%expect
+    {|
     let ident = 'x' | 'y'
 
     rule pattern = parse
     | '\x1b' { "escape \x1b = \027 \h", '\x1b', '\h' (* \x1b *) }
     | ident { "ident 🤔" }
     | 'k' { "\u{0138}" }
+    |}]
+
+let%expect_test "It correctly separates cases in one-liner rules" =
+  {|let ident = 'x' | 'y'
+
+rule pattern = parse '\x1b' { ESCAPE } | ident { IDENT } | 'k' { K }|}
+  |> helper ~config:{ default_config with noLeadingBar = true };
+  [%expect
+    {|
+    let ident = 'x' | 'y'
+
+    rule pattern = parse
+      '\x1b' { ESCAPE }
+    | ident { IDENT }
+    | 'k' { K }
     |}]

@@ -79,22 +79,27 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
     method! visit_entry _ { name; shortest; args; clauses } =
       flow (blank 1)
       @@ [
+           (* [rule] and [and] are handled above *)
+           (* 1. Print the rule's name. *)
            self#with_located text name;
+           (* 2. Print the args. *)
            nest tabsize @@ flow_map (break 1) (self#with_located text) args;
            equals;
+           (* 3. Print the parse keyword. *)
            prefix
-             (if cfg.indentOnce then tabsize else 0)
-             1
-             (self#with_located
-                ((fun v -> if v then "shortest" else "parse") >> text)
-                shortest)
+           (if cfg.indentOnce then tabsize else 0)
+           1
+           (self#with_located
+           ((fun v -> if v then "shortest" else "parse") >> text)
+           shortest)
+           (* 4. Print the cases. *)
            @@ separate_mapi (break 1)
                 (fun i loc ->
                   self#with_located
                     (fun case ->
-                      ifflat empty
-                        (if_ ~then_:(blank 2) ~else_:barspace
-                           (i = 0 && cfg.noLeadingBar))
+                      if_
+                        (i = 0 && cfg.noLeadingBar)
+                        ~then_:(blank 2) ~else_:barspace
                       ^^ self#visit_case () case)
                     loc)
                 clauses;

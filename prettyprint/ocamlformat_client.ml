@@ -95,10 +95,11 @@ let halt () =
   state := Uninitialized;
   return ()
 
-(** Format OCaml source code and turn it into a PPrint document. The output
-    document contains the original code unmodified and won't react to line
-    breaks if a formatting error occurred. A postprocessing function that acts
-    on the string output of both paths may be optionally specified. *)
+(** Formats OCaml source code using [ocamlformat] and turns it into a PPrint
+    document. The returned document won't react to line breaks if a formatting
+    error occurred. [post] is an optional postprocessing function that
+    transforms the output of the formatter before turning it into a document,
+    regardless of errors. It defaults to the identity. *)
 let main ?(post = fun x -> x) src =
   let _log s = log_src "ocamlformat" s in
   let format_args =
