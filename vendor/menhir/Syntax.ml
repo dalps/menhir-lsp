@@ -367,8 +367,8 @@ module DBuckets = struct
 
   (* The order of these fields determines their order in which they are printed out. *)
   and t = {
-    dCode : bucket;
     dParameter : bucket;
+    dCode : bucket;
     dToken : bucket;
     dStart : bucket;
     dType : bucket;
@@ -389,8 +389,8 @@ module DBuckets = struct
 
   let init : t =
     {
-      dCode = [];
       dParameter = [];
+      dCode = [];
       dToken = [];
       dStart = [];
       dTokenProperties = [];

@@ -453,11 +453,6 @@ expr:
     { e1 / e2 }
 | MINUS e = expr %prec UMINUS
     { - e } |}; [%expect {|
-                  (* Let us open the [Semantics] module, so as to make all of its
-                     operations available in the semantic actions. *)
-
-                  %{ open Semantics %}
-
                   (* Taken from https://github.com/LexiFi/menhir/blob/master/demos/calc-param/parser.mly *)
                   %parameter <
                     Semantics : sig
@@ -470,6 +465,11 @@ expr:
                     val ( ~-): number -> number
                   end
                   >
+
+                  (* Let us open the [Semantics] module, so as to make all of its
+                     operations available in the semantic actions. *)
+
+                  %{ open Semantics %}
 
                   (* The parser no longer returns an integer; instead, it returns an
                      abstract number. *)
@@ -488,5 +488,5 @@ expr:
                   | e1 = expr MINUS e2 = expr { e1 - e2 }
                   | e1 = expr TIMES e2 = expr { e1 * e2 }
                   | e1 = expr DIV e2 = expr { e1 / e2 }
-                  | MINUS e = expr %prec UMINUS { - e }
+                  | MINUS e = expr %prec UMINUS { -e }
                   |}]
