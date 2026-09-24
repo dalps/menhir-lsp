@@ -53,7 +53,7 @@ let current_bindings = ref []
 %}
 
 %token <string> Tident
-%token <int> Tchar
+%token <Syntax.character> Tchar
 %token <string Located.located> Tstring
 %token <string Located.located> Taction
 %token Trule "rule" Tparse "parse" Tparse_shortest "shortest" Tand "and" Tequal "=" Tend "EOF" Tor "|" Tunderscore "_" Teof "eof"
@@ -136,7 +136,7 @@ regexp:
   | u = located(Teof)
         { locate $loc @@ EOF u, Eof } [@name regexp_eof]
   | c = located(Tchar)
-        { locate $loc @@ Char c, Characters (Cset.singleton c.v) } [@name regexp_character]
+        { locate $loc @@ Char c, Characters (Cset.singleton c.v.code) } [@name regexp_character]
   | s = Tstring
         { locate s.p @@ String s, regexp_for_string s.v } [@name regexp_string]
   | "[" cls = char_class "]"
@@ -210,9 +210,9 @@ char_class:
 char_class1:
     c1 = located(Tchar) "-" c2 = located(Tchar)
         { locate $loc @@ Range (c1, c2),
-            Cset.interval c1.v c2.v } [@name charclass_range]
+            Cset.interval c1.v.code c2.v.code } [@name charclass_range]
   | c = located(Tchar)
-        { locate $loc @@ Character c, Cset.singleton c.v } [@name charclass_character]
+        { locate $loc @@ Character c, Cset.singleton c.v.code } [@name charclass_character]
   | cls1 = char_class1 cls2 = char_class1 %prec CONCAT
         { let cls1, cset1 = cls1 in
           let cls2, cset2 = cls2 in

@@ -24,7 +24,7 @@ end
 open Ocamlformat_rpc_lib
 module Ocf = Make (IO)
 
-let log = Format.eprintf
+let log s = log_src "ocamlformat_client" s
 
 type close = unit -> unit
 type state = Uninitialized | Running of Ocf.client * close | Errored
@@ -79,17 +79,17 @@ let close_client () =
 
 let set_config c =
   get_client () >>= fun cl ->
-  log "[ocf] Setting client's config.";
+  log "Setting client's config.";
   Ocf.config c cl
 
 let format ?(format_args = empty_args) x =
   get_client () >>= fun cl ->
-  (* log "[ocf] Format '%s'\n" x; *)
+  (* log "Format '%s'\n" x; *)
   Ocf.format ~format_args x cl
 
 let halt () =
   get_client () >>= fun cl ->
-  log "[ocf] Halt\n";
+  log "Halt\n";
   Ocf.halt cl >>= fun () ->
   close_client ();
   state := Uninitialized;
@@ -100,9 +100,12 @@ let halt () =
     breaks if a formatting error occurred. A postprocessing function that acts
     on the string output of both paths may be optionally specified. *)
 let main ?(post = fun x -> x) src =
-  let _log s = log_src "ocamlformat" s in
   let format_args =
-    { empty_args with config = Some [ ("wrap-comments", "true") ] }
+    {
+      empty_args with
+      config =
+        Some [ ("wrap-comments", "true") ];
+    }
   in
   let open PPrint in
   (* Rationale:
@@ -111,4 +114,8 @@ let main ?(post = fun x -> x) src =
       *)
   match format ~format_args src with
   | Ok out -> out |> String.trim |> post |> arbitrary_string
-  | Error _ -> src |> String.trim |> post |> string
+  | Error _msg ->
+      (* (match _msg with
+      | `No_process -> log "No_process"
+      | `Msg msg -> log "Error: %s" msg); *)
+      src |> String.trim |> post |> string

@@ -171,7 +171,9 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
     method! visit_DParameter =
       fun _ parameter ->
         text "%parameter"
-        ^-^ surround tabsize 0 langle (self#with_located text parameter) rangle
+        ^-^ surround tabsize 0 langle
+              (self#with_located (String.trim >> string) parameter)
+              rangle
 
     method! visit_ocamltype =
       fun _ ocamltype ->

@@ -16,8 +16,8 @@ let no_implementation_hint uri =
   in
   let slug = base |> Filename.remove_extension in
   spr
-    "Hint: did you declare the module '%s' in the '%s' stanza of the library's dune \
-     file? If not, add the following line and try calling 'dune build':\n\
+    "Hint: did you declare the module '%s' in the '%s' stanza of the library's \
+     dune file? If not, add the following line and try calling 'dune build':\n\
      %s\n"
     slug
     (match kind with `Mll -> "ocamllex" | `Mly -> "menhir")
@@ -28,53 +28,6 @@ let no_implementation_hint uri =
     | `Mly -> spr "(menhir (modules %s))" slug)
 
 let server_name = "menhir-lsp"
-
-type uri = Lsp.Types.DocumentUri.t
-type notify_back = Linol_lwt.Jsonrpc2.notify_back
-type word = { v : string; p : Range.t; offset : int; td : Text_document.t }
-
-let notify_back_ref : notify_back option ref = ref None
-let set_notify_back nb = notify_back_ref := Some nb
-let guard flag f s = if flag then f s
-let guard' flag f s = if%lwt flag then f s
-
-(** [log] prints to the first available output channel. It will use caller's
-    [notify_back] argument if provided, falling back to the optional value
-    stored in the global variable [notify_back_ref] and ultimately default to
-    [prerr_endline]. *)
-let log ?(debug = true) ?(notify_back : notify_back option)
-    ?(kind = MessageType.Info) s =
-  match (notify_back, !notify_back_ref) with
-  | None, None -> Format.kasprintf (guard debug prerr_endline) s
-  | None, Some notify_back | Some notify_back, _ ->
-      Format.kasprintf
-        (guard debug @@ (notify_back#send_log_msg ~type_:kind >> ignore))
-        s
-
-(** Identical to [log] but returns a unit promise. *)
-let log' ?(debug = true) ?(notify_back : notify_back option)
-    ?(kind = MessageType.Info) s =
-  match (notify_back, !notify_back_ref) with
-  | None, None -> Format.kasprintf (guard debug prerr_endline >> Lwt.return) s
-  | None, Some notify_back | Some notify_back, _ ->
-      Format.kasprintf
-        (guard' (Lwt.return debug) (notify_back#send_log_msg ~type_:kind))
-        s
-
-(** Logging helper that allows to specify a message source that will be
-    prepended to every log message.
-
-    Override with a concrete [src] argument like this:
-    [let log s = log_src "my_source" s in ..].
-
-    Set the [debug] flag to false to mute all messages from this source. *)
-let log_src ?(debug = true) ?notify_back ?kind src s =
-  Format.kasprintf (log ~debug ?notify_back ?kind "[%s] %s" src) s
-
-let log_info = log ~kind:Info
-let log_error = log ~kind:Error
-let log_info' = log' ~kind:Info
-let log_error' = log' ~kind:Error
 
 let compile_completions ?(range : Range.t option) ~(kind : CompletionItemKind.t)
     :

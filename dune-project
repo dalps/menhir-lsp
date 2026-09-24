@@ -26,7 +26,7 @@
   linol-lwt
   lwt_ppx
   ("containers"
-   (>= "3.6"))
+   (>= "3.14"))
   ("ordering"
    (>= "3.20.2"))
   ("menhir"
@@ -35,17 +35,23 @@
   menhirLib
   ("re"
    (>= "1.14.0"))
-  merlin-lib
+  ("merlin-lib"
+   (>= "4.19-414"))
   ("stdune"
    (>= "3.20.2"))
   visitors
   dune-build-info
   menhirformat
+  cmarkit
+  (odoc-parser
+   (>= "3.2.1"))
   (interval-map
    (>= "0.2.1"))
   ("ppx_deriving"
    (>= "6.1.1"))
-  (alcotest :with-test))
+  (alcotest :with-test)
+  (ppx_expect :with-test)
+  (ppx_inline_test :with-test))
  (tags
   ("lsp" "menhir" "ocamllex")))
 
@@ -74,6 +80,9 @@
    (>= "0.23.0"))
   ("re"
    (>= "1.14.0"))
+  ("cmdliner"
+   (>= "2.1.1"))
+  (alcotest :with-test)
   (ppx_expect :with-test)
   (ppx_inline_test :with-test))
  (tags

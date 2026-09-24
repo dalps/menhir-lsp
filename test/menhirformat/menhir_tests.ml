@@ -372,7 +372,8 @@ lax_actual:
 | /* leading bar disallowed */
   branches = located(branches)
     { locate' $loc @@ ParamAnonymous branches }|};
-  [%expect {|
+  [%expect
+    {|
     %%
 
     %inline generic_actual(A, B):
@@ -404,9 +405,110 @@ lax_actual:
       { locate' $loc @@ ParamAnonymous branches }
     |}]
 
-let%expect_test "Formatting of parser parametrized by a module" =
-  helper
+let%expect_test "It preserves byte escape sequences (e.g. ANSI color codes)" =
+  {|%{ open Utils %}
+
+%token <string> TEXT
+%token VERSION "HTTP/1.1"
+%token CRLF EOF
+%token METHOD "GET"
+%token COLON ":"
+%token <int * string> STATUS_LINE
+%token <string * string> FIELD_LINE
+
+%start <Http_V1_types.request> request
+%start <Http_V1_types.request> request_stream
+%start <Http_V1_types.response> response
+%start <Http_V1_types.response> response_stream
+
+%%
+
+// "\x1b[0;92mRequest parsing\x1b[0m"
+let request :=
+    req = terminated(request_stream, EOF); { req }
+
+let request_stream :=
+METHOD;
+url = TEXT;
+"HTTP/1.1";
+CRLF;
+header = list(header);
+CRLF; { Http_V1_types.{ meth = GET; url; header } }
+
+// "\x1b[0;95mResponse parsing\x1b[0m"
+let response :=
+terminated(response_stream, EOF)
+
+let response_stream :=
+    (status, message) = STATUS_LINE;
+  CRLF;
+  header = list(FIELD_LINE);
+  CRLF; {
+    log "\x1b[1;34mParsed response\x1b[0m";
+    Http_V1_types.{ status; message; header; body = "" } }
+
+(* log "\x1b[1;34mHeader rule\x1b[0m"; *)
+let header :=
+    field = TEXT; COLON; value = TEXT; CRLF; {
+      (* log "\x1b[1;34mParsed header\x1b[0m"; *)
+       field, value }|}
+  |> format |> format |> helper;
+  [%expect
     {|
+    %{ open Utils %}
+
+    %token <string> TEXT
+    %token VERSION "HTTP/1.1"
+    %token CRLF EOF
+    %token METHOD "GET"
+    %token COLON ":"
+    %token <int * string> STATUS_LINE
+    %token <string * string> FIELD_LINE
+
+    %start <Http_V1_types.request> request
+    %start <Http_V1_types.request> request_stream
+    %start <Http_V1_types.response> response
+    %start <Http_V1_types.response> response_stream
+
+    %%
+
+    // "\x1b[0;92mRequest parsing\x1b[0m"
+    let request :=
+        req = terminated(request_stream, EOF); { req }
+
+    let request_stream :=
+        METHOD;
+      url = TEXT;
+      "HTTP/1.1";
+      CRLF;
+      header = list(header);
+      CRLF; { Http_V1_types.{ meth = GET; url; header } }
+
+    // "\x1b[0;95mResponse parsing\x1b[0m"
+    let response :=
+        terminated(response_stream, EOF)
+
+    let response_stream :=
+        (status, message) = STATUS_LINE;
+      CRLF;
+      header = list(FIELD_LINE);
+      CRLF;
+      {
+        log "\x1b[1;34mParsed response\x1b[0m";
+        Http_V1_types.{ status; message; header; body = "" }
+      }
+
+    (* log "\x1b[1;34mHeader rule\x1b[0m"; *)
+    let header :=
+        field = TEXT;
+      COLON;
+      value = TEXT;
+      CRLF;
+      { (* log "\x1b[1;34mParsed header\x1b[0m"; *) field, value }
+    |}]
+
+let%expect_test "Formatting of parser parametrized by a module" =
+  {|
 (* Taken from https://github.com/LexiFi/menhir/blob/master/demos/calc-param/parser.mly *)
 %parameter<Semantics : sig
   type number
@@ -452,41 +554,44 @@ expr:
 | e1 = expr DIV e2 = expr
     { e1 / e2 }
 | MINUS e = expr %prec UMINUS
-    { - e } |}; [%expect {|
-                  (* Taken from https://github.com/LexiFi/menhir/blob/master/demos/calc-param/parser.mly *)
-                  %parameter <
-                    Semantics : sig
-                    type number
-                    val inject: int -> number
-                    val ( + ): number -> number -> number
-                    val ( - ): number -> number -> number
-                    val ( * ): number -> number -> number
-                    val ( / ): number -> number -> number
-                    val ( ~-): number -> number
-                  end
-                  >
+    { - e } |}
+  |> format |> format |> format |> format |> helper;
+  [%expect
+    {|
+    (* Taken from https://github.com/LexiFi/menhir/blob/master/demos/calc-param/parser.mly *)
+    %parameter <
+      Semantics : sig
+      type number
+      val inject: int -> number
+      val ( + ): number -> number -> number
+      val ( - ): number -> number -> number
+      val ( * ): number -> number -> number
+      val ( / ): number -> number -> number
+      val ( ~-): number -> number
+    end
+    >
 
-                  (* Let us open the [Semantics] module, so as to make all of its
-                     operations available in the semantic actions. *)
+    (* Let us open the [Semantics] module, so as to make all of its
+       operations available in the semantic actions. *)
 
-                  %{ open Semantics %}
+    %{ open Semantics %}
 
-                  (* The parser no longer returns an integer; instead, it returns an
-                     abstract number. *)
+    (* The parser no longer returns an integer; instead, it returns an
+       abstract number. *)
 
-                  %start <Semantics.number> main
+    %start <Semantics.number> main
 
-                  %%
+    %%
 
-                  main:
-                  | e = expr EOL { e }
+    main:
+    | e = expr EOL { e }
 
-                  expr:
-                  | i = INT { inject i }
-                  | LPAREN e = expr RPAREN { e }
-                  | e1 = expr PLUS e2 = expr { e1 + e2 }
-                  | e1 = expr MINUS e2 = expr { e1 - e2 }
-                  | e1 = expr TIMES e2 = expr { e1 * e2 }
-                  | e1 = expr DIV e2 = expr { e1 / e2 }
-                  | MINUS e = expr %prec UMINUS { -e }
-                  |}]
+    expr:
+    | i = INT { inject i }
+    | LPAREN e = expr RPAREN { e }
+    | e1 = expr PLUS e2 = expr { e1 + e2 }
+    | e1 = expr MINUS e2 = expr { e1 - e2 }
+    | e1 = expr TIMES e2 = expr { e1 * e2 }
+    | e1 = expr DIV e2 = expr { e1 / e2 }
+    | MINUS e = expr %prec UMINUS { -e }
+    |}]

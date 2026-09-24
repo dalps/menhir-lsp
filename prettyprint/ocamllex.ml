@@ -88,13 +88,12 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
              (self#with_located
                 ((fun v -> if v then "shortest" else "parse") >> text)
                 shortest)
-           @@ separate_mapi (break 1)
+           @@ separate_mapi hardline
                 (fun i loc ->
                   self#with_located
                     (fun case ->
-                      ifflat empty
-                        (if_ ~then_:(blank 2) ~else_:barspace
-                           (i = 0 && cfg.noLeadingBar))
+                      if_ ~then_:(blank 2) ~else_:barspace
+                        (i = 0 && cfg.noLeadingBar)
                       ^^ self#visit_case () case)
                     loc)
                 clauses;
@@ -110,10 +109,7 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
 
     method! visit_Wildcard _ = self#with_located (fun _ -> text "_")
     method! visit_EOF _ = self#with_located (fun _ -> text "eof")
-
-    method! visit_Character _ =
-      self#with_located (char_of_int >> Char.escaped >> text >> squotes)
-
+    method! visit_Character _ = self#with_located (fun c -> text c.repr)
     method! visit_Char = self#visit_Character
     method! visit_String _ = self#with_located (text >> dquotes)
     method! visit_Ref _ = self#with_located text
