@@ -1,0 +1,6 @@
+(library
+ (name lexfun))
+
+(ocamllex lexer)
+
+(menhir (modules parser))
