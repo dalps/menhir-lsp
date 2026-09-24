@@ -1,6 +1,8 @@
 (library
  (name menhir_lsp_lib)
- (libraries containers linol ordering re ppxlib ppxlib.ast)
+ (preprocess
+  (pps lwt_ppx))
+ (libraries containers linol linol-lwt ordering re ppxlib ppxlib.ast)
  (flags -w -27))
 
 (ocamllex line_directives)

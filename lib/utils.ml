@@ -86,12 +86,48 @@ module TD = struct
          ~textDocument:{ text; version; languageId; uri })
 end
 
+let ( >> ) = CCFun.( %> )
+
+(******************************************************************************
+ * Logging helpers
+ ******************************************************************************)
+
 let pr = Format.printf
 let spr = Format.asprintf
 let epr = Format.eprintf
 let pf = Format.fprintf
-let ( >> ) = CCFun.( %> )
-let log s = Format.kasprintf prerr_endline s
+
+type uri = Lsp.Types.DocumentUri.t
+type notify_back = Linol_lwt.Jsonrpc2.notify_back
+type word = { v : string; p : Range.t; offset : int; td : Text_document.t }
+
+let notify_back_ref : notify_back option ref = ref None
+let set_notify_back nb = notify_back_ref := Some nb
+let guard flag f s = if flag then f s
+let guard' flag f s = if%lwt flag then f s
+
+(** [log] prints to the first available output channel. It will use caller's
+    [notify_back] argument if provided, falling back to the optional value
+    stored in the global variable [notify_back_ref] and ultimately falling back
+    to [prerr_endline]. *)
+let log ?(debug = true) ?(notify_back : notify_back option)
+    ?(kind = MessageType.Info) s =
+  match (notify_back, !notify_back_ref) with
+  | None, None -> Format.kasprintf (guard debug prerr_endline) s
+  | None, Some notify_back | Some notify_back, _ ->
+      Format.kasprintf
+        (guard debug @@ (notify_back#send_log_msg ~type_:kind >> ignore))
+        s
+
+(** Identical to [log] but returns a unit promise. *)
+let log' ?(debug = true) ?(notify_back : notify_back option)
+    ?(kind = MessageType.Info) s =
+  match (notify_back, !notify_back_ref) with
+  | None, None -> Format.kasprintf (guard debug prerr_endline >> Lwt.return) s
+  | None, Some notify_back | Some notify_back, _ ->
+      Format.kasprintf
+        (guard' (Lwt.return debug) (notify_back#send_log_msg ~type_:kind))
+        s
 
 (** Logging helper that allows to specify a message source that will be
     prepended to every log message.
@@ -99,9 +135,16 @@ let log s = Format.kasprintf prerr_endline s
     Override with a concrete [src] argument like this:
     [let log s = log_src "my_source" s in ..].
 
-    Set the [debug] flag to false to mute the messages from this source. *)
-let log_src ?(debug = true) src s =
-  Format.kasprintf (fun s -> if debug then log "[%s] %s" src s) s
+    Set the [debug] flag to false to mute all messages from this source. *)
+let log_src ?(debug = true) ?notify_back ?kind src s =
+  Format.kasprintf (log ~debug ?notify_back ?kind "[%s] %s" src) s
+
+let log_info = log ~kind:Info
+let log_error = log ~kind:Error
+let log_info' = log' ~kind:Info
+let log_error' = log' ~kind:Error
+
+(******************************************************************************)
 
 let pp_position out
     ({ pos_fname; pos_lnum; pos_bol; pos_cnum } : Lexing.position) =
