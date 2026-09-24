@@ -5,7 +5,9 @@ common_opts := "--format=cjs --platform=node --bundle --external:vscode --extern
 
 default: build
 
-build:
+build: build-extension build-webviews
+
+build-extension:
     esbuild {{ entrypoints }} {{ common_opts }} --sourcemap
 
 build-webviews:

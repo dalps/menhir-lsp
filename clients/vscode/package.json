@@ -98,6 +98,10 @@
     ],
     "commands": [
       {
+        "title": "Menhir: Start Interactive Tokenizer",
+        "command": "menhir-lsp-client.startTokenizer"
+      },
+      {
         "title": "Menhir: Go To Implementation",
         "shortTitle": "Go To Implementation",
         "command": "menhir-lsp-client.gotoImplementation"

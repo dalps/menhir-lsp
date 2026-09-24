@@ -1,6 +1,8 @@
 (library
- (name lexfun))
+ (name lexfun)
+ (flags -w +27))
 
 (ocamllex lexer)
 
-(menhir (modules parser))
+(menhir
+ (modules parser))

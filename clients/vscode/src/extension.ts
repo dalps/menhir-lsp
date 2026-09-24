@@ -1,6 +1,7 @@
 import { exec } from "child_process";
 import * as vscode from "vscode";
 
+import * as path from "path";
 import {
   CancellationToken,
   DocumentUri,
@@ -195,6 +196,39 @@ export function activate(context: vscode.ExtensionContext) {
     serverCmdWithActiveEditor("nextDummyMessage"),
     serverCmdWithActiveEditor("previousMessage"),
     serverCmdWithActiveEditor("previousDummyMessage"),
+    registerCmd("startTokenizer", async () => {
+      const editor = vscode.window.activeTextEditor;
+
+      if (!editor) return;
+
+      const lexers: string[] = await execServerCmd(
+        "startTokenizer", // "listLexers",
+        editor.document.uri.toString(),
+        editor.selection.active,
+      );
+
+      if (lexers.length <= 0) {
+        vscode.window.showErrorMessage(
+          "You need to open at least one .mll file",
+        );
+        return;
+      }
+
+      const selection = await vscode.window.showQuickPick(lexers, {
+        title: "Select the lexer to use",
+      });
+
+      // const qp = vscode.window.createQuickPick();
+      // qp.title = "Select the lexer to use";
+      // qp.items = lexers.map((path) => ({
+      //   label: path.split("/").at(-1) || path,
+      //   detail: path,
+      //   // resourceUri: vscode.Uri.file(path), // Still in proposal stage :(
+      // }));
+      // qp.show();
+
+      // if (!selection) return;
+    }),
   );
 
   //////////////////////////////////////////////////////////////////////////////

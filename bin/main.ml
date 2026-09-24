@@ -17,6 +17,7 @@ let command_dict =
     ("nextDummyMessage", `NextDummyMessage);
     ("previousMessage", `PreviousMessage);
     ("previousDummyMessage", `PreviousDummyMessage);
+    ("startTokenizer", `StartTokenizer);
   ]
 
 let doc_type_of_uri uri : doc_type option =
@@ -335,6 +336,15 @@ class lsp_server =
       | `NextDummyMessage -> focus Msg.next_dummy_message
       | `PreviousMessage -> focus Msg.previous_message
       | `PreviousDummyMessage -> focus Msg.previous_dummy_message
+      | `StartTokenizer ->
+          (* 1. Show a dropdown menu that lets the user select the lexer to use to scan the open editor among the ones defined in the project. The command assumes the open editor is the text file to be scanned and ignores its extension. *)
+          (* After executing the command, the text file will be colorized by the tokenizer. *)
+          notify_back#send_notification
+            (ShowMessage { message = "Starting lexing UI"; type_ = Info });
+          Some
+            (`List
+               (CCHashtbl.keys_list mll_buffers
+               |> L.map (fun k -> `String (Uri.to_path k))))
       | exception _ -> None
 
     method private _on_req_folding_range ~(notify_back : notify_back)
