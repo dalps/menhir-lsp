@@ -88,13 +88,12 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
              (self#with_located
                 ((fun v -> if v then "shortest" else "parse") >> text)
                 shortest)
-           @@ separate_mapi (break 1)
+           @@ separate_mapi hardline
                 (fun i loc ->
                   self#with_located
                     (fun case ->
-                      ifflat empty
-                        (if_ ~then_:(blank 2) ~else_:barspace
-                           (i = 0 && cfg.noLeadingBar))
+                      if_ ~then_:(blank 2) ~else_:barspace
+                        (i = 0 && cfg.noLeadingBar)
                       ^^ self#visit_case () case)
                     loc)
                 clauses;
