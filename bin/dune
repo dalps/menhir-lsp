@@ -11,6 +11,7 @@
   merlin-lib.query_commands
   menhirSyntax
   ocamllexSyntax
+  lex
   menhirformat_lib
   linol
   linol-lwt
@@ -23,4 +24,4 @@
   odoc-parser
   cmarkit)
  ; ocaml-lsp-server doesn't expose any utility library :(
- (flags -w -27))
+ (flags -w -27-10))

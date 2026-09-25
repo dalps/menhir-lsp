@@ -341,10 +341,28 @@ class lsp_server =
           (* After executing the command, the text file will be colorized by the tokenizer. *)
           notify_back#send_notification
             (ShowMessage { message = "Starting lexing UI"; type_ = Info });
-          Some
-            (`List
-               (CCHashtbl.keys_list mll_buffers
-               |> L.map (fun k -> `String (Uri.to_path k))))
+          let entry_points =
+            CCHashtbl.keys_list mll_buffers
+            |> L.filter_map (fun uri ->
+                let open O in
+                let* doc = self#get_text_document uri in
+                let path = Uri.to_path uri in
+                let+ entries, automata =
+                  Lex.Driver.parse_dfa path (TD.text doc)
+                in
+
+                L.map
+                  (fun e ->
+                    `Assoc
+                      [
+                        ("label", `String e.Lex.Lexgen.auto_name);
+                        ("detail", `String path);
+                      ])
+                  entries)
+            |> L.flatten
+          in
+
+          Some (`List entry_points)
       | exception _ -> None
 
     method private _on_req_folding_range ~(notify_back : notify_back)

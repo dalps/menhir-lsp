@@ -1,7 +1,6 @@
 import { exec } from "child_process";
 import * as vscode from "vscode";
 
-import * as path from "path";
 import {
   CancellationToken,
   DocumentUri,
@@ -201,7 +200,7 @@ export function activate(context: vscode.ExtensionContext) {
 
       if (!editor) return;
 
-      const lexers: string[] = await execServerCmd(
+      const lexers: any[] = await execServerCmd(
         "startTokenizer", // "listLexers",
         editor.document.uri.toString(),
         editor.selection.active,
@@ -214,20 +213,66 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      const selection = await vscode.window.showQuickPick(lexers, {
-        title: "Select the lexer to use",
-      });
+      // const selection = await vscode.window.showQuickPick(lexers, {
+      //   title: "Select the lexer to use",
+      // });
 
-      // const qp = vscode.window.createQuickPick();
-      // qp.title = "Select the lexer to use";
-      // qp.items = lexers.map((path) => ({
-      //   label: path.split("/").at(-1) || path,
-      //   detail: path,
-      //   // resourceUri: vscode.Uri.file(path), // Still in proposal stage :(
-      // }));
-      // qp.show();
+      async function setupQuickPick(
+        title: string,
+        items: vscode.QuickPickItem[],
+      ) {
+        const qp = vscode.window.createQuickPick();
+        qp.title = title;
+        // qp.prompt =
+        //   "Select the entry point to use among the lexers opened so far.";
+        // qp.items = lexers;
+        qp.items = items;
 
-      // if (!selection) return;
+        qp.show();
+
+        let selection: vscode.QuickPickItem | undefined;
+
+        qp.onDidChangeActive((item) => (selection = item.at(0)));
+
+        try {
+          await new Promise(
+            (resolve, reject) => (
+              qp.onDidAccept(resolve),
+              qp.onDidHide(() => reject("Cancelled selection."))
+            ),
+          );
+        } catch (error) {
+          console.log(error);
+          selection = undefined;
+        }
+
+        selection && console.log("Picked item: ", selection);
+        return selection;
+      }
+
+      // Ask which lexer rule shall be  run
+      const lexerRule = await setupQuickPick(
+        "Select Lexer Entry Point",
+        lexers.map(({ label, detail }) => ({
+          label: `\$(symbol-function) ${label} · \$(symbol-module) ${detail.split("/").at(-1)! as string}`,
+          description: detail,
+          _name: label,
+          _uri: detail,
+        })),
+      );
+
+      if (!lexerRule) return;
+
+      // Ask where to source input from (you will reuse this function  for parser debugger)
+      const inputSource = await setupQuickPick("Select the text source", [
+        { label: "$(target) Use Active Editor" },
+        { label: "$(file-text) Enter Path To Text File" },
+        { label: "$(pencil) Enter Text" },
+      ]);
+
+      if (!inputSource) return;
+
+      // Start the webview / debugger
     }),
   );
 
