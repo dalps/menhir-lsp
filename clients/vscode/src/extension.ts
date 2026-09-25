@@ -13,6 +13,9 @@ import {
 } from "vscode-languageclient/node";
 import { ASTPanel, getWebviewOptions } from "./astPanel";
 import { activateStatusBar } from "./status";
+import { liftRange, setupQuickPick } from "./utils";
+import { readFileSync } from "fs";
+import path = require("path");
 
 let client: LanguageClient;
 
@@ -195,98 +198,115 @@ export function activate(context: vscode.ExtensionContext) {
     serverCmdWithActiveEditor("nextDummyMessage"),
     serverCmdWithActiveEditor("previousMessage"),
     serverCmdWithActiveEditor("previousDummyMessage"),
-    registerCmd("startTokenizer", async () => {
-      const editor = vscode.window.activeTextEditor;
-
-      if (!editor) return;
-
-      const lexers: any[] = await execServerCmd(
-        "startTokenizer", // "listLexers",
-        editor.document.uri.toString(),
-        editor.selection.active,
-      );
-
-      if (lexers.length <= 0) {
-        vscode.window.showErrorMessage(
-          "You need to open at least one .mll file",
-        );
-        return;
-      }
-
-      // const selection = await vscode.window.showQuickPick(lexers, {
-      //   title: "Select the lexer to use",
-      // });
-
-      async function setupQuickPick(
-        title: string,
-        items: vscode.QuickPickItem[],
-      ) {
-        const qp = vscode.window.createQuickPick();
-        qp.title = title;
-        // qp.prompt =
-        //   "Select the entry point to use among the lexers opened so far.";
-        // qp.items = lexers;
-        qp.items = items;
-
-        qp.show();
-
-        let selection: vscode.QuickPickItem | undefined;
-
-        qp.onDidChangeActive((item) => (selection = item.at(0)));
-
-        try {
-          await new Promise(
-            (resolve, reject) => (
-              qp.onDidAccept(resolve),
-              qp.onDidHide(() => reject("Cancelled selection."))
-            ),
-          );
-        } catch (error) {
-          console.log(error);
-          selection = undefined;
-        }
-
-        selection && console.log("Picked item: ", selection);
-        return selection;
-      }
-
-      // Ask which lexer rule shall be  run
-      const lexerRule = await setupQuickPick(
-        "Select Lexer Entry Point",
-        lexers.map(({ label, detail }) => ({
-          label: `\$(symbol-function) ${label} · \$(symbol-module) ${detail.split("/").at(-1)! as string}`,
-          description: detail,
-          _name: label,
-          _uri: detail,
-        })),
-      );
-
-      if (!lexerRule) return;
-
-      // Ask where to source input from (you will reuse this function  for parser debugger)
-      const inputSource = await setupQuickPick("Select the text source", [
-        { label: "$(target) Use Active Editor" },
-        { label: "$(file-text) Enter Path To Text File" },
-        { label: "$(pencil) Enter Text" },
-      ]);
-
-      if (!inputSource) return;
-
-      // Start the webview / debugger
-    }),
+    registerCmd("startTokenizer", startTokenizerView),
+    registerCmd("startTokenizerWithEditor", () =>
+      startTokenizerView(undefined, { value: InputSourceKind.ActiveEditor }),
+    ),
+    registerCmd("startTokenizerWithRule", (arg) =>
+      startTokenizerView(arg, undefined),
+    ),
   );
 
   //////////////////////////////////////////////////////////////////////////////
 }
 
-export const liftRange = (r: Range): vscode.Range => {
-  let { start, end } = r;
+type LexerRule = { name: string; moduleUri: vscode.Uri };
 
-  return new vscode.Range(
-    new vscode.Position(start.line, start.character),
-    new vscode.Position(end.line, end.character),
-  );
-};
+enum InputSourceKind {
+  ActiveEditor,
+  File,
+  TextBox,
+}
+
+type InputSource = { value: InputSourceKind };
+
+async function startTokenizerView(rule?: LexerRule, source?: InputSource) {
+  let editor = vscode.window.activeTextEditor;
+
+  if (!rule) {
+    const lexers = (
+      await execServerCmd<{ name: string; moduleUri: string }[]>(
+        "listLexerRules",
+      )
+    ).map((res) => ({ ...res, moduleUri: vscode.Uri.parse(res.moduleUri) }));
+
+    if (lexers.length <= 0) {
+      vscode.window.showErrorMessage("You need to open at least one .mll file");
+      return;
+    }
+
+    console.log(lexers);
+
+    // Ask which lexer rule to run
+    rule = await setupQuickPick<LexerRule>(
+      "Select Lexer Entry Point",
+      lexers.map((rule) => {
+        return {
+          label: `\$(symbol-function) ${rule.name} · \$(symbol-module) ${rule.moduleUri.path.split("/").at(-1)}`,
+          description: rule.moduleUri.path,
+          ...rule,
+        };
+      }),
+    );
+  }
+
+  if (!source) {
+    source = await setupQuickPick("Select the input source", [
+      {
+        label: "$(target) Active Editor",
+        value: InputSourceKind.ActiveEditor,
+      },
+      {
+        label: "$(file-text) Read input from a file",
+        value: InputSourceKind.File,
+      },
+      { label: "$(pencil) Enter some text", value: InputSourceKind.TextBox },
+    ]);
+
+    if (!source) return;
+  }
+
+  // vscode.workspace.findFiles
+  let cmd = "startTokenizer";
+
+  switch (source.value) {
+    case InputSourceKind.ActiveEditor:
+      {
+        if (!editor) {
+          vscode.window.showErrorMessage("No active editor found.");
+          return;
+        }
+        const tokens = await execServerCmd(
+          cmd,
+          editor.document.uri,
+          editor.document.getText(),
+          rule,
+        );
+      }
+      break;
+    case InputSourceKind.File:
+      {
+        const uri = (await vscode.window.showOpenDialog())?.at(0);
+
+        if (!uri) return;
+        const content = readFileSync(uri.fsPath, { encoding: "utf8" });
+        execServerCmd(cmd, uri, content, rule);
+      }
+      break;
+
+    case InputSourceKind.TextBox:
+      {
+        const content = await vscode.window.showInputBox({
+          placeHolder: "Enter or paste some text here",
+        });
+        execServerCmd(cmd, undefined, content, rule);
+      }
+      break;
+
+    default:
+      break;
+  }
+}
 
 export function deactivate(): Thenable<void> | undefined {
   if (!client) {

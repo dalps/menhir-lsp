@@ -17,6 +17,7 @@ let command_dict =
     ("nextDummyMessage", `NextDummyMessage);
     ("previousMessage", `PreviousMessage);
     ("previousDummyMessage", `PreviousDummyMessage);
+    ("listLexerRules", `ListLexerRules);
     ("startTokenizer", `StartTokenizer);
   ]
 
@@ -300,7 +301,7 @@ class lsp_server =
       Lwt.return @@ O.get_or ~default:`Null
       @@
       (* All the commands we define carry a uri as the first argument, which we extract right away and exit early if not found. *)
-      let* uri =
+      let uri_of_args args =
         match args with
         | Some (`String uri :: _) -> Some (Uri.of_string uri)
         | _ ->
@@ -309,6 +310,7 @@ class lsp_server =
       in
       (* Helper for handling .messages commands *)
       let focus f =
+        let* uri = uri_of_args args in
         let* pos = pos_of_args args in
         let* state = Hashtbl.find_opt msg_buffers uri in
         let selection = f state ~pos in
@@ -317,10 +319,12 @@ class lsp_server =
       in
       match L.assoc ~eq:String.equal command command_dict with
       | `GetAst ->
+          let* uri = uri_of_args args in
           self#_dispatch uri ~notify_back
             ~mly_handler:(fun state -> Mly.yojson_of_ast state.grammar)
             ~mll_handler:(fun state -> Mll.yojson_of_ast state.grammar)
       | `GotoImplementation ->
+          let* uri = uri_of_args args in
           let pos = pos_of_args args in
           log "Client requested implementation of %a at position %a" pp_uri uri
             (pp_option Position.pp) pos;
@@ -329,6 +333,7 @@ class lsp_server =
             ~mll_handler:(Mll.show_impl ?pos >=> showDoc)
           |> O.flatten
       | `EchoErrors ->
+          let* uri = uri_of_args args in
           let+ state = Hashtbl.find_opt msg_buffers uri in
           let stats = Msg.stats state in
           `String stats
@@ -336,33 +341,43 @@ class lsp_server =
       | `NextDummyMessage -> focus Msg.next_dummy_message
       | `PreviousMessage -> focus Msg.previous_message
       | `PreviousDummyMessage -> focus Msg.previous_dummy_message
-      | `StartTokenizer ->
-          (* 1. Show a dropdown menu that lets the user select the lexer to use to scan the open editor among the ones defined in the project. The command assumes the open editor is the text file to be scanned and ignores its extension. *)
-          (* After executing the command, the text file will be colorized by the tokenizer. *)
-          notify_back#send_notification
-            (ShowMessage { message = "Starting lexing UI"; type_ = Info });
+      | `ListLexerRules ->
           let entry_points =
             CCHashtbl.keys_list mll_buffers
             |> L.filter_map (fun uri ->
                 let open O in
-                let* doc = self#get_text_document uri in
+                (* let* doc = self#get_text_document uri in *)
                 let path = Uri.to_path uri in
                 let+ entries, automata =
-                  Lex.Driver.parse_dfa path (TD.text doc)
+                  Lex.Driver.parse_file path |> R.to_opt
                 in
-
                 L.map
                   (fun e ->
                     `Assoc
                       [
-                        ("label", `String e.Lex.Lexgen.auto_name);
-                        ("detail", `String path);
+                        ("name", `String e.Lex.Lexgen.auto_name);
+                        ("moduleUri", Uri.yojson_of_t uri);
                       ])
                   entries)
             |> L.flatten
           in
-
           Some (`List entry_points)
+      | `StartTokenizer -> (
+          let* source_file = uri_of_args args in
+          let* name, moduleUri =
+            match args with
+            | Some
+                [ _; _; `Assoc [ (_, `String name); (_, `String moduleUri) ] ]
+              ->
+                Some (name, moduleUri)
+            | _ -> None
+          in
+          match Lex.Driver.parse_file (Uri.to_path source_file) with
+          | Ok _ -> failwith "todo"
+          | Error message ->
+              notify_back#send_notification
+                (ShowMessage { message; type_ = Error });
+              None)
       | exception _ -> None
 
     method private _on_req_folding_range ~(notify_back : notify_back)

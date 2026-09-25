@@ -1,8 +1,9 @@
 import * as vscode from "vscode";
 import { Uri } from "vscode";
-import { getAst, liftRange } from "./extension";
+import { getAst } from "./extension";
+import { liftRange } from "./utils";
 import { Range } from "vscode-languageclient";
-import fs from "fs";
+import * as fs from "fs";
 
 const highlightDecorationType = vscode.window.createTextEditorDecorationType({
   backgroundColor: { id: "menhirlsp.astExplorer.highlightColor" },
