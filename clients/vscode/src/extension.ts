@@ -210,7 +210,7 @@ export function activate(context: vscode.ExtensionContext) {
   //////////////////////////////////////////////////////////////////////////////
 }
 
-type LexerRule = { name: string; moduleUri: vscode.Uri };
+type LexerRule = { name: string; moduleUri: string };
 
 enum InputSourceKind {
   ActiveEditor,
@@ -224,11 +224,7 @@ async function startTokenizerView(rule?: LexerRule, source?: InputSource) {
   let editor = vscode.window.activeTextEditor;
 
   if (!rule) {
-    const lexers = (
-      await execServerCmd<{ name: string; moduleUri: string }[]>(
-        "listLexerRules",
-      )
-    ).map((res) => ({ ...res, moduleUri: vscode.Uri.parse(res.moduleUri) }));
+    const lexers = await execServerCmd<LexerRule[]>("listLexerRules");
 
     if (lexers.length <= 0) {
       vscode.window.showErrorMessage("You need to open at least one .mll file");
@@ -242,9 +238,9 @@ async function startTokenizerView(rule?: LexerRule, source?: InputSource) {
       "Select Lexer Entry Point",
       lexers.map((rule) => {
         return {
-          label: `\$(symbol-function) ${rule.name} · \$(symbol-module) ${rule.moduleUri.path.split("/").at(-1)}`,
-          description: rule.moduleUri.path,
           ...rule,
+          label: `\$(symbol-function) ${rule.name} · \$(symbol-module) ${rule.moduleUri.split("/").at(-1)}`,
+          description: rule.moduleUri,
         };
       }),
     );
@@ -278,10 +274,12 @@ async function startTokenizerView(rule?: LexerRule, source?: InputSource) {
         }
         const tokens = await execServerCmd(
           cmd,
-          editor.document.uri,
-          editor.document.getText(),
+          editor.document.uri.toString(),
+          null,
           rule,
         );
+
+        console.log("Tokens received:", tokens);
       }
       break;
     case InputSourceKind.File:
@@ -289,8 +287,10 @@ async function startTokenizerView(rule?: LexerRule, source?: InputSource) {
         const uri = (await vscode.window.showOpenDialog())?.at(0);
 
         if (!uri) return;
-        const content = readFileSync(uri.fsPath, { encoding: "utf8" });
-        execServerCmd(cmd, uri, content, rule);
+        // const content = readFileSync(uri.fsPath, { encoding: "utf8" });
+        const tokens = await execServerCmd(cmd, uri.toString(), null, rule);
+
+        console.log(tokens);
       }
       break;
 
@@ -299,7 +299,7 @@ async function startTokenizerView(rule?: LexerRule, source?: InputSource) {
         const content = await vscode.window.showInputBox({
           placeHolder: "Enter or paste some text here",
         });
-        execServerCmd(cmd, undefined, content, rule);
+        execServerCmd(cmd, null, content, rule);
       }
       break;
 

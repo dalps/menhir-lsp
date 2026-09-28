@@ -3,6 +3,11 @@ open Menhir_lsp_lib
 open Utils
 open Syntax
 
+type rule = { name : string; module_path : string }
+type entrypoint = (string list, location) Lexgen.automata_entry
+type range = Lexing.position * Lexing.position
+type lexer_machine = entrypoint list * Lex.Lexgen.automata array
+
 let debug = false
 let log s = Utils.log_src ~debug "tokenizer" s
 
@@ -55,7 +60,7 @@ let parse_dfa source_name =
 
 let stats source_file =
   let dfa = parse_dfa source_file in
-  let _, arr = Option.get dfa in
+  let _, arr = R.get_exn dfa in
   Array.iteri
     (fun i m ->
       match arr.(0) with
@@ -65,10 +70,6 @@ let stats source_file =
       | _ -> ())
     arr
 
-type rule = { name : string; module_path : string }
-type entrypoint = (string list, location) Lexgen.automata_entry
-type range = Lexing.position * Lexing.position
-
 module Token = struct
   type t = { text : string; loc : range }
 
@@ -77,6 +78,13 @@ module Token = struct
       Lexing.sub_lexeme lexbuf lexbuf.lex_start_pos lexbuf.lex_curr_pos
     in
     { text; loc = Lexing.(lexeme_start_p lexbuf, lexeme_end_p lexbuf) }
+
+  let yojson_of_t ({ text; loc } : t) : Yojson.Safe.t =
+    `Assoc
+      [
+        ("text", `String text);
+        ("loc", Range.(of_lexical_positions loc |> yojson_of_t));
+      ]
 end
 
 let eof = 0x100
@@ -177,3 +185,10 @@ let rec tokenize (lexbuf : Lexing.lexbuf) (entrypoint : entrypoint)
       log "%B eof reached" lexbuf.lex_eof_reached;
       List.rev tokens)
     else tokenize lexbuf entrypoint automata tokens
+
+let tokenize ~start_rule_idx lexbuf (entrypoints, auto) =
+  tokenize lexbuf (List.nth entrypoints start_rule_idx) auto []
+
+let tokenize_to_json i l a : Yojson.Safe.t =
+  let res = tokenize ~start_rule_idx:i l a in
+  `List (L.map Token.yojson_of_t res)

@@ -1,5 +1,5 @@
 (library
- (name lexfun)
+ (name lex)
  (flags -w +27))
 
 (ocamllex lexer)

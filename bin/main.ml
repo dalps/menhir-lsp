@@ -363,20 +363,53 @@ class lsp_server =
           in
           Some (`List entry_points)
       | `StartTokenizer -> (
-          let* source_file = uri_of_args args in
-          let* name, moduleUri =
+          let open Lex in
+          let open Tokenizer in
+          let* text_source = uri_of_args args in
+          let* rule_name, mll_uri =
             match args with
             | Some
-                [ _; _; `Assoc [ (_, `String name); (_, `String moduleUri) ] ]
-              ->
-                Some (name, moduleUri)
+                [
+                  _;
+                  _;
+                  `Assoc ((_, `String name) :: (_, `String moduleUri) :: _);
+                  (* Don't use a fixed-length pattern for the dictionary (there's QuickPickItem fields too) *)
+                ] ->
+                Some (name, Uri.of_string moduleUri)
             | _ -> None
           in
-          match Lex.Driver.parse_file (Uri.to_path source_file) with
-          | Ok _ -> failwith "todo"
+          let mll_path = Uri.to_path mll_uri in
+          let notify_error fmt =
+            Format.kasprintf
+              (fun message ->
+                notify_back#send_notification
+                  (ShowMessage { message; type_ = Error }))
+              fmt
+          in
+          match Lex.Driver.parse_file mll_path with
+          | Ok ((entrypoints, _) as lexer) -> (
+              let* start_rule_idx, _ =
+                match
+                  L.find_idx
+                    (fun e -> String.equal e.Lexgen.auto_name rule_name)
+                    entrypoints
+                with
+                | None ->
+                    notify_error "`%s` is not a rule of %s." rule_name mll_path;
+                    None
+                | res -> res
+              in
+              try
+                In_channel.with_open_text (Uri.to_path text_source) (fun ic ->
+                    let lexbuf = Lexing.from_channel ic in
+                    let tokens = tokenize ~start_rule_idx lexbuf lexer in
+                    `List (L.map Token.yojson_of_t tokens) |> some)
+              with _ ->
+                notify_error "Could not open text source %s"
+                  (Uri.to_path text_source);
+                None)
           | Error message ->
-              notify_back#send_notification
-                (ShowMessage { message; type_ = Error });
+              notify_error "Error parsing %s: %s" mll_path message;
               None)
       | exception _ -> None
 
