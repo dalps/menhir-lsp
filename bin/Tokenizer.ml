@@ -71,15 +71,15 @@ let stats source_file =
     arr
 
 module Token = struct
-  type t = { text : string; loc : range }
+  type t = { text : string; loc : range; action : int }
 
-  let make (lexbuf : Lexing.lexbuf) : t =
+  let make (lexbuf : Lexing.lexbuf) action : t =
     let text =
       Lexing.sub_lexeme lexbuf lexbuf.lex_start_pos lexbuf.lex_curr_pos
     in
-    { text; loc = Lexing.(lexeme_start_p lexbuf, lexeme_end_p lexbuf) }
+    { text; loc = Lexing.(lexeme_start_p lexbuf, lexeme_end_p lexbuf); action }
 
-  let yojson_of_t ({ text; loc } : t) : Yojson.Safe.t =
+  let yojson_of_t ({ text; loc; action } : t) : Yojson.Safe.t =
     let range = Range.of_lexical_positions loc |> Range.yojson_of_t in
     let start, end_ =
       CCPair.map_same (fun (pos : Lexing.position) -> pos.pos_cnum) loc
@@ -89,6 +89,7 @@ module Token = struct
         ("range", range);
         ("rawRange", `List [ `Int start; `Int end_ ]);
         ("text", `String text);
+        ("action", `Int action);
       ]
 end
 
@@ -182,10 +183,10 @@ let rec tokenize (lexbuf : Lexing.lexbuf) (entrypoint : entrypoint)
     end
   end;
 
-  if action < 0 then List.rev tokens
+  if action < 0 then List.rev tokens (* Exception: empty token. Produce a special kind of token. *)
   else
-    let tokens = Token.make lexbuf :: tokens in
-    (* Don't use lexbuf.lex_eof_reached, it's always true *)
+    let tokens = Token.make lexbuf action :: tokens in
+    (* Don't use lexbuf.lex_eof_reached, it's always true when using [Lexing.from_string] *)
     if lexbuf.lex_eof_reached then (
       log "%B eof reached" lexbuf.lex_eof_reached;
       List.rev tokens)

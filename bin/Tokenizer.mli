@@ -8,9 +8,9 @@ type lexer_machine = entrypoint list * Lex.Lexgen.automata array
 val parse_dfa : string -> (lexer_machine, string) result
 
 module Token : sig
-  type t = { text : string; loc : range }
+  type t = { text : string; loc : range; action: int }
 
-  val make : Lexing.lexbuf -> t
+  val make : Lexing.lexbuf -> int -> t
   val yojson_of_t : t -> Yojson.Safe.t
 end
 

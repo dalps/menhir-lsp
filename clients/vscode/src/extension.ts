@@ -225,6 +225,7 @@ interface Token {
   range: Range;
   rawRange: RawRange;
   text: string;
+  action: number;
 }
 
 async function startTokenizerView(rule?: LexerRule, source?: InputSource) {
@@ -287,6 +288,10 @@ async function startTokenizerView(rule?: LexerRule, source?: InputSource) {
         );
 
         highlightTokens(editor, tokens);
+
+        vscode.workspace.onDidChangeTextDocument(e => {
+          
+        })
       }
       break;
     case InputSourceKind.File:
@@ -328,7 +333,16 @@ function highlightTokens(editor: vscode.TextEditor, tokens: Token[]) {
   //   tokens.map((t) => liftRange(t.range)),
   // );
 
-  tokens.forEach((t) => {
+  // Classify the tokens by the action that produced them and associate
+  const classes: Map<number, Token[]> = new Map();
+
+  tokens.forEach((t) =>
+    classes.has(t.action)
+      ? classes.get(t.action)!.push(t)
+      : classes.set(t.action, [t]),
+  );
+
+  classes.forEach((ts) => {
     const color = `rgb(${rand(127, 255)},${rand(127, 255)},${rand(127, 255)})`;
 
     const deco = vscode.window.createTextEditorDecorationType({
@@ -344,7 +358,13 @@ function highlightTokens(editor: vscode.TextEditor, tokens: Token[]) {
 
     decos.push(deco);
 
-    editor.setDecorations(deco, [liftRange(t.range)]);
+    editor.setDecorations(
+      deco,
+      ts.map((t) => ({
+        range: liftRange(t.range),
+        hoverMessage: `$(pencil) Go to lexer action`,
+      })),
+    );
   });
 }
 
