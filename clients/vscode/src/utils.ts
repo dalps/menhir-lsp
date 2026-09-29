@@ -10,6 +10,7 @@ export const liftRange = (r: Range): vscode.Range => {
     new vscode.Position(end.line, end.character),
   );
 };
+
 export async function setupQuickPick<T = unknown>(
   title: string,
   items: (vscode.QuickPickItem & T)[],
@@ -44,4 +45,18 @@ export async function setupQuickPick<T = unknown>(
 
   selection && console.log("Picked item: ", selection);
   return selection satisfies vscode.QuickPickItem | undefined;
+}
+
+export const rand = (min: number, max: number) => lerp(min, max, Math.random());
+
+export function pickRandom(...options: any[]): any {
+  return options[Math.floor(Math.random() * options.length)];
+}
+
+export function clamp(min: number, max: number, n: number) {
+  return Math.max(min, Math.min(n, max));
+}
+
+export function lerp(min: number, max: number, t: number) {
+  return min * (1 - t) + max * t;
 }

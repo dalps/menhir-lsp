@@ -13,9 +13,10 @@ import {
 } from "vscode-languageclient/node";
 import { ASTPanel, getWebviewOptions } from "./astPanel";
 import { activateStatusBar } from "./status";
-import { liftRange, setupQuickPick } from "./utils";
+import { liftRange, rand, setupQuickPick } from "./utils";
 import { readFileSync } from "fs";
 import path = require("path");
+import { RawRange } from "./webviews/ast/types";
 
 let client: LanguageClient;
 
@@ -220,6 +221,12 @@ enum InputSourceKind {
 
 type InputSource = { value: InputSourceKind };
 
+interface Token {
+  range: Range;
+  rawRange: RawRange;
+  text: string;
+}
+
 async function startTokenizerView(rule?: LexerRule, source?: InputSource) {
   let editor = vscode.window.activeTextEditor;
 
@@ -272,14 +279,14 @@ async function startTokenizerView(rule?: LexerRule, source?: InputSource) {
           vscode.window.showErrorMessage("No active editor found.");
           return;
         }
-        const tokens = await execServerCmd(
+        const tokens: Token[] = await execServerCmd(
           cmd,
           editor.document.uri.toString(),
           null,
           rule,
         );
 
-        console.log("Tokens received:", tokens);
+        highlightTokens(editor, tokens);
       }
       break;
     case InputSourceKind.File:
@@ -306,6 +313,39 @@ async function startTokenizerView(rule?: LexerRule, source?: InputSource) {
     default:
       break;
   }
+}
+
+let decos: vscode.TextEditorDecorationType[] = [];
+
+function highlightTokens(editor: vscode.TextEditor, tokens: Token[]) {
+  // Clear the old decorations
+  decos.forEach((d) => editor.setDecorations(d, []));
+  decos = [];
+
+  // Bad: vscode merges distinct ranges of the same decoration type
+  // editor.setDecorations(
+  //   deco,
+  //   tokens.map((t) => liftRange(t.range)),
+  // );
+
+  tokens.forEach((t) => {
+    const color = `rgb(${rand(127, 255)},${rand(127, 255)},${rand(127, 255)})`;
+
+    const deco = vscode.window.createTextEditorDecorationType({
+      backgroundColor: color,
+      outlineColor: "blue",
+      outlineWidth: "2px",
+      borderSpacing: "2px",
+      borderRadius: "5px",
+      borderColor: "black",
+      borderWidth: "1px",
+      border: "solid",
+    });
+
+    decos.push(deco);
+
+    editor.setDecorations(deco, [liftRange(t.range)]);
+  });
 }
 
 export function deactivate(): Thenable<void> | undefined {
