@@ -77,7 +77,10 @@ module Token = struct
     let text =
       Lexing.sub_lexeme lexbuf lexbuf.lex_start_pos lexbuf.lex_curr_pos
     in
-    { text; loc = Lexing.(lexeme_start_p lexbuf, lexeme_end_p lexbuf); action }
+    let startp = Lexing.lexeme_start_p lexbuf in
+    if String.contains text '\n' then Lexing.new_line lexbuf;
+    let endp = Lexing.lexeme_end_p lexbuf in
+    { text; loc = (startp, endp); action }
 
   let yojson_of_t ({ text; loc; action } : t) : Yojson.Safe.t =
     let range = Range.of_lexical_positions loc |> Range.yojson_of_t in
@@ -140,7 +143,6 @@ let rec token automata lexbuf _buf _len _curr _last (state, last_action) =
       log "shift '%s' %d"
         (if next_char = eof then "eof" else Char.(escaped (chr next_char)))
         last_action;
-      if next_char = Char.code '\n' then Lexing.new_line lexbuf;
       match fst trans.(next_char) with
       | Lexgen.Backtrack ->
           log "backtrack";
