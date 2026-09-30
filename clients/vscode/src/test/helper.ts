@@ -43,7 +43,8 @@ export async function setTestContent(content: string): Promise<boolean> {
   return editor.edit((eb) => eb.replace(all, content));
 }
 
-export const uriEqual = (u1: Uri, u2: Uri) => u1.path === u2.path;
+export const uriEqual = (u1: Uri, u2: Uri) =>
+  u1.scheme === u2.scheme && u1.path === u2.path;
 export const rangeEqual = (r1: Range, r2: Range) => r1.isEqual(r2);
 
 /** Helper to specify one-based editor positions concisely. */

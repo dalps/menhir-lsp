@@ -13,7 +13,7 @@ import {
 } from "vscode-languageclient/node";
 import { ASTPanel, getWebviewOptions } from "./astPanel";
 import { activateStatusBar } from "./status";
-import { liftRange, rand, setupQuickPick } from "./utils";
+import { liftRange, rand, setupQuickPick, uriEqual } from "./utils";
 import { readFileSync } from "fs";
 import path = require("path");
 import { RawRange } from "./webviews/ast/types";
@@ -280,18 +280,25 @@ async function startTokenizerView(rule?: LexerRule, source?: InputSource) {
           vscode.window.showErrorMessage("No active editor found.");
           return;
         }
-        const tokens: Token[] = await execServerCmd(
-          cmd,
-          editor.document.uri.toString(),
-          null,
-          rule,
-        );
+        const updateUI = async () => {
+          const tokens: Token[] = await execServerCmd(
+            cmd,
+            editor.document.uri.toString(),
+            null,
+            rule,
+          );
 
-        highlightTokens(editor, tokens);
+          highlightTokens(editor, tokens);
+        };
 
-        vscode.workspace.onDidChangeTextDocument(e => {
-          
-        })
+        vscode.workspace.onDidChangeTextDocument(async (e) => {
+          console.log(e.reason);
+          if (!uriEqual(e.document.uri, editor.document.uri)) return;
+
+          updateUI();
+        });
+
+        updateUI();
       }
       break;
     case InputSourceKind.File:
@@ -343,17 +350,20 @@ function highlightTokens(editor: vscode.TextEditor, tokens: Token[]) {
   );
 
   classes.forEach((ts) => {
-    const color = `rgb(${rand(127, 255)},${rand(127, 255)},${rand(127, 255)})`;
+    const color = `rgba(${rand(127, 255)},${rand(127, 255)},${rand(127, 255)}, 0.5)`;
 
     const deco = vscode.window.createTextEditorDecorationType({
       backgroundColor: color,
-      outlineColor: "blue",
-      outlineWidth: "2px",
-      borderSpacing: "2px",
+      // outlineColor: color,
+      // outlineStyle: "solid",
+      // outlineWidth: "2px",
+      borderSpacing: "10px",
       borderRadius: "5px",
-      borderColor: "black",
-      borderWidth: "1px",
+      borderColor: color,
+      borderWidth: "2px",
       border: "solid",
+
+      rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
     });
 
     decos.push(deco);
@@ -362,7 +372,33 @@ function highlightTokens(editor: vscode.TextEditor, tokens: Token[]) {
       deco,
       ts.map((t) => ({
         range: liftRange(t.range),
-        hoverMessage: `$(pencil) Go to lexer action`,
+        renderOptions: {
+          dark: {
+            after: { color: "#888" },
+          },
+          after:
+            t.text === "eof"
+              ? { contentText: t.text, color: "#ccc", fontStyle: "italic" }
+              : t.action === -1
+                ? {
+                    contentText: "error",
+                    color: "red",
+                    fontStyle: "bold",
+                  }
+                : {},
+        },
+        hoverMessage: new vscode.MarkdownString(
+          t.action === -1
+            ? `Unhandled character \`"${t.text}"\``
+            : `\`\`\`
+"${t.text}"
+\`\`\`
+
+---
+
+$(target) Go to action ${t.action}`,
+          true,
+        ),
       })),
     );
   });

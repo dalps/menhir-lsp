@@ -1,6 +1,8 @@
 import * as vscode from "vscode";
-import * as vscode from "vscode";
 import { Range } from "vscode-languageclient";
+
+export const uriEqual = (u1: vscode.Uri, u2: vscode.Uri) =>
+  u1.scheme === u2.scheme && u1.path === u2.path;
 
 export const liftRange = (r: Range): vscode.Range => {
   let { start, end } = r;

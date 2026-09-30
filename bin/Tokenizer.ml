@@ -75,7 +75,8 @@ module Token = struct
 
   let make (lexbuf : Lexing.lexbuf) action : t =
     let text =
-      Lexing.sub_lexeme lexbuf lexbuf.lex_start_pos lexbuf.lex_curr_pos
+      if lexbuf.lex_eof_reached then "eof"
+      else Lexing.sub_lexeme lexbuf lexbuf.lex_start_pos lexbuf.lex_curr_pos
     in
     let startp = Lexing.lexeme_start_p lexbuf in
     if String.contains text '\n' then Lexing.new_line lexbuf;
@@ -185,14 +186,17 @@ let rec tokenize (lexbuf : Lexing.lexbuf) (entrypoint : entrypoint)
     end
   end;
 
-  if action < 0 then List.rev tokens (* Exception: empty token. Produce a special kind of token. *)
-  else
-    let tokens = Token.make lexbuf action :: tokens in
-    (* Don't use lexbuf.lex_eof_reached, it's always true when using [Lexing.from_string] *)
-    if lexbuf.lex_eof_reached then (
-      log "%B eof reached" lexbuf.lex_eof_reached;
-      List.rev tokens)
-    else tokenize lexbuf entrypoint automata tokens
+  let tok = Token.make lexbuf action in
+  let tokens = tok :: tokens in
+
+  if action < 0 then (
+    (* Exception: empty token. We are interested in this event so we still produce a token (with empty text and action of -1) which we treat specially in the UI. *)
+    log "empty token found";
+    List.rev tokens)
+  else if lexbuf.lex_eof_reached then (
+    log "%B eof reached" lexbuf.lex_eof_reached;
+    List.rev tokens)
+  else tokenize lexbuf entrypoint automata tokens
 
 let tokenize ~start_rule_idx lexbuf (entrypoints, auto) =
   tokenize lexbuf (List.nth entrypoints start_rule_idx) auto []
