@@ -93,6 +93,7 @@ and main = lexer_definition
   visitors { name = "ast_map"; variety = "map"; polymorphic = true },
   visitors { name = "ast_reduce"; variety = "reduce"; polymorphic = true },
   visitors { name = "ast_iter"; variety = "iter"; polymorphic = true },
+  visitors { name = "ast_iter2"; variety = "iter2"; polymorphic = true },
   visitors { name = "ast_endo"; variety = "endo"; polymorphic = true }]
 
 (* Also tried:

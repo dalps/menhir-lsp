@@ -405,7 +405,7 @@ lax_actual:
       }
     |}]
 
-let%expect_test "It preserves byte escape sequences (e.g. ANSI color codes)" =
+let http_demo =
   {|%{ open Utils %}
 
 %token <string> TEXT
@@ -452,7 +452,9 @@ let header :=
     field = TEXT; COLON; value = TEXT; CRLF; {
       (* log "\x1b[1;34mParsed header\x1b[0m"; *)
        field, value }|}
-  |> format |> format |> helper;
+
+let%expect_test "It preserves byte escape sequences (e.g. ANSI color codes)" =
+  http_demo |> format |> format |> helper;
   [%expect
     {|
     %{ open Utils %}
@@ -596,17 +598,20 @@ expr:
     | MINUS e = expr %prec UMINUS { -e }
     |}]
 
-let%expect_test "Formatting of empty production" =
-  helper
-    ~config:{ default_config with indentOnce = true; noLeadingBar = true }
-    {|%%
+let inp = {|%%
 
 %inline assignation:
     |
     | LET
     | SET {}
-|};
-  [%expect {|
+|}
+
+let%expect_test "Formatting of empty production" =
+  helper
+    ~config:{ default_config with indentOnce = true; noLeadingBar = true }
+    inp;
+  [%expect
+    {|
     %%
 
     %inline assignation:
@@ -614,3 +619,20 @@ let%expect_test "Formatting of empty production" =
       | LET
       | SET {  }
     |}]
+
+open Ast_equality
+
+let%test "Formatted AST equals original AST" =
+  let samples = [ inp; calc_demo; http_demo ] in
+  let failures =
+    L.filter_mapi
+      (fun i s ->
+        let b = test_mly_string s in
+        if b then None
+        else (
+          log "AST equality failed for input #%d:\n\x1b[2;36m%s\x1b[0m\n"
+            (i + 1) s;
+          Some (i, s)))
+      samples
+  in
+  failures = []
