@@ -15,6 +15,10 @@ end
 
 include Comment_location.Make (S)
 
+let is_empty_production
+    ((producers, _, _) : MenhirSyntax.Syntax.early_production) =
+  producers = []
+
 class formatter ({ tabsize; _ } as cfg : Config.t) =
   let open MenhirSyntax.Syntax in
   let tabsize = max 2 tabsize in
@@ -246,10 +250,7 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
 
     method private visit_old_rule_branches branches =
       separate_mapi hardline
-        (fun i ->
-          self#with_located (fun branch ->
-              (if i = 0 && cfg.noLeadingBar then blank 2 else barspace)
-              ^^ self#visit_parameterized_branch () branch))
+        (fun i -> self#with_located (self#visit_parameterized_branch' i ()))
         branches
 
     method! visit_early_production =
@@ -259,18 +260,31 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
           producers
         ^/^ self#visit_prec_annotation () prec_annotation
 
-    method! visit_parameterized_branch =
-      fun _ { pb_productions; pb_action; pb_prec_annotation; pb_attributes } ->
-        nest tabsize @@ group
-        @@ separate_map (hardline ^^ barspace)
-             (self#with_located (self#visit_early_production ()))
-             pb_productions
-        ^/^ separate (break 1)
-              [
-                self#with_located (self#visit_action ()) pb_action;
-                self#visit_prec_annotation () pb_prec_annotation;
-                self#visit_attributes () pb_attributes;
-              ]
+    (* Every branch carries a list of productions and one action.
+
+    Extra care must be taken when the first production of the first branch
+    is the empty production (one with nil as the list of producers) and the
+    [noLeadingBar] option is turned on: we never want to omit the leading
+    vertical bar in this case. *)
+    method private visit_parameterized_branch' branch_idx _
+        { pb_productions; pb_action; pb_prec_annotation; pb_attributes } =
+      separate_mapi hardline
+        (fun idx ep ->
+          (if
+             cfg.noLeadingBar && branch_idx = 0 && idx = 0
+             && not (is_empty_production ep.v)
+           then blank 2
+           else barspace)
+          ^^ nest tabsize @@ group
+          @@ self#with_located (self#visit_early_production ()) ep)
+        pb_productions
+      ^-^ nest tabsize @@ group
+      @@ separate (break 1)
+           [
+             self#with_located (self#visit_action ()) pb_action;
+             self#visit_prec_annotation () pb_prec_annotation;
+             self#visit_attributes () pb_attributes;
+           ]
 
     method private visit_ocaml (code : string) : document =
       Ocamlformat_client.main code |> align

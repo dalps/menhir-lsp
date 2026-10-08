@@ -203,10 +203,10 @@ declaration:
     | FOO k = list(FOO) { $loc(k), $endpos(k), $sloc, $startpos(k) }
 
     declaration:
-    | h = HEADER /* lexically delimited by %{ ... %} */
-      { locate' $loc @@ DCode h |> singleton }
-    | k = priority_keyword ss = clist(symbol)
-      {
+    | h = HEADER /* lexically delimited by %{ ... %} */ {
+        locate' $loc @@ DCode h |> singleton
+      }
+    | k = priority_keyword ss = clist(symbol) {
         let _ = ($loc, $sloc) in
         let prec = ParserAux.new_precedence_level $loc(k) in
         locate' $loc(k) @@ DTokenProperties (ss, k, prec) |> singleton
@@ -259,12 +259,13 @@ declaration:
     %%
 
     declaration:
-    | h = HEADER /* lexically delimited by %{ ... %} */
-      { locate' $loc @@ DCode h |> singleton }
-    | TOKEN ty = option(ocamltype) ts = clist(terminal_alias_attrs)
-      { locate' $loc @@ DToken (ty, ts) |> singleton } (* [menhir-lsp] Turned into a singleton. *)
-    | START t = option(ocamltype) nts = clist(nonterminal)
-      /* %start <ocamltype> foo is syntactic sugar for %start foo %type <ocamltype> foo */
+    | h = HEADER /* lexically delimited by %{ ... %} */ {
+        locate' $loc @@ DCode h |> singleton
+      }
+    | TOKEN ty = option(ocamltype) ts = clist(terminal_alias_attrs) {
+        locate' $loc @@ DToken (ty, ts) |> singleton
+      } (* [menhir-lsp] Turned into a singleton. *)
+    | START t = option(ocamltype) nts = clist(nonterminal) /* %start <ocamltype> foo is syntactic sugar for %start foo %type <ocamltype> foo */
 
       (* [menhir-lsp] desugared. *)
       { locate' $loc @@ DStart (t, nts) |> singleton }
@@ -331,12 +332,11 @@ reserved_word:
     %%
 
     reserved_word:
-    | FUNCTIONBLOCK
-      (* Keywords cannot be identifiers but it is nice to
-        let them parse as such to provide a better error *)
-      { "functions", $loc, false }
-    | FUNCTIONBLOCK
-      {
+    | FUNCTIONBLOCK (* Keywords cannot be identifiers but it is nice to
+        let them parse as such to provide a better error *) {
+        "functions", $loc, false
+      }
+    | FUNCTIONBLOCK {
         let module = ()
         (* Keywords cannot be identifiers but it is nice to
         let them parse as such to provide a better error *)
@@ -378,13 +378,13 @@ lax_actual:
 
     %inline generic_actual(A, B):
     (* 1- *)
-      symbol = symbol actuals = plist(A)
-      {
+      symbol = symbol actuals = plist(A) {
         locate' (startp symbol, $endpos(actuals)) @@ Parameter.apply symbol actuals
       }
     (* 2- *)
-    | p = B m = located(modifier)
-      { locate' $loc @@ Parameter.apply m [ p ] }
+    | p = B m = located(modifier) {
+        locate' $loc @@ Parameter.apply m [ p ]
+      }
 
     strict_actual:
       p = generic_actual(strict_actual, strict_actual) { p }
@@ -397,12 +397,12 @@ lax_actual:
         lax_actual,
         /* cannot be lax_ */
         actual
-      )
-      { p }
+      ) { p }
     (* 3- *)
     | /* leading bar disallowed */
-      branches = located(branches)
-      { locate' $loc @@ ParamAnonymous branches }
+      branches = located(branches) {
+        locate' $loc @@ ParamAnonymous branches
+      }
     |}]
 
 let%expect_test "It preserves byte escape sequences (e.g. ANSI color codes)" =
@@ -594,4 +594,23 @@ expr:
     | e1 = expr TIMES e2 = expr { e1 * e2 }
     | e1 = expr DIV e2 = expr { e1 / e2 }
     | MINUS e = expr %prec UMINUS { -e }
+    |}]
+
+let%expect_test "Formatting of empty production" =
+  helper
+    ~config:{ default_config with indentOnce = true; noLeadingBar = true }
+    {|%%
+
+%inline assignation:
+    |
+    | LET
+    | SET {}
+|};
+  [%expect {|
+    %%
+
+    %inline assignation:
+      |
+      | LET
+      | SET {  }
     |}]
