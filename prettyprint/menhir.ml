@@ -50,32 +50,6 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
     method private visit_declarations (decls : declaration located list) :
         document =
       let open DBuckets in
-      (* ugly *)
-      let buckets =
-        L.fold_right
-          (fun (d : declaration located) (acc : DBuckets.t) ->
-            (* used destruct + multiline editing here *)
-            match d.v with
-            | DCode _ -> { acc with dCode = d :: acc.dCode }
-            | DParameter _ -> { acc with dParameter = d :: acc.dParameter }
-            | DToken _ -> { acc with dToken = d :: acc.dToken }
-            | DStart _ -> { acc with dStart = d :: acc.dStart }
-            | DTokenProperties _ ->
-                { acc with dTokenProperties = d :: acc.dTokenProperties }
-            | DType _ -> { acc with dType = d :: acc.dType }
-            | DGrammarAttribute _ ->
-                { acc with dGrammarAttribute = d :: acc.dGrammarAttribute }
-            | DSymbolAttributes _ ->
-                { acc with dSymbolAttributes = d :: acc.dSymbolAttributes }
-            | DOnErrorReduce _ ->
-                { acc with dOnErrorReduce = d :: acc.dOnErrorReduce }
-            | DDefaultMergeFunction _ ->
-                {
-                  acc with
-                  dDefaultMergeFunction = d :: acc.dDefaultMergeFunction;
-                })
-          decls DBuckets.init
-      in
       let v =
         object
           inherit [_] buckets_reduce
@@ -87,7 +61,7 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
               (self#with_located (super#visit_declaration ()))
         end
       in
-      v#visit_t () buckets
+      v#visit_t () (from_declarations decls)
 
     method! visit_DTokenProperties =
       fun _ located associativity _precedence_level ->

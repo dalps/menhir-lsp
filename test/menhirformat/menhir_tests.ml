@@ -167,9 +167,8 @@ let expr := expr; BAR; expr; <Bar> | FOO; <Foo>
       | FOO; <Foo>
     |}]
 
-let%expect_test "It preserves $'s and position keywords in semantic actions" =
-  helper
-    {|%token FOO
+let dollar_demo =
+  {|%token FOO
 
 %start <int, Lexing.position> main
 
@@ -187,7 +186,10 @@ declaration:
       let _ = $loc, $sloc in
       let prec = ParserAux.new_precedence_level $loc(k) in
       locate' $loc(k) @@ DTokenProperties (ss, k, prec) |> singleton }
-|};
+|}
+
+let%expect_test "It preserves $'s and position keywords in semantic actions" =
+  helper dollar_demo;
   [%expect
     {|
     %token FOO
@@ -344,10 +346,8 @@ reserved_word:
       }
     |}]
 
-let%expect_test "Formatting of parameterized rules" =
-  helper
-    ~config:{ default_config with noLeadingBar = true }
-    {|%%
+let rules_demo =
+  {|%%
 
 %inline generic_actual(A, B):
 (* 1- *)
@@ -371,7 +371,10 @@ lax_actual:
 (* 3- *)
 | /* leading bar disallowed */
   branches = located(branches)
-    { locate' $loc @@ ParamAnonymous branches }|};
+    { locate' $loc @@ ParamAnonymous branches }|}
+
+let%expect_test "Formatting of parameterized rules" =
+  helper ~config:{ default_config with noLeadingBar = true } rules_demo;
   [%expect
     {|
     %%
@@ -509,7 +512,7 @@ let%expect_test "It preserves byte escape sequences (e.g. ANSI color codes)" =
       { (* log "\x1b[1;34mParsed header\x1b[0m"; *) field, value }
     |}]
 
-let%expect_test "Formatting of parser parametrized by a module" =
+let param_demo =
   {|
 (* Taken from https://github.com/LexiFi/menhir/blob/master/demos/calc-param/parser.mly *)
 %parameter<Semantics : sig
@@ -557,7 +560,9 @@ expr:
     { e1 / e2 }
 | MINUS e = expr %prec UMINUS
     { - e } |}
-  |> format |> format |> format |> format |> helper;
+
+let%expect_test "Formatting of parser parametrized by a module" =
+  param_demo |> format |> format |> format |> format |> helper;
   [%expect
     {|
     (* Taken from https://github.com/LexiFi/menhir/blob/master/demos/calc-param/parser.mly *)
@@ -622,16 +627,23 @@ let%expect_test "Formatting of empty production" =
 
 open Ast_equality
 
-let%test "Formatted AST equals original AST" =
-  let samples = [ inp; calc_demo; http_demo ] in
+let%test "Formatted AST is equivalent to original AST" =
+  let samples =
+    [ inp; calc_demo; http_demo; rules_demo; dollar_demo; param_demo ]
+  in
   let failures =
     L.filter_mapi
       (fun i s ->
+        let i = succ i in
         let b = test_mly_string s in
-        if b then None
+        if b then (
+          log "\x1b[0;32mast equality test #%d: OK\x1b[0m" i;
+          None)
         else (
-          log "AST equality failed for input #%d:\n\x1b[2;36m%s\x1b[0m\n"
-            (i + 1) s;
+          log
+            "\x1b[1;31mast equality test #%d: failed\x1b[0m\n\
+             \x1b[2;30m%s\x1b[0m\n"
+            i s;
           Some (i, s)))
       samples
   in
