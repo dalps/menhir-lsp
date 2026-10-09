@@ -294,8 +294,8 @@ and rule = Old of old_rule located | New of new_rule located
 
 (**A declaration. (Only before joining.) *)
 and declaration =
-  | DCode of string located  (**Raw OCaml code. *)
-  | DParameter of string located  (**Raw OCaml functor parameter. *)
+  | DCode of (string[@opaque]) located  (**Raw OCaml code. *)
+  | DParameter of (string[@opaque]) located  (**Raw OCaml functor parameter. *)
   | DToken of
       ocamltype option * (terminal located * alias * attributes) located list
       (**Terminal symbol (token) declaration. *)
@@ -333,6 +333,7 @@ and main = partial_grammar
   visitors { name = "ast_map"; variety = "map"; polymorphic = true },
   visitors { name = "ast_reduce"; variety = "reduce"; polymorphic = true },
   visitors { name = "ast_iter"; variety = "iter"; polymorphic = true },
+  visitors { name = "ast_iter2"; variety = "iter2"; polymorphic = true },
   visitors { name = "ast_endo"; variety = "endo"; polymorphic = true }]
 
 (* -------------------------------------------------------------------------- *)
@@ -385,6 +386,13 @@ module DBuckets = struct
         variety = "reduce";
         polymorphic = true;
         ancestors = [ "ast_reduce" ];
+      },
+    visitors
+      {
+        name = "buckets_iter2";
+        variety = "iter2";
+        polymorphic = true;
+        ancestors = [ "ast_iter2" ];
       }]
 
   let init : t =
@@ -400,4 +408,26 @@ module DBuckets = struct
       dOnErrorReduce = [];
       dDefaultMergeFunction = [];
     }
+
+  let from_declarations (decls : declaration located list) =
+    List.fold_right
+      (fun (d : declaration located) (acc : t) ->
+        (* used destruct + multiline editing to make this monster *)
+        match d.v with
+        | DCode _ -> { acc with dCode = d :: acc.dCode }
+        | DParameter _ -> { acc with dParameter = d :: acc.dParameter }
+        | DToken _ -> { acc with dToken = d :: acc.dToken }
+        | DStart _ -> { acc with dStart = d :: acc.dStart }
+        | DTokenProperties _ ->
+            { acc with dTokenProperties = d :: acc.dTokenProperties }
+        | DType _ -> { acc with dType = d :: acc.dType }
+        | DGrammarAttribute _ ->
+            { acc with dGrammarAttribute = d :: acc.dGrammarAttribute }
+        | DSymbolAttributes _ ->
+            { acc with dSymbolAttributes = d :: acc.dSymbolAttributes }
+        | DOnErrorReduce _ ->
+            { acc with dOnErrorReduce = d :: acc.dOnErrorReduce }
+        | DDefaultMergeFunction _ ->
+            { acc with dDefaultMergeFunction = d :: acc.dDefaultMergeFunction })
+      decls init
 end

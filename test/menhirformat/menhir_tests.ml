@@ -167,9 +167,8 @@ let expr := expr; BAR; expr; <Bar> | FOO; <Foo>
       | FOO; <Foo>
     |}]
 
-let%expect_test "It preserves $'s and position keywords in semantic actions" =
-  helper
-    {|%token FOO
+let dollar_demo =
+  {|%token FOO
 
 %start <int, Lexing.position> main
 
@@ -187,7 +186,10 @@ declaration:
       let _ = $loc, $sloc in
       let prec = ParserAux.new_precedence_level $loc(k) in
       locate' $loc(k) @@ DTokenProperties (ss, k, prec) |> singleton }
-|};
+|}
+
+let%expect_test "It preserves $'s and position keywords in semantic actions" =
+  helper dollar_demo;
   [%expect
     {|
     %token FOO
@@ -203,10 +205,10 @@ declaration:
     | FOO k = list(FOO) { $loc(k), $endpos(k), $sloc, $startpos(k) }
 
     declaration:
-    | h = HEADER /* lexically delimited by %{ ... %} */
-      { locate' $loc @@ DCode h |> singleton }
-    | k = priority_keyword ss = clist(symbol)
-      {
+    | h = HEADER /* lexically delimited by %{ ... %} */ {
+        locate' $loc @@ DCode h |> singleton
+      }
+    | k = priority_keyword ss = clist(symbol) {
         let _ = ($loc, $sloc) in
         let prec = ParserAux.new_precedence_level $loc(k) in
         locate' $loc(k) @@ DTokenProperties (ss, k, prec) |> singleton
@@ -259,12 +261,13 @@ declaration:
     %%
 
     declaration:
-    | h = HEADER /* lexically delimited by %{ ... %} */
-      { locate' $loc @@ DCode h |> singleton }
-    | TOKEN ty = option(ocamltype) ts = clist(terminal_alias_attrs)
-      { locate' $loc @@ DToken (ty, ts) |> singleton } (* [menhir-lsp] Turned into a singleton. *)
-    | START t = option(ocamltype) nts = clist(nonterminal)
-      /* %start <ocamltype> foo is syntactic sugar for %start foo %type <ocamltype> foo */
+    | h = HEADER /* lexically delimited by %{ ... %} */ {
+        locate' $loc @@ DCode h |> singleton
+      }
+    | TOKEN ty = option(ocamltype) ts = clist(terminal_alias_attrs) {
+        locate' $loc @@ DToken (ty, ts) |> singleton
+      } (* [menhir-lsp] Turned into a singleton. *)
+    | START t = option(ocamltype) nts = clist(nonterminal) /* %start <ocamltype> foo is syntactic sugar for %start foo %type <ocamltype> foo */
 
       (* [menhir-lsp] desugared. *)
       { locate' $loc @@ DStart (t, nts) |> singleton }
@@ -331,12 +334,11 @@ reserved_word:
     %%
 
     reserved_word:
-    | FUNCTIONBLOCK
-      (* Keywords cannot be identifiers but it is nice to
-        let them parse as such to provide a better error *)
-      { "functions", $loc, false }
-    | FUNCTIONBLOCK
-      {
+    | FUNCTIONBLOCK (* Keywords cannot be identifiers but it is nice to
+        let them parse as such to provide a better error *) {
+        "functions", $loc, false
+      }
+    | FUNCTIONBLOCK {
         let module = ()
         (* Keywords cannot be identifiers but it is nice to
         let them parse as such to provide a better error *)
@@ -344,10 +346,8 @@ reserved_word:
       }
     |}]
 
-let%expect_test "Formatting of parameterized rules" =
-  helper
-    ~config:{ default_config with noLeadingBar = true }
-    {|%%
+let rules_demo =
+  {|%%
 
 %inline generic_actual(A, B):
 (* 1- *)
@@ -371,20 +371,23 @@ lax_actual:
 (* 3- *)
 | /* leading bar disallowed */
   branches = located(branches)
-    { locate' $loc @@ ParamAnonymous branches }|};
+    { locate' $loc @@ ParamAnonymous branches }|}
+
+let%expect_test "Formatting of parameterized rules" =
+  helper ~config:{ default_config with noLeadingBar = true } rules_demo;
   [%expect
     {|
     %%
 
     %inline generic_actual(A, B):
     (* 1- *)
-      symbol = symbol actuals = plist(A)
-      {
+      symbol = symbol actuals = plist(A) {
         locate' (startp symbol, $endpos(actuals)) @@ Parameter.apply symbol actuals
       }
     (* 2- *)
-    | p = B m = located(modifier)
-      { locate' $loc @@ Parameter.apply m [ p ] }
+    | p = B m = located(modifier) {
+        locate' $loc @@ Parameter.apply m [ p ]
+      }
 
     strict_actual:
       p = generic_actual(strict_actual, strict_actual) { p }
@@ -397,15 +400,15 @@ lax_actual:
         lax_actual,
         /* cannot be lax_ */
         actual
-      )
-      { p }
+      ) { p }
     (* 3- *)
     | /* leading bar disallowed */
-      branches = located(branches)
-      { locate' $loc @@ ParamAnonymous branches }
+      branches = located(branches) {
+        locate' $loc @@ ParamAnonymous branches
+      }
     |}]
 
-let%expect_test "It preserves byte escape sequences (e.g. ANSI color codes)" =
+let http_demo =
   {|%{ open Utils %}
 
 %token <string> TEXT
@@ -452,7 +455,9 @@ let header :=
     field = TEXT; COLON; value = TEXT; CRLF; {
       (* log "\x1b[1;34mParsed header\x1b[0m"; *)
        field, value }|}
-  |> format |> format |> helper;
+
+let%expect_test "It preserves byte escape sequences (e.g. ANSI color codes)" =
+  http_demo |> format |> format |> helper;
   [%expect
     {|
     %{ open Utils %}
@@ -507,7 +512,7 @@ let header :=
       { (* log "\x1b[1;34mParsed header\x1b[0m"; *) field, value }
     |}]
 
-let%expect_test "Formatting of parser parametrized by a module" =
+let param_demo =
   {|
 (* Taken from https://github.com/LexiFi/menhir/blob/master/demos/calc-param/parser.mly *)
 %parameter<Semantics : sig
@@ -555,7 +560,9 @@ expr:
     { e1 / e2 }
 | MINUS e = expr %prec UMINUS
     { - e } |}
-  |> format |> format |> format |> format |> helper;
+
+let%expect_test "Formatting of parser parametrized by a module" =
+  param_demo |> format |> format |> format |> format |> helper;
   [%expect
     {|
     (* Taken from https://github.com/LexiFi/menhir/blob/master/demos/calc-param/parser.mly *)
@@ -595,3 +602,50 @@ expr:
     | e1 = expr DIV e2 = expr { e1 / e2 }
     | MINUS e = expr %prec UMINUS { -e }
     |}]
+
+let inp = {|%%
+
+%inline assignation:
+    |
+    | LET
+    | SET {}
+|}
+
+let%expect_test "Formatting of empty production" =
+  helper
+    ~config:{ default_config with indentOnce = true; noLeadingBar = true }
+    inp;
+  [%expect
+    {|
+    %%
+
+    %inline assignation:
+      |
+      | LET
+      | SET {  }
+    |}]
+
+open Ast_equality
+
+let%test "Formatted AST is equivalent to original AST" =
+  let samples =
+    [ inp; calc_demo; http_demo; rules_demo; dollar_demo; param_demo ]
+  in
+  let log s = log_src "  menhir-ast-equiv" s in
+  let failures =
+    L.filter_mapi
+      (fun i s ->
+        let i = succ i in
+        let b = test_mly_string s in
+        if b then (
+          log "\x1b[0;32mtest #%d: OK\x1b[0m" i;
+          None)
+        else (
+          log
+            "\x1b[1;31mtest #%d: failed\x1b[0m\n\
+             \x1b[2;30m%s\x1b[0m\n"
+            i s;
+          Some (i, s)))
+      samples
+  in
+  failures = []
