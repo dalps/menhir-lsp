@@ -393,8 +393,7 @@ let%expect_test
       }
     |}]
 
-let%expect_test "Comments can sit on top of regexp alternations (sibling cases)"
-    =
+let skip_demo =
   {|rule skip_char = parse
   | '\\'? ('\013'* '\010') "'"
      { incr_loc lexbuf 1 }
@@ -407,7 +406,10 @@ let%expect_test "Comments can sit on top of regexp alternations (sibling cases)"
      { () }
 (* Perilous *)
   | "" { () }|}
-  |> helper;
+
+let%expect_test "Comments can sit on top of regexp alternations (sibling cases)"
+    =
+  skip_demo |> helper;
   [%expect
     {|
     rule skip_char = parse
@@ -422,7 +424,7 @@ let%expect_test "Comments can sit on top of regexp alternations (sibling cases)"
     | "" { () }
     |}]
 
-let%expect_test "It preserves byte escape sequences" =
+let http_demo =
   {|let crlf = "\r\n"
 
 let whitespace = [' ' '\t']
@@ -513,7 +515,9 @@ and read_body_chars len = parse
   if len > 1 then read_body_chars (len - 1) lexbuf
   else log_res "BODY <..>" }
   | eof { () }|}
-  |> format |> format |> helper;
+
+let%expect_test "It preserves byte escape sequences" =
+  http_demo |> format |> format |> helper;
   [%expect
     {|
     let crlf = "\r\n"
@@ -633,7 +637,8 @@ let%expect_test "It preserves the vertical bars of rule arms in one-liner rules"
 (* rule token = parse '0' ('a' 'b' 'c')+ { ABC }
 and line = parse '\n' { EOL } *)|}
   |> helper ~config:{ default_config with noLeadingBar = true };
-  [%expect {|
+  [%expect
+    {|
     rule token = parse
       "abc" { ABC }
     | "abd" { ABD }
@@ -642,3 +647,28 @@ and line = parse '\n' { EOL } *)|}
     (* rule token = parse '0' ('a' 'b' 'c')+ { ABC }
     and line = parse '\n' { EOL } *)
     |}]
+
+open Ast_equality
+
+let%test "Formatted AST is equivalent to original AST" =
+  let samples =
+    [ items_demo; long_regexp_demo; calc_lexer; http_demo; skip_demo ]
+  in
+  let log s = log_src "ocamllex-ast-equiv" s in
+  let failures =
+    L.filter_mapi
+      (fun i s ->
+        let i = succ i in
+        let b = test_mll_string s in
+        if b then (
+          log "\x1b[0;32mtest #%d: OK\x1b[0m" i;
+          None)
+        else (
+          log
+            "\x1b[1;31mtest #%d: failed\x1b[0m\n\
+             \x1b[2;30m%s\x1b[0m\n"
+            i s;
+          Some (i, s)))
+      samples
+  in
+  failures = []

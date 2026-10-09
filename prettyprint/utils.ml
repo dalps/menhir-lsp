@@ -115,7 +115,7 @@ module MakeFront (F : sig
     config:Config.t -> ast:syntax -> doc:Text_document.t -> PPrint.document
 end) =
 struct
-  open F
+  include F
 
   let format_doc ~config ~doc ast =
     let buf = Buffer.create 80 in
@@ -151,7 +151,8 @@ let heredoc () =
 let get_test_helpers format =
   let format ?(config = Config.default_config) text =
     text |> format ~config
-    |> R.get_lazy (fun (msg, range) -> spr "%a:\n%s" pp_error_location range msg)
+    |> R.get_lazy (fun (msg, range) ->
+        spr "%a:\n%s" pp_error_location range msg)
   in
   let format_and_print ?(config = Config.default_config) text : unit =
     text |> format ~config |> print_endline

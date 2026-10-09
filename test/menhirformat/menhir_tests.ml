@@ -631,17 +631,18 @@ let%test "Formatted AST is equivalent to original AST" =
   let samples =
     [ inp; calc_demo; http_demo; rules_demo; dollar_demo; param_demo ]
   in
+  let log s = log_src "  menhir-ast-equiv" s in
   let failures =
     L.filter_mapi
       (fun i s ->
         let i = succ i in
         let b = test_mly_string s in
         if b then (
-          log "\x1b[0;32mast equality test #%d: OK\x1b[0m" i;
+          log "\x1b[0;32mtest #%d: OK\x1b[0m" i;
           None)
         else (
           log
-            "\x1b[1;31mast equality test #%d: failed\x1b[0m\n\
+            "\x1b[1;31mtest #%d: failed\x1b[0m\n\
              \x1b[2;30m%s\x1b[0m\n"
             i s;
           Some (i, s)))

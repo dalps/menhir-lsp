@@ -80,7 +80,7 @@ and lexer_definition = {
   trailer : action option;
 }
 
-and action = string located
+and action = (string [@opaque]) located
 
 and 'a located = 'a Located.located = {
   p : range; [@opaque]
