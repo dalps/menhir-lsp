@@ -111,10 +111,41 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
                 (self#with_located @@ super#visit_parameter ())
                 parameter)
 
-    method! visit_ParamAnonymous =
-      fun _ brances ->
-        ifflat empty barspace
-        ^^ self#with_located self#visit_old_rule_branches brances
+    (* Anonymous rules can only appear as arguments to parameterized rules.
+
+    We don't reuse the private helper method [_visit_parameterized_branch] here
+    due to the prohibition of the leading bar in anonymous rules; changing it
+    to accomodate this restriction leads to confusing bar logic code so it's
+    best to keep them separate (though the action-visiting logic is shared and
+    has been factored out in the [visit_production_group_action] method,
+    similar to the [visit_Eaction] method for the new rule syntax.).
+
+    We also want to allow anonymous rules top-level branches to be layed out in
+    a single line (the first [break 1 ^^ barspace]), whereas in a regular rule
+    branches are always split with [hardline]. *)
+    method! visit_ParamAnonymous _ =
+      self#with_located
+        (separate_map (* -- list of branches *)
+           (break 1 ^^ barspace)
+           (self#with_located (fun pb ->
+                separate_map (* -- list of productions groups *)
+                  (break 1 ^^ barspace)
+                  (fun ep ->
+                    nest tabsize @@ group
+                    @@ self#with_located (self#visit_early_production ()) ep)
+                  pb.pb_productions
+                ^-^ self#visit_production_group_action pb)))
+
+    method private visit_production_group_action
+        ({ pb_action; pb_prec_annotation; pb_attributes; _ } :
+          parameterized_branch) =
+      nest tabsize @@ group
+      @@ separate (break 1)
+           [
+             self#with_located (self#visit_action ()) pb_action;
+             self#visit_prec_annotation () pb_prec_annotation;
+             self#visit_attributes () pb_attributes;
+           ]
 
     method! visit_ParamVar = fun _ located -> self#visit_loctext located
 
@@ -224,7 +255,7 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
 
     method private visit_old_rule_branches branches =
       separate_mapi hardline
-        (fun i -> self#with_located (self#visit_parameterized_branch' i ()))
+        (fun i -> self#with_located (self#_visit_parameterized_branch i))
         branches
 
     method! visit_early_production =
@@ -238,27 +269,25 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
 
     Extra care must be taken when the first production of the first branch
     is the empty production (one with nil as the list of producers) and the
-    [noLeadingBar] option is turned on: we never want to omit the leading
+    [noLeadingBar] option is turned on: we must not omit the leading
     vertical bar in this case. *)
-    method private visit_parameterized_branch' branch_idx _
-        { pb_productions; pb_action; pb_prec_annotation; pb_attributes } =
-      separate_mapi hardline
-        (fun idx ep ->
-          (if
-             cfg.noLeadingBar && branch_idx = 0 && idx = 0
-             && not (is_empty_production ep.v)
-           then blank 2
-           else barspace)
-          ^^ nest tabsize @@ group
-          @@ self#with_located (self#visit_early_production ()) ep)
-        pb_productions
-      ^-^ nest tabsize @@ group
-      @@ separate (break 1)
-           [
-             self#with_located (self#visit_action ()) pb_action;
-             self#visit_prec_annotation () pb_prec_annotation;
-             self#visit_attributes () pb_attributes;
-           ]
+    method private _visit_parameterized_branch branch_idx pb =
+      let last_prod_empty =
+        try is_empty_production L.(pb.pb_productions.-(-1).v) with _ -> false
+      in
+      (if last_prod_empty then ( ^^ ) else ( ^-^ ))
+        (separate_mapi (break 1)
+           (* -- production group may be laid out on a single line *)
+           (fun idx ep ->
+             (if
+                cfg.noLeadingBar && branch_idx = 0 && idx = 0
+                && not (is_empty_production ep.v)
+              then blank 2
+              else barspace)
+             ^^ nest tabsize @@ group
+             @@ self#with_located (self#visit_early_production ()) ep)
+           pb.pb_productions)
+        (self#visit_production_group_action pb)
 
     method private visit_ocaml (code : string) : document =
       Ocamlformat_client.main code |> align

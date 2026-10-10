@@ -625,11 +625,38 @@ let%expect_test "Formatting of empty production" =
       | SET {  }
     |}]
 
+let anon_demo =
+  {|%token FOO BAR SEMI COMMA
+
+%start <int, Lexing.position> main
+
+%%
+
+%inline myfun(A, B):
+  | A+ B {}
+  |
+  | A B A {}
+
+main:
+| a = myfun(BAR, /*anonymous rule with leading empty production*/ { false } | SEMI | COMMA { true }) { }
+| k = FOO { 0, $loc(k) }
+
+rule_S:
+| list({}| FOO {} | BAR; SEMI? {} |{}) { 1, $symbolstartpos }
+| {} | FOO | BAR | {}
+|}
+
+let%expect_test "Formatting of anonymous rules and EBNF operators" =
+  anon_demo |> format |> format |> helper;
+  [%expect]
+
 open Ast_equality
 
 let%test "Formatted AST is equivalent to original AST" =
   let samples =
-    [ inp; calc_demo; http_demo; rules_demo; dollar_demo; param_demo ]
+    [
+      inp; calc_demo; http_demo; rules_demo; dollar_demo; param_demo; anon_demo;
+    ]
   in
   let log s = log_src "  menhir-ast-equiv" s in
   let failures =
@@ -641,10 +668,7 @@ let%test "Formatted AST is equivalent to original AST" =
           log "\x1b[0;32mtest #%d: OK\x1b[0m" i;
           None)
         else (
-          log
-            "\x1b[1;31mtest #%d: failed\x1b[0m\n\
-             \x1b[2;30m%s\x1b[0m\n"
-            i s;
+          log "\x1b[1;31mtest #%d: failed\x1b[0m\n\x1b[2;30m%s\x1b[0m\n" i s;
           Some (i, s)))
       samples
   in

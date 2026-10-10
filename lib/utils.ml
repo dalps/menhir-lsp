@@ -38,6 +38,9 @@ module L = struct
 
   (** Analogous to [CCOption.if_]. *)
   let if_ (p : 'a -> bool) (x : 'a) : 'a t = if p x then [ x ] else []
+
+  let len = length
+  let ( .-() ) l i = if i < 0 then nth l (len l + i) else nth l i
 end
 
 module P = CCParse
