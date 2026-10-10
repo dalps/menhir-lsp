@@ -166,10 +166,15 @@ and properties = {
    anonymous rule, represented as a list of branches. *)
 and parameter =
   | ParamVar of symbol located
+  | ParamEBNFApp of parameter located * modifier located
   | ParamApp of symbol located * parameters
   | ParamAnonymous of parameterized_branch located list located
 
 and parameters = parameter located list (* [menhir-lsp] inserted located *)
+
+(* [menhir-lsp] Added [modifier] variants to allow the formatter to preserve the EBNF operator notation. *)
+and modifier = MList | MNonempty_list | MOption
+
 (* -------------------------------------------------------------------------- *)
 
 and early_producer = identifier located option * parameter located * attributes
@@ -279,6 +284,7 @@ and raw_seq_expression =
    and attributes. *)
 and symbol_expression =
   | ESymbol of symbol located * expression list * attributes
+  | EEBNFApp of symbol_expression located * modifier located * attributes
 
 (**A semantic action is either traditional { ... } or point-free.
     There are two forms of point-free actions, <> and <id>.

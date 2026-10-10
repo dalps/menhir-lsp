@@ -638,7 +638,7 @@ let anon_demo =
   | A B A {}
 
 main:
-| a = myfun(BAR, /*anonymous rule with leading empty production*/ { false } | SEMI | COMMA { true }) { }
+| a = myfun(nonempty_list(BAR), /*anonymous rule with leading empty production*/ { false } | SEMI* | COMMA { true }) { }
 | k = FOO { 0, $loc(k) }
 
 rule_S:
@@ -648,7 +648,37 @@ rule_S:
 
 let%expect_test "Formatting of anonymous rules and EBNF operators" =
   anon_demo |> format |> format |> helper;
-  [%expect]
+  [%expect {|
+    %token FOO BAR SEMI COMMA
+
+    %start <int, Lexing.position> main
+
+    %%
+
+    %inline myfun(A, B):
+    | A+ B {  }
+    |
+    | A B A {  }
+
+    main:
+    | a = myfun(
+        nonempty_list(BAR),
+        /*anonymous rule with leading empty production*/
+          { false }
+        | SEMI*
+        | COMMA { true }
+      ) {  }
+    | k = FOO { 0, $loc(k) }
+
+    rule_S:
+    | list({  } | FOO {  } | BAR SEMI? {  } | {  }) {
+        1, $symbolstartpos
+      }
+    | {  }
+    | FOO
+    | BAR
+    | {  }
+    |}]
 
 open Ast_equality
 
