@@ -622,12 +622,13 @@ let%expect_test "Formatting of empty production" =
     %inline assignation:
       |
       | LET
-      | SET {  }
+      | SET {}
     |}]
 
 let anon_demo =
   {|%token FOO BAR SEMI COMMA
 
+%{          %}
 %start <int, Lexing.position> main
 
 %%
@@ -649,6 +650,8 @@ rule_S:
 let%expect_test "Formatting of anonymous rules and EBNF operators" =
   anon_demo |> format |> format |> helper;
   [%expect {|
+    %{%}
+
     %token FOO BAR SEMI COMMA
 
     %start <int, Lexing.position> main
@@ -656,9 +659,9 @@ let%expect_test "Formatting of anonymous rules and EBNF operators" =
     %%
 
     %inline myfun(A, B):
-    | A+ B {  }
+    | A+ B {}
     |
-    | A B A {  }
+    | A B A {}
 
     main:
     | a = myfun(
@@ -667,17 +670,15 @@ let%expect_test "Formatting of anonymous rules and EBNF operators" =
           { false }
         | SEMI*
         | COMMA { true }
-      ) {  }
+      ) {}
     | k = FOO { 0, $loc(k) }
 
     rule_S:
-    | list({  } | FOO {  } | BAR SEMI? {  } | {  }) {
-        1, $symbolstartpos
-      }
-    | {  }
+    | list({} | FOO {} | BAR SEMI? {} | {}) { 1, $symbolstartpos }
+    | {}
     | FOO
     | BAR
-    | {  }
+    | {}
     |}]
 
 open Ast_equality

@@ -648,11 +648,45 @@ and line = parse '\n' { EOL } *)|}
     and line = parse '\n' { EOL } *)
     |}]
 
+let empty_demo =
+  {|{
+
+
+}
+
+refill {  }
+
+rule main = parse
+| 'a' {}
+| 'b'+ {   }
+| 'c'* { () }
+
+{
+
+}|}
+
+let%expect_test "Formatting of empty actions" =
+  empty_demo |> format |> format |> helper;
+  [%expect {|
+    {}
+
+    refill {}
+
+    rule main = parse
+    | 'a' {}
+    | 'b'+ {}
+    | 'c'* { () }
+
+    {}
+    |}]
+
 open Ast_equality
 
 let%test "Formatted AST is equivalent to original AST" =
   let samples =
-    [ items_demo; long_regexp_demo; calc_lexer; http_demo; skip_demo ]
+    [
+      items_demo; long_regexp_demo; calc_lexer; http_demo; skip_demo; empty_demo;
+    ]
   in
   let log s = log_src "ocamllex-ast-equiv" s in
   let failures =
@@ -664,10 +698,7 @@ let%test "Formatted AST is equivalent to original AST" =
           log "\x1b[0;32mtest #%d: OK\x1b[0m" i;
           None)
         else (
-          log
-            "\x1b[1;31mtest #%d: failed\x1b[0m\n\
-             \x1b[2;30m%s\x1b[0m\n"
-            i s;
+          log "\x1b[1;31mtest #%d: failed\x1b[0m\n\x1b[2;30m%s\x1b[0m\n" i s;
           Some (i, s)))
       samples
   in

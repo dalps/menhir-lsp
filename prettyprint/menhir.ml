@@ -86,7 +86,7 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
           | _ -> assert false
         in
         text "%merge"
-        ^-^ surround tabsize 1 lbrace (self#visit_ocaml code) rbrace
+        ^-^ surround' tabsize 1 lbrace (self#visit_ocaml code) rbrace
 
     method! visit_NonAssoc _ = text "%nonassoc"
     method! visit_LeftAssoc _ = text "%left"
@@ -101,7 +101,7 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
     method! visit_DCode =
       fun _ ->
         self#with_located (fun code ->
-            surround tabsize 1 (text "%{") (self#visit_ocaml code) (text "%}"))
+            surround' tabsize 1 (text "%{") (self#visit_ocaml code) (text "%}"))
 
     method! visit_DType =
       fun _ ocamltype parameter ->
@@ -307,7 +307,7 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
              action.keyword_lst
         (* [action.keyword_lst] holds the keywords in the order they are scanned, reversed. *)
       in
-      surround tabsize 1 lbrace
+      surround' tabsize 1 lbrace
         (match action.expr with
         | IL.ETextual located ->
             self#with_located

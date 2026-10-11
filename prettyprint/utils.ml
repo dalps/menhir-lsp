@@ -35,10 +35,10 @@ module PPrint = struct
   let ( <|> ) d e = if is_empty d then e else d
   let ( <!> ) d e = if is_empty d then empty else e
 
-  (** [sep ^| d] prepends [sep] to [d] if [d] is nonempty. *)
+  (** [sep ^| d] prepends [sep] to [d] if [d] is not empty. *)
   let ( ^| ) sep d = d <!> sep ^^ d
 
-  (** [d |^ sep] appends [sep] to [d] if [d] is nonempty. *)
+  (** [d |^ sep] appends [sep] to [d] if [d] is not empty. *)
   let ( |^ ) d sep = d <!> d ^^ sep
 
   (** A smarter [separate_map] that doesn't insert [sep] if either side is
@@ -76,6 +76,11 @@ module PPrint = struct
   let if_ ?(else_ = empty) ~then_ b = if b then then_ else else_
   let barspace = text "| "
   let enclose l x r = enclose l r x
+
+  (** Analogous to [surround], but this version doesn't add whitespace around
+      [contents] when it is empty. *)
+  let surround' n b opening contents closing =
+    group (opening ^^ (nest n (break b ^| contents) |^ break b) ^^ closing)
 end
 
 let read_file_contents filename =
