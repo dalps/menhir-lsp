@@ -23,6 +23,7 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
   let open MenhirSyntax.Syntax in
   let tabsize = max 2 tabsize in
   let barspace = bar ^^ blank 1 in
+  let percentpercent = text "%%" in
   object (self)
     inherit [_] ast_reduce as super
     method zero : document = empty
@@ -42,10 +43,14 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
       render_located (super#visit_located visit_v env)
 
     method! visit_partial_grammar =
-      fun _ { pg_postlude = _; pg_declarations; pg_rules; _ } ->
+      fun _ { pg_postlude; pg_declarations; pg_rules; _ } ->
         self#visit_declarations pg_declarations
-        //// text "%%"
+        //// percentpercent
         //// separate_map (hardline ^^ break 1) (self#visit_rule ()) pg_rules
+        ^^ optional
+             (fun code ->
+               twice hardline ^^ percentpercent //// self#with_located self#visit_ocaml code)
+             pg_postlude
 
     method private visit_declarations (decls : declaration located list) :
         document =

@@ -30,22 +30,8 @@ class mly_equal_vtor =
     Not sure whether skipping this and [precedence_level] is cheating... *)
     method! visit_production_level _ _ _ = ()
 
-    method! visit_partial_grammar _ pg1 pg2 =
-      try
-        self#visit_declarations pg1.pg_declarations pg2.pg_declarations;
-        List.iter2 (self#visit_rule ()) pg1.pg_rules pg2.pg_rules
-      with
-      | VisitorsRuntime.StructuralMismatch ->
-          log "\x1b[1;31m[Structural mismatch]\x1b[0m";
-          raise VisitorsRuntime.StructuralMismatch
-      | Invalid_argument msg ->
-          log "\x1b[1;31m[Rule mismatch] left: %d vs right: %d %s\x1b[0m"
-            (L.length pg1.pg_rules) (L.length pg2.pg_rules) msg;
-          raise VisitorsRuntime.StructuralMismatch
-
-    (* menhirformat might change the order of the declarations, what's important is that the existing declarations are preserved and none is removed or added. We delegate this check to a visitor of a record of declaration buckets. Declaration buckets are implemented with lists, so we're also checking that the formatter preserves the order among declarations of the same kind. *)
-    method private visit_declarations (decls1 : declaration located list)
-        (decls2 : declaration located list) : unit =
+    (* menhirformat might change the order of the declarations, but what we care about is that the existing declarations are preserved and none is removed or added. We delegate this check to a visitor of a record of declaration buckets. Declaration buckets are implemented with lists, so we're also checking that the formatter preserves the order among declarations of the same kind. *)
+    method! visit_declaration_lst _ decls1 decls2 =
       let open DBuckets in
       let v =
         object
@@ -82,11 +68,11 @@ let test (type ast) (module L : Lang with type syntax = ast)
     ~(eq : ast -> ast -> unit) inp =
   try
     let a = inp |> L.parse_string |> R.get_exn in
-    let b =
-      inp
-      |> L.format_string ~config:Config.default_config
-      |> R.get_exn |> L.parse_string |> R.get_exn
+    let formatted =
+      inp |> L.format_string ~config:Config.default_config |> R.get_exn
     in
+    log ~debug:false "\x1b[2;34m%s\x1b[0m" formatted;
+    let b = formatted |> L.parse_string |> R.get_exn in
     eq a b;
     true
   with R.Get_error | VisitorsRuntime.StructuralMismatch -> false

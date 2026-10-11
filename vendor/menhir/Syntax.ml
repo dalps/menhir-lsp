@@ -319,11 +319,14 @@ and declaration =
       (**A default %merge function. *)
 (* -------------------------------------------------------------------------- *)
 
+(* [menhir-lsp] We isolate this type so visitors generates a dedicated method for it and we can visit it without rewriting the whole [partial_grammar] method. A more elegant solution would be if the library provided a record field annotation so it gives us a dedicated method for visiting that particular field. *)
+and declaration_lst = declaration located list
+
 and partial_grammar = {
   pg_filename : filename;
-  pg_declarations : declaration located list;
+  pg_declarations : declaration_lst;
   pg_rules : rule list;
-  pg_postlude : string located option;
+  pg_postlude : (string [@opaque]) located option;
       (* [menhir-lsp] moved down. The comment-attaching logic is sensible to the order of these fields. *)
 }
 (**A partial grammar. (Only before joining.) *)

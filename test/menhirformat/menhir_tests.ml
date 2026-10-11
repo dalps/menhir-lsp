@@ -603,7 +603,7 @@ let%expect_test "Formatting of parser parametrized by a module" =
     | MINUS e = expr %prec UMINUS { -e }
     |}]
 
-let inp = {|%%
+let nil_demo = {|%%
 
 %inline assignation:
     |
@@ -614,7 +614,7 @@ let inp = {|%%
 let%expect_test "Formatting of empty production" =
   helper
     ~config:{ default_config with indentOnce = true; noLeadingBar = true }
-    inp;
+    nil_demo;
   [%expect
     {|
     %%
@@ -649,7 +649,8 @@ rule_S:
 
 let%expect_test "Formatting of anonymous rules and EBNF operators" =
   anon_demo |> format |> format |> helper;
-  [%expect {|
+  [%expect
+    {|
     %{%}
 
     %token FOO BAR SEMI COMMA
@@ -681,12 +682,38 @@ let%expect_test "Formatting of anonymous rules and EBNF operators" =
     | {}
     |}]
 
+let trailer_demo = {|
+%{ open M %}
+
+%token A
+
+%{      %}
+%%
+%%
+let x = 42
+    |}
+
+let%expect_test "Formatting of optional trailer" =
+  trailer_demo |> format |> format |> helper;
+  [%expect {|
+    %{ open M %}
+    %{%}
+
+    %token A
+
+    %%
+
+    %%
+
+    let x = 42
+    |}]
+
 open Ast_equality
 
 let%test "Formatted AST is equivalent to original AST" =
   let samples =
     [
-      inp; calc_demo; http_demo; rules_demo; dollar_demo; param_demo; anon_demo;
+      nil_demo; calc_demo; http_demo; rules_demo; dollar_demo; param_demo; anon_demo; trailer_demo
     ]
   in
   let log s = log_src "  menhir-ast-equiv" s in
