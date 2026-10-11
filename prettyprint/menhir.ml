@@ -390,8 +390,7 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
               rparen)
       ^/^ self#visit_attributes () attributes
 
-    method! visit_modifier _ =
-      function MList -> star | MNonempty_list -> plus | MOption -> qmark
+    method! visit_modifier _ = Parameter.print_modifier >> text
   end
 
 include MakeFront (struct

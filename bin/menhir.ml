@@ -155,13 +155,6 @@ let yojson_of_ast (grammar : partial_grammar) : Json.t =
   in
   v#visit_partial_grammar () grammar
 
-let rec string_of_params : parameter -> string = function
-  | ParamVar p -> p.v
-  | ParamApp (p, ps) ->
-      spr "%s(%s)" p.v
-        L.(ps >|= Located.iter string_of_params |> String.concat ", ")
-  | ParamAnonymous _ -> ""
-
 let located_of_ppxloc ~(from : Lexing.position) ({ txt; loc } : 'v Ppxlib.Loc.t)
     : 'v located =
   Located.locate (OcamlSymbols.range_of_ppxlocation ~from loc) txt
@@ -462,7 +455,7 @@ let document_symbols ({ grammar = { pg_rules; _ }; tokens; _ } : state) :
                        [
                          DocumentSymbol.create ~kind:SymbolKind.Variable
                            ~name:binder.v ~range ~selectionRange:range
-                           ~detail:(string_of_params par.v) ();
+                           ~detail:(Parameter.print ", " par.v) ();
                        ]
 
                method! visit_SemPatVar =
@@ -718,7 +711,7 @@ let completions ~(notify_back : Linol_lwt.Jsonrpc2.notify_back)
         (fun ({ v = name; _ }, opt) ->
           CompletionItem.create ~kind:Variable ~label:name
             ~documentation:(`String "(previously bound in this branch)")
-            ?detail:(opt >|= (Located.value >> string_of_params))
+            ?detail:(opt >|= (Located.value >> Parameter.print ", "))
             ~textEdit:(`TextEdit TextEdit.{ newText = name; range = rng })
             ())
         binders
