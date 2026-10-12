@@ -603,7 +603,7 @@ let%expect_test "Formatting of parser parametrized by a module" =
     | MINUS e = expr %prec UMINUS { -e }
     |}]
 
-let inp = {|%%
+let nil_demo = {|%%
 
 %inline assignation:
     |
@@ -614,7 +614,7 @@ let inp = {|%%
 let%expect_test "Formatting of empty production" =
   helper
     ~config:{ default_config with indentOnce = true; noLeadingBar = true }
-    inp;
+    nil_demo;
   [%expect
     {|
     %%
@@ -622,14 +622,99 @@ let%expect_test "Formatting of empty production" =
     %inline assignation:
       |
       | LET
-      | SET {  }
+      | SET {}
+    |}]
+
+let anon_demo =
+  {|%token FOO BAR SEMI COMMA
+
+%{          %}
+%start <int, Lexing.position> main
+
+%%
+
+%inline myfun(A, B):
+  | A+ B {}
+  |
+  | A B A {}
+
+main:
+| a = myfun(nonempty_list(BAR), /*anonymous rule with leading empty production*/ { false } | SEMI* | COMMA { true }) { }
+| k = FOO { 0, $loc(k) }
+
+rule_S:
+| list({}| FOO {} | BAR; SEMI? {} |{}) { 1, $symbolstartpos }
+| {} | FOO | BAR | {}
+|}
+
+let%expect_test "Formatting of anonymous rules and EBNF operators" =
+  anon_demo |> format |> format |> helper;
+  [%expect
+    {|
+    %{%}
+
+    %token FOO BAR SEMI COMMA
+
+    %start <int, Lexing.position> main
+
+    %%
+
+    %inline myfun(A, B):
+    | A+ B {}
+    |
+    | A B A {}
+
+    main:
+    | a = myfun(
+        nonempty_list(BAR),
+        /*anonymous rule with leading empty production*/
+          { false }
+        | SEMI*
+        | COMMA { true }
+      ) {}
+    | k = FOO { 0, $loc(k) }
+
+    rule_S:
+    | list({} | FOO {} | BAR SEMI? {} | {}) { 1, $symbolstartpos }
+    | {}
+    | FOO
+    | BAR
+    | {}
+    |}]
+
+let trailer_demo = {|
+%{ open M %}
+
+%token A
+
+%{      %}
+%%
+%%
+let x = 42
+    |}
+
+let%expect_test "Formatting of optional trailer" =
+  trailer_demo |> format |> format |> helper;
+  [%expect {|
+    %{ open M %}
+    %{%}
+
+    %token A
+
+    %%
+
+    %%
+
+    let x = 42
     |}]
 
 open Ast_equality
 
 let%test "Formatted AST is equivalent to original AST" =
   let samples =
-    [ inp; calc_demo; http_demo; rules_demo; dollar_demo; param_demo ]
+    [
+      nil_demo; calc_demo; http_demo; rules_demo; dollar_demo; param_demo; anon_demo; trailer_demo
+    ]
   in
   let log s = log_src "  menhir-ast-equiv" s in
   let failures =
@@ -641,10 +726,7 @@ let%test "Formatted AST is equivalent to original AST" =
           log "\x1b[0;32mtest #%d: OK\x1b[0m" i;
           None)
         else (
-          log
-            "\x1b[1;31mtest #%d: failed\x1b[0m\n\
-             \x1b[2;30m%s\x1b[0m\n"
-            i s;
+          log "\x1b[1;31mtest #%d: failed\x1b[0m\n\x1b[2;30m%s\x1b[0m\n" i s;
           Some (i, s)))
       samples
   in
