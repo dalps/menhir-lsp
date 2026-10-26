@@ -38,6 +38,25 @@ module L = struct
 
   (** Analogous to [CCOption.if_]. *)
   let if_ (p : 'a -> bool) (x : 'a) : 'a t = if p x then [ x ] else []
+
+  let len = length
+  let ( .-[] ) = nth
+
+  let sub_split ~cmp xs ys =
+    let fail msg = failwith ("List.sub: " ^ msg) in
+    let rec aux xs ys acc =
+      match (xs, ys) with
+      | [], _ -> (List.rev acc, ys)
+      | x :: xs', y :: ys' when cmp x y = 0 -> aux xs' ys' (y :: acc)
+      | x :: xs', [] -> fail "insufficient items"
+      | _ -> fail "items mismatch"
+    in
+    aux xs ys []
+
+  let sub ~cmp xs ys = sub_split ~cmp xs ys |> snd
+  let push s x = x :: s
+  let peek s = nth_opt s 0
+  let pop l = take 1 l
 end
 
 module P = CCParse
@@ -55,7 +74,8 @@ module O = struct
   let flatten_pair (o : ('a t * 'b t) t) : 'a t * 'b t =
     match o with None -> (None, None) | Some (a, b) -> (a, b)
 
-  let guard b = if b then Some () else None
+  let wrap b v = if b then Some v else None
+  let guard b = wrap b ()
   let get_or_nil (t : 'a list t) : 'a list = get_or ~default:[] t
   let get_string = get_or ~default:""
 end

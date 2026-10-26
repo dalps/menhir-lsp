@@ -9,6 +9,7 @@
   dune-build-info
   merlin-lib.kernel
   merlin-lib.query_commands
+  menhirSdk
   menhirSyntax
   ocamllexSyntax
   lex
