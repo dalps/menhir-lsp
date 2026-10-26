@@ -206,12 +206,13 @@ export function activate(context: vscode.ExtensionContext) {
     registerCmd("startTokenizerWithRule", (arg) =>
       startTokenizerView(arg, undefined),
     ),
+    registerCmd("startParser", startParserView),
   );
 
   //////////////////////////////////////////////////////////////////////////////
 }
 
-type LexerRule = { name: string; moduleUri: string };
+type Entrypoint = { name: string; moduleUri: string };
 
 enum InputSourceKind {
   ActiveEditor,
@@ -228,11 +229,38 @@ interface Token {
   action: number;
 }
 
-async function startTokenizerView(rule?: LexerRule, source?: InputSource) {
+async function startParserView(startSymbol?: Entrypoint) {
+  if (!startSymbol) {
+    const parser = await execServerCmd<Entrypoint[]>("listParsers");
+
+    if (parser.length <= 0) {
+      vscode.window.showErrorMessage(
+        "You need to open at least one .mly file that has been compiled to the CMLY format.",
+      );
+      return;
+    }
+
+    console.log(parser);
+
+    // Ask which lexer rule to run
+    startSymbol = await setupQuickPick<Entrypoint>(
+      "Select Parser Entry Point",
+      parser.map((rule) => {
+        return {
+          ...rule,
+          label: `\$(symbol-function) ${rule.name} · ${rule.moduleUri.split("/").at(-1)}`,
+          description: vscode.Uri.parse(rule.moduleUri).path,
+        };
+      }),
+    );
+  }
+}
+
+async function startTokenizerView(rule?: Entrypoint, source?: InputSource) {
   let editor = vscode.window.activeTextEditor;
 
   if (!rule) {
-    const lexers = await execServerCmd<LexerRule[]>("listLexerRules");
+    const lexers = await execServerCmd<Entrypoint[]>("listLexerRules");
 
     if (lexers.length <= 0) {
       vscode.window.showErrorMessage("You need to open at least one .mll file");
@@ -242,7 +270,7 @@ async function startTokenizerView(rule?: LexerRule, source?: InputSource) {
     console.log(lexers);
 
     // Ask which lexer rule to run
-    rule = await setupQuickPick<LexerRule>(
+    rule = await setupQuickPick<Entrypoint>(
       "Select Lexer Entry Point",
       lexers.map((rule) => {
         return {

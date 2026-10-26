@@ -18,6 +18,7 @@ let command_dict =
     ("previousMessage", `PreviousMessage);
     ("previousDummyMessage", `PreviousDummyMessage);
     ("listLexerRules", `ListLexerRules);
+    ("listParsers", `ListParsers);
     ("startTokenizer", `StartTokenizer);
   ]
 
@@ -341,6 +342,26 @@ class lsp_server =
       | `NextDummyMessage -> focus Msg.next_dummy_message
       | `PreviousMessage -> focus Msg.previous_message
       | `PreviousDummyMessage -> focus Msg.previous_dummy_message
+      | `ListParsers ->
+          (* only show the parsers that have been compiled to cmly *)
+          let entry_points =
+            mly_buffers
+            |> CCHashtbl.map_list (fun uri state ->
+                let open O in
+                match state.Mly.cmly with
+                | None -> []
+                | Some (module G : MenhirSdk.Cmly_api.GRAMMAR) ->
+                    L.map
+                      (fun (nt, _, _) ->
+                        `Assoc
+                          [
+                            ("name", `String (G.Nonterminal.name nt));
+                            ("moduleUri", Uri.yojson_of_t uri);
+                          ])
+                      G.Grammar.entry_points)
+            |> L.flatten
+          in
+          Some (`List entry_points)
       | `ListLexerRules ->
           let entry_points =
             CCHashtbl.keys_list mll_buffers
