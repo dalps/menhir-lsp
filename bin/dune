@@ -2,7 +2,7 @@
  (public_name menhir-lsp)
  (name main)
  (preprocess
-  (pps lwt_ppx))
+  (pps lwt_ppx visitors.ppx))
  (package menhir-lsp)
  (libraries
   yojson

@@ -8,6 +8,13 @@ module Ivl = Ivl_map.Interval
 
 type document = Text_document.t
 
+let combine_json_lists o1 o2 =
+  match (o1, o2) with
+  | `List o1, `List o2 -> `List (o1 @ o2)
+  | `List o1, o2 -> `List (o1 @ [ o2 ])
+  | o1, `List o2 -> `List (o1 :: o2)
+  | _, _ -> `List [ o1; o2 ]
+
 let no_implementation_hint uri =
   let filename = Uri.to_path uri in
   let base = Filename.basename filename in

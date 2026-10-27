@@ -84,13 +84,7 @@ let yojson_of_ast (grammar : partial_grammar) : Json.t =
     object
       inherit [_] ast_reduce as super
       method zero : t = `List []
-
-      method plus (o1 : t) (o2 : t) =
-        match (o1, o2) with
-        | `List o1, `List o2 -> `List (o1 @ o2)
-        | `List o1, o2 -> `List (o1 @ [ o2 ])
-        | o1, `List o2 -> `List (o1 :: o2)
-        | _, _ -> `List [ o1; o2 ]
+      method plus = combine_json_lists
 
       method! visit_located =
         fun visit_v env loc ->

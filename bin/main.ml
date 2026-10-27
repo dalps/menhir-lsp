@@ -20,6 +20,7 @@ let command_dict =
     ("listLexerRules", `ListLexerRules);
     ("listParsers", `ListParsers);
     ("startTokenizer", `StartTokenizer);
+    ("startParser", `StartParser);
   ]
 
 let doc_type_of_uri uri : doc_type option =
@@ -383,6 +384,35 @@ class lsp_server =
             |> L.flatten
           in
           Some (`List entry_points)
+      | `StartParser ->
+          let* input, entrypoint_name, mly_uri =
+            match args with
+            | Some
+                [
+                  _;
+                  input;
+                  `Assoc ((_, `String name) :: (_, `String moduleUri) :: _);
+                ] ->
+                Some
+                  ( Yojson.Safe.Util.(to_list input |> L.map to_string),
+                    name,
+                    moduleUri )
+            | _ -> None
+          in
+          let* state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
+          let* cmly = state.cmly in
+          let module G = (val cmly : MenhirSdk.Cmly_api.GRAMMAR) in
+          let open G in
+          let* entrypoint =
+            L.find_opt
+              (fun (nt, _, _) ->
+                String.equal (Nonterminal.name nt) entrypoint_name)
+              Grammar.entry_points
+          in
+          let module D = CmlyAdapter.Make (G) in
+          let derivation = D.parse entrypoint input in
+          let json = D.yojson_of_derivation [ derivation ] in
+          Some json
       | `StartTokenizer -> (
           let open Lex in
           let open Tokenizer in

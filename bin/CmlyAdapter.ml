@@ -93,10 +93,30 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   exception Conflict of (symbol * lr1) * production
 
   type derivation_tree =
-    | Leaf of terminal
-    | Branches of nonterminal * derivation
+    | Leaf of (terminal[@opaque])
+    | Branches of (nonterminal[@opaque]) * derivation
 
   and derivation = derivation_tree list
+  [@@deriving
+    visitors { name = "deriv_map"; variety = "map" },
+    visitors { name = "deriv_reduce"; variety = "reduce" },
+    visitors { name = "deriv_iter"; variety = "iter" },
+    visitors { name = "deriv_endo"; variety = "endo" }]
+
+  let yojson_of_derivation : derivation -> Yojson.Safe.t =
+    let v =
+      object
+        inherit [_] deriv_reduce as super
+        method zero = `List []
+        method plus = Utils.combine_json_lists
+        method! visit_Leaf () t = `String (Terminal.name t)
+
+        method! visit_Branches () nt dv =
+          let obj = super#visit_derivation () dv in
+          `Assoc [ ("nt", `String (Nonterminal.name nt)); ("children", obj) ]
+      end
+    in
+    v#visit_derivation ()
 
   let rec loop ((start_nt, _, start_lr1) as entrypoint) state
       (stack : (symbol * lr1) list) tokens derivation : derivation_tree =

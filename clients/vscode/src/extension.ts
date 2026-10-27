@@ -235,7 +235,7 @@ async function startParserView(startSymbol?: Entrypoint) {
 
     if (parser.length <= 0) {
       vscode.window.showErrorMessage(
-        "You need to open at least one .mly file that has been compiled to the CMLY format.",
+        "You need to open at least one .mly file that has been compiled to the CMLY format.\n\nAdd the --cmly flag inside the menhir stanza of the dune file that declares the parser you'd like to use.",
       );
       return;
     }
@@ -254,6 +254,20 @@ async function startParserView(startSymbol?: Entrypoint) {
       }),
     );
   }
+
+  const cmd = "startParser";
+
+  const input = await vscode.window.showInputBox({
+    placeHolder: "Enter a space-separated list of tokens here",
+  });
+
+  if (!input) return;
+
+  const tokens = input.split(/\s+/);
+
+  const derivation = await execServerCmd(cmd, null, tokens, startSymbol);
+
+  console.log(derivation);
 }
 
 async function startTokenizerView(rule?: Entrypoint, source?: InputSource) {
