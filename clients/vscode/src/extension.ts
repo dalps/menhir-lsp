@@ -17,6 +17,7 @@ import { liftRange, rand, setupQuickPick, uriEqual } from "./utils";
 import { readFileSync } from "fs";
 import path = require("path");
 import { RawRange } from "./webviews/ast/types";
+import { DerivationTree, DerivationTreeProvider } from "./derivationTree";
 
 let client: LanguageClient;
 
@@ -116,6 +117,25 @@ export function activate(context: vscode.ExtensionContext) {
     terminal.sendText(opamInstallCmd);
   });
 
+  const derivationTreeProvider = new DerivationTreeProvider(context);
+
+  derivationTreeProvider.onDidChangeTreeData((d) =>
+    console.log("tree data has changed.", d),
+  );
+
+  // vscode.window.registerTreeDataProvider(
+  //   "menhir-lsp-derivation-view",
+  //   derivationTreeProvider,
+  // );
+
+  // How do I feed data to this thing?
+  const derivationTreeView = vscode.window.createTreeView(
+    "menhir-lsp-derivation-view",
+    {
+      treeDataProvider: derivationTreeProvider,
+    },
+  );
+
   vscode.commands.registerCommand(
     "menhir-lsp-client.showOutput",
     outputChannel.show,
@@ -206,7 +226,9 @@ export function activate(context: vscode.ExtensionContext) {
     registerCmd("startTokenizerWithRule", (arg) =>
       startTokenizerView(arg, undefined),
     ),
-    registerCmd("startParser", startParserView),
+    registerCmd("startParser", (start) =>
+      startParserView(derivationTreeProvider, start),
+    ),
   );
 
   //////////////////////////////////////////////////////////////////////////////
@@ -229,7 +251,10 @@ interface Token {
   action: number;
 }
 
-async function startParserView(startSymbol?: Entrypoint) {
+async function startParserView(
+  treeProvider: DerivationTreeProvider,
+  startSymbol?: Entrypoint,
+) {
   if (!startSymbol) {
     const parser = await execServerCmd<Entrypoint[]>("listParsers");
 
@@ -265,9 +290,20 @@ async function startParserView(startSymbol?: Entrypoint) {
 
   const tokens = input.split(/\s+/);
 
-  const derivation = await execServerCmd(cmd, null, tokens, startSymbol);
+  const derivations = await execServerCmd<DerivationTree[]>(
+    cmd,
+    null,
+    tokens,
+    startSymbol,
+  );
 
-  console.log(derivation);
+  const d0 = derivations.at(0);
+  if (!d0) {
+    console.log("No derivations");
+    return
+  }
+  
+  treeProvider.refresh(d0);
 }
 
 async function startTokenizerView(rule?: Entrypoint, source?: InputSource) {
