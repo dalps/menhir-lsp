@@ -206,4 +206,46 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     let tokens = input |> L.map terminal_of_name |> L.to_seq in
     let tokens = Seq.(append tokens (repeat end_pseudotoken)) in
     loop entrypoint start_lr1 [] tokens []
+
+  module ActionMap = Map.Make (Int)
+
+  (** Creates a mapping between this [G]'s tokens and the actions of the given
+      lexer's rule by searching for token occurrences in the rule's actions. *)
+  let connect_lexer_entry (entry : OcamllexSyntax.Syntax.entry) :
+      terminal option ActionMap.t =
+    let actions =
+      L.map
+        (fun OcamllexSyntax.Located.{ v = _, { v = text; _ }; _ } -> text)
+        entry.clauses
+    in
+    let log s = log_src "connect_lexer" s in
+    L.foldi
+      (fun (acc : _ ActionMap.t) (idx : int) (text : string) ->
+        (* Logic: parse the actions and see if it contains any constructor whose name matches a token known by [G]. *)
+        try
+          log "parsing action #%d with text %S" idx text;
+          let ocaml_ast =
+            Ppxlib.Parse.implementation (Lexing.from_string text)
+          in
+          let constructors = Menhir_lsp_lib.OcamlSymbols.get_tags ocaml_ast in
+          log "constructors found: %a"
+            (L.pp (fun out t -> pf out "%s" (Ppxlib.Loc.txt t)))
+            constructors;
+          let v =
+            Terminal.fold
+              (fun token acc' ->
+                if
+                  L.exists
+                    (fun loc ->
+                      String.equal (Terminal.name token) (Ppxlib.Loc.txt loc))
+                    constructors
+                then Some token
+                else acc')
+              None
+          in
+          ActionMap.add idx v acc
+        with _ ->
+          log "failed to parse action #%d" idx;
+          acc)
+      ActionMap.empty actions
 end

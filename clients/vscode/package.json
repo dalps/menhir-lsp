@@ -103,6 +103,12 @@
           "name": "Menhir LSP - Derivation Explorer",
           "icon": "icons/icon_outline_thick.svg",
           "contextualTitle": "Derivation Explorer"
+        },
+        {
+          "id": "menhir-lsp-action-map",
+          "name": "Action-Token Mapping",
+          "icon": "icons/icon_outline_thick.svg",
+          "contextualTitle": "Action-Token Mapping"
         }
       ]
     },
@@ -110,9 +116,9 @@
       "activitybar": [
         {
           "id": "menhir-lsp-view-container",
-          "title": "Menhir LSP - Parser Explorer",
+          "title": "Menhir LSP",
           "icon": "icons/icon_outline_thick.svg",
-          "contextualTitle": "Parser Explorer"
+          "contextualTitle": "Menhir LSP"
         }
       ]
     },
@@ -120,6 +126,10 @@
       {
         "title": "Menhir: Start Interactive Parser",
         "command": "menhir-lsp-client.startParser"
+      },
+      {
+        "title": "Menhir: Connect Parser With Lexer",
+        "command": "menhir-lsp-client.connectParserWithLexer"
       },
       {
         "title": "Menhir: Start Interactive Tokenizer",

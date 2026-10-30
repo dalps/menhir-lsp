@@ -17,7 +17,12 @@ import { liftRange, rand, setupQuickPick, uriEqual } from "./utils";
 import { readFileSync } from "fs";
 import path = require("path");
 import { RawRange } from "./webviews/ast/types";
-import { DerivationTree, DerivationTreeProvider } from "./derivationTree";
+import {
+  ActionMapping as ActionBinding,
+  ActionMapProvider,
+  DerivationTree,
+  DerivationTreeProvider,
+} from "./derivationTree";
 
 let client: LanguageClient;
 
@@ -119,20 +124,28 @@ export function activate(context: vscode.ExtensionContext) {
 
   const derivationTreeProvider = new DerivationTreeProvider(context);
 
-  derivationTreeProvider.onDidChangeTreeData((d) =>
-    console.log("tree data has changed.", d),
-  );
+  const actionProvider = new ActionMapProvider(context);
+
+  // derivationTreeProvider.onDidChangeTreeData((d) =>
+  //   console.log("tree data has changed.", d),
+  // );
 
   // vscode.window.registerTreeDataProvider(
   //   "menhir-lsp-derivation-view",
   //   derivationTreeProvider,
   // );
 
-  // How do I feed data to this thing?
   const derivationTreeView = vscode.window.createTreeView(
     "menhir-lsp-derivation-view",
     {
       treeDataProvider: derivationTreeProvider,
+    },
+  );
+
+  const actionBindingView = vscode.window.createTreeView(
+    "menhir-lsp-action-map",
+    {
+      treeDataProvider: actionProvider,
     },
   );
 
@@ -229,6 +242,9 @@ export function activate(context: vscode.ExtensionContext) {
     registerCmd("startParser", (start) =>
       startParserView(derivationTreeProvider, start),
     ),
+    registerCmd("connectParserWithLexer", (rule, entry) =>
+      connectParserView(actionProvider, rule, entry),
+    ),
   );
 
   //////////////////////////////////////////////////////////////////////////////
@@ -249,6 +265,62 @@ interface Token {
   rawRange: RawRange;
   text: string;
   action: number;
+}
+
+async function connectParserView(
+  actionProvider: ActionMapProvider,
+  startSymbol?: Entrypoint,
+  lexerRule?: Entrypoint,
+) {
+  if (!startSymbol) {
+    const parser = await execServerCmd<Entrypoint[]>("listParsers");
+
+    if (parser.length <= 0) {
+      vscode.window.showErrorMessage(
+        "You need to open at least one .mly file that has been compiled to the CMLY format.\n\nAdd the --cmly flag inside the menhir stanza of the dune file that declares the parser you'd like to use.",
+      );
+      return;
+    }
+
+    console.log(parser);
+
+    // Ask which parser rule to run
+    startSymbol = await setupQuickPick<Entrypoint>(
+      "Select Parser Entry Point",
+      parser.map((rule) => {
+        return {
+          ...rule,
+          label: `\$(symbol-function) ${rule.name} · ${rule.moduleUri.split("/").at(-1)}`,
+          description: vscode.Uri.parse(rule.moduleUri).path,
+        };
+      }),
+    );
+  }
+
+  if (!lexerRule) {
+    const lexers = await execServerCmd<Entrypoint[]>("listLexerRules");
+
+    // Ask which lexer rule to run
+    lexerRule = await setupQuickPick(
+      "Select Lexer Entry Point",
+      lexers.map((rule) => {
+        return {
+          ...rule,
+          label: `\$(symbol-function) ${rule.name} · \$(symbol-module) ${rule.moduleUri.split("/").at(-1)}`,
+          description: rule.moduleUri,
+        };
+      }),
+    );
+  }
+
+  const bindings = await execServerCmd<ActionBinding[]>(
+    "connectParserWithLexer",
+    null,
+    lexerRule,
+    startSymbol,
+  );
+
+  actionProvider.refresh(bindings);
 }
 
 async function startParserView(
@@ -300,10 +372,10 @@ async function startParserView(
   const d0 = derivations.at(0);
   if (!d0) {
     console.log("No derivations");
-    return
+    return;
   }
-  
-  treeProvider.refresh(d0);
+
+  treeProvider.refresh([d0]);
 }
 
 async function startTokenizerView(rule?: Entrypoint, source?: InputSource) {

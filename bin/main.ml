@@ -21,6 +21,7 @@ let command_dict =
     ("listParsers", `ListParsers);
     ("startTokenizer", `StartTokenizer);
     ("startParser", `StartParser);
+    ("connectParserWithLexer", `StartParserWithLexer);
   ]
 
 let doc_type_of_uri uri : doc_type option =
@@ -413,6 +414,55 @@ class lsp_server =
           let derivation = D.parse entrypoint input in
           let json = D.yojson_of_derivation [ derivation ] in
           Some json
+      | `StartParserWithLexer ->
+          (* let* text_source = uri_of_args args in *)
+          let* rule_name, mll_uri, entrypoint_name, mly_uri =
+            match args with
+            | Some
+                [
+                  _;
+                  `Assoc ((_, `String lexerName) :: (_, `String lexerUri) :: _);
+                  `Assoc ((_, `String parserName) :: (_, `String moduleUri) :: _);
+                ] ->
+                Some (lexerName, lexerUri, parserName, moduleUri)
+            | _ -> None
+          in
+          let* state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
+          let* cmly = state.cmly in
+          let module G = (val cmly : MenhirSdk.Cmly_api.GRAMMAR) in
+          let open G in
+          let* entrypoint =
+            L.find_opt
+              (fun (nt, _, _) ->
+                String.equal (Nonterminal.name nt) entrypoint_name)
+              Grammar.entry_points
+          in
+          let* lexer_state =
+            CCHashtbl.get mll_buffers (Uri.of_string mll_uri)
+          in
+          let module D = CmlyAdapter.Make (G) in
+          let* rule_idx, rule =
+            let open OcamllexSyntax.Syntax in
+            L.find_idx
+              (fun (e : entry located) -> String.equal e.v.name.v rule_name)
+              lexer_state.grammar.entrypoints
+          in
+          let map = D.connect_lexer_entry rule.v in
+          let bindings : Json.t list =
+            D.ActionMap.fold
+              (fun key option t ->
+                `Assoc
+                  [
+                    ("action", `Int key);
+                    ( "token",
+                      match option with
+                      | None -> `Null
+                      | Some t -> `String (Terminal.name t) );
+                  ]
+                :: t)
+              map []
+          in
+          Some (`List bindings)
       | `StartTokenizer -> (
           let open Lex in
           let open Tokenizer in

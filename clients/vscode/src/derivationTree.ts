@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { TreeProvider } from "./TreeProvider";
 
 export type DerivationTree =
   | string
@@ -6,24 +7,7 @@ export type DerivationTree =
 
 const isTerminal = (tree: DerivationTree) => typeof tree === "string";
 
-export class DerivationTreeProvider implements vscode.TreeDataProvider<DerivationTree> {
-  constructor(private readonly context: vscode.ExtensionContext) {}
-
-  private tree: DerivationTree | undefined = undefined;
-
-  private _onDidChangeTreeData = new vscode.EventEmitter<
-    DerivationTree | undefined | void
-  >();
-
-  readonly onDidChangeTreeData: vscode.Event<
-    void | DerivationTree | DerivationTree[] | null | undefined
-  > = this._onDidChangeTreeData.event;
-
-  /**
-   * IMPORTANT: if the collapsible state is the default value `None`,
-   * the node and therefore its children will not be rendered in the view
-   * (`getChildren` not be called on them.)
-   */
+export class DerivationTreeProvider extends TreeProvider<DerivationTree> {
   getTreeItem(
     element: DerivationTree,
   ): vscode.TreeItem | Thenable<vscode.TreeItem> {
@@ -34,38 +18,29 @@ export class DerivationTreeProvider implements vscode.TreeDataProvider<Derivatio
       ? vscode.TreeItemCollapsibleState.None
       : vscode.TreeItemCollapsibleState.Expanded;
 
-    // item.iconPath = isT ? "symbol-constant" : "symbol-function";
     return item;
   }
 
-  /**
-   * The first call is always with `undefined` to get the root.
-   * Also note that subtrees are computed on-demand (as debugging shows).
-   */
-  getChildren(
+  override getChildren(
     element?: DerivationTree | undefined,
   ): vscode.ProviderResult<DerivationTree[]> {
-    const tree = element || this.tree;
+    if (!element) return this.trees;
 
-    if (!tree || isTerminal(tree)) return [];
+    const tree = element;
 
-    return tree.children;
+    return isTerminal(tree) ? [] : tree.children;
   }
+}
 
-  refresh(derivation: DerivationTree) {
-    this.tree = derivation;
-    this._onDidChangeTreeData.fire();
-  }
+export type ActionMapping = { action: number; token: string };
 
-  getParent?(element: DerivationTree): vscode.ProviderResult<DerivationTree> {
-    throw new Error("Method not implemented.");
-  }
+export class ActionMapProvider extends TreeProvider<ActionMapping> {
+  getTreeItem(
+    element: ActionMapping,
+  ): vscode.TreeItem | Thenable<vscode.TreeItem> {
+    const item = new vscode.TreeItem(`${element.action} -> ${element.token}`);
+    item.collapsibleState = vscode.TreeItemCollapsibleState.None;
 
-  resolveTreeItem?(
-    item: vscode.TreeItem,
-    element: DerivationTree,
-    token: vscode.CancellationToken,
-  ): vscode.ProviderResult<vscode.TreeItem> {
-    throw new Error("Method not implemented.");
+    return item;
   }
 }
