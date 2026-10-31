@@ -99,8 +99,20 @@
     "views": {
       "menhir-lsp-view-container": [
         {
+          "id": "menhir-lsp-workspace-lexers",
+          "name": "Workspace Lexers",
+          "icon": "icons/icon_outline_thick.svg",
+          "contextualTitle": "Workspace Lexers"
+        },
+        {
+          "id": "menhir-lsp-workspace-parsers",
+          "name": "Workspace Parsers",
+          "icon": "icons/icon_outline_thick.svg",
+          "contextualTitle": "Workspace Parsers"
+        },
+        {
           "id": "menhir-lsp-derivation-view",
-          "name": "Menhir LSP - Derivation Explorer",
+          "name": "Derivation Explorer",
           "icon": "icons/icon_outline_thick.svg",
           "contextualTitle": "Derivation Explorer"
         },
@@ -112,6 +124,16 @@
         }
       ]
     },
+    "viewsWelcome": [
+      {
+        "view": "menhir-lsp-workspace-lexers",
+        "contents": "The lexers available in the workspace will appear here, ready for debugging."
+      },
+      {
+        "view": "menhir-lsp-workspace-parsers",
+        "contents": "The parsers available in the workspace which have been compiled to the [CMLY format](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec110) will appear here, ready for debugging.\n\nTo ask dune to generate the CMLY representation of a parser, open the dune file next its .mly file and add the `--cmly` flag inside the Menhir stanza. [(dune docs)](https://dune.readthedocs.io/en/stable/reference/dune/menhir.html)."
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {
@@ -133,7 +155,8 @@
       },
       {
         "title": "Menhir: Start Interactive Tokenizer",
-        "command": "menhir-lsp-client.startTokenizer"
+        "command": "menhir-lsp-client.startTokenizer",
+        "icon": "$(play)"
       },
       {
         "title": "Menhir: Go To Implementation",
@@ -186,6 +209,11 @@
         "title": "echo errors",
         "enablement": "never",
         "command": "menhir-lsp-client.echoErrors"
+      },
+      {
+        "title": "Menhir: Run Parser",
+        "command": "menhir-lsp-client.runParser",
+        "icon": "$(play)"
       }
     ],
     "configuration": {

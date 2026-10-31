@@ -22,6 +22,7 @@ import {
   ActionMapProvider,
   DerivationTree,
   DerivationTreeProvider,
+  FileProvider,
 } from "./derivationTree";
 
 let client: LanguageClient;
@@ -126,6 +127,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   const actionProvider = new ActionMapProvider(context);
 
+  const lexerProvider = new FileProvider(context, "**/*.mll");
+  const parserProvider = new FileProvider(context, "**/*.mly");
+
   // derivationTreeProvider.onDidChangeTreeData((d) =>
   //   console.log("tree data has changed.", d),
   // );
@@ -135,6 +139,7 @@ export function activate(context: vscode.ExtensionContext) {
   //   derivationTreeProvider,
   // );
 
+  //#region Views
   const derivationTreeView = vscode.window.createTreeView(
     "menhir-lsp-derivation-view",
     {
@@ -146,6 +151,20 @@ export function activate(context: vscode.ExtensionContext) {
     "menhir-lsp-action-map",
     {
       treeDataProvider: actionProvider,
+    },
+  );
+
+  const workspaceLexersView = vscode.window.createTreeView(
+    "menhir-lsp-workspace-lexers",
+    {
+      treeDataProvider: lexerProvider,
+    },
+  );
+
+  const workspaceParsersView = vscode.window.createTreeView(
+    "menhir-lsp-workspace-parsers",
+    {
+      treeDataProvider: parserProvider,
     },
   );
 

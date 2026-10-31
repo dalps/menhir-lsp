@@ -44,3 +44,26 @@ export class ActionMapProvider extends TreeProvider<ActionMapping> {
     return item;
   }
 }
+
+export class FileProvider extends TreeProvider<vscode.Uri> {
+  constructor(
+    context: vscode.ExtensionContext,
+    private pattern: string,
+  ) {
+    super(context);
+  }
+
+  getTreeItem(
+    element: vscode.Uri,
+  ): vscode.TreeItem | Thenable<vscode.TreeItem> {
+    const item = new vscode.TreeItem(element);
+
+    return item;
+  }
+
+  getChildren(
+    element?: vscode.Uri | undefined,
+  ): vscode.ProviderResult<vscode.Uri[]> {
+    return vscode.workspace.findFiles(this.pattern);
+  }
+}
