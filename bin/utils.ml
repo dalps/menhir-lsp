@@ -8,6 +8,23 @@ module Ivl = Ivl_map.Interval
 
 type document = Text_document.t
 
+let make_entries_dict uri (entries : (string * Range.t) list) =
+  `Assoc
+    [
+      ("moduleUri", uri);
+      ( "entrypoints",
+        `List
+          (L.map
+             (fun (name, range) ->
+               `Assoc
+                 [
+                   ("name", `String name);
+                   ("moduleUri", uri);
+                   ("range", Range.yojson_of_t range);
+                 ])
+             entries) );
+    ]
+
 let combine_json_lists o1 o2 =
   match (o1, o2) with
   | `List o1, `List o2 -> `List (o1 @ o2)

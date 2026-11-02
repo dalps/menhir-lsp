@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { TreeProvider } from "./TreeProvider";
 import { Entry, ModuleEntries } from "./types";
 import { execServerCmd } from "./extension";
+import { liftRange } from "./utils";
 
 export type DerivationTree =
   | string
@@ -80,15 +81,21 @@ export class EntrypointProvider extends TreeProvider<Entry | ModuleEntries> {
   getTreeItem(
     element: Entry | ModuleEntries,
   ): vscode.TreeItem | Thenable<vscode.TreeItem> {
-    if (element.name) {
+    const uri = vscode.Uri.parse(element.moduleUri);
+
+    if ("name" in element) {
       const item = new vscode.TreeItem(element.name);
       item.contextValue = "entrypoint";
       item.iconPath = new vscode.ThemeIcon("symbol-function");
-      item.command = { command: "vscode.open", title: "Focus in editor" };
+      const selection = liftRange(element.range);
+      item.command = {
+        command: "vscode.open",
+        title: "Focus in editor",
+        arguments: [uri, { selection } as vscode.TextDocumentShowOptions],
+      };
       return item;
     }
 
-    const uri = vscode.Uri.parse(element.moduleUri);
     const item = new vscode.TreeItem(
       uri,
       vscode.TreeItemCollapsibleState.Expanded,
@@ -105,6 +112,6 @@ export class EntrypointProvider extends TreeProvider<Entry | ModuleEntries> {
       return execServerCmd(this.command) as Promise<ModuleEntries[]>;
     }
 
-    return element.entrypoints ?? [];
+    return "name" in element ? [] : element.entrypoints;
   }
 }

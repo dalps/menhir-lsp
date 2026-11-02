@@ -351,39 +351,37 @@ class lsp_server =
             |> L.filter_map (fun (uri, state) ->
                 let open O in
                 let+ (module G : MenhirSdk.Cmly_api.GRAMMAR) = state.Mly.cmly in
-                `Assoc
-                  [
-                    ("moduleUri", Uri.yojson_of_t uri);
-                    ( "entrypoints",
-                      `List
-                        (L.map
-                           (fun (nt, _, _) ->
-                             `Assoc
-                               [ ("name", `String (G.Nonterminal.name nt)) ])
-                           G.Grammar.entry_points) );
-                  ])
+                let uri = Uri.yojson_of_t uri in
+                let entries =
+                  L.filter_map
+                    (function
+                      | M.Syntax.Old { v = { pr_nt }; p }
+                      | M.Syntax.New { v = { pr_nt }; p } ->
+                          let+ _ =
+                            L.find_opt
+                              (fun (nt, _, _) ->
+                                String.equal (G.Nonterminal.name nt) pr_nt.v)
+                              G.Grammar.entry_points
+                          in
+                          (pr_nt.v, Range.of_lexical_positions p))
+                    state.grammar.pg_rules
+                in
+                make_entries_dict uri entries)
           in
           Some (`List entrypoints)
       | `ListLexerRules ->
           let entrypoints =
-            CCHashtbl.keys_list mll_buffers
-            |> L.filter_map (fun uri ->
+            mll_buffers |> CCHashtbl.to_list
+            |> L.filter_map (fun (uri, state) ->
                 let open O in
-                (* let* doc = self#get_text_document uri in *)
-                let path = Uri.to_path uri in
-                let+ entries, automata =
-                  Lex.Driver.parse_file path |> R.to_opt
+                let uri = Uri.yojson_of_t uri in
+                let entries =
+                  let open OcamllexSyntax.Syntax in
+                  state.Mll.grammar.entrypoints
+                  |> L.map (fun { p; v = { name } } ->
+                      (name.v, Range.of_lexical_positions p))
                 in
-                `Assoc
-                  [
-                    ("moduleUri", Uri.yojson_of_t uri);
-                    ( "entrypoints",
-                      `List
-                        (L.map
-                           (fun e ->
-                             `Assoc [ ("name", `String e.Lex.Lexgen.auto_name) ])
-                           entries) );
-                  ])
+                Some (make_entries_dict uri entries))
           in
           Some (`List entrypoints)
       | `StartParser ->
