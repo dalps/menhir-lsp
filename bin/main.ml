@@ -411,8 +411,8 @@ class lsp_server =
               Grammar.entry_points
           in
           let module D = CmlyAdapter.Make (G) in
-          let derivation = D.parse entrypoint input in
-          let json = D.yojson_of_derivation [ derivation ] in
+          let derivation = D.parse_terminals entrypoint input in
+          let json = D.yojson_of_simple_derivation [ derivation ] in
           Some json
       | `StartParserWithLexer ->
           (* let* text_source = uri_of_args args in *)
@@ -503,7 +503,9 @@ class lsp_server =
               try
                 In_channel.with_open_text (Uri.to_path text_source) (fun ic ->
                     let lexbuf = Lexing.from_channel ic in
-                    let tokens = tokenize ~start_rule_idx lexbuf lexer in
+                    let tokens =
+                      tokenize_with_idx ~start_rule_idx lexbuf lexer
+                    in
                     `List (L.map Token.yojson_of_t tokens) |> some)
               with _ ->
                 notify_error "Could not open text source %s"

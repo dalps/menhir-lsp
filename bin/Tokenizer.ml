@@ -12,7 +12,8 @@ let debug = false
 let log s = Utils.log_src ~debug "tokenizer" s
 
 (** Parses [source_name] into a list of entrypoints and the corresponding
-    automaton. The first component of the type parameter of
+    automaton. The output automata array is indexed by the states and is shared
+    between entrypoints. The first component of the type parameter of
     [Lexgen.automata_entry] represents captured variables, the second one the
     range of the action snippet including braces. *)
 let parse_dfa source_name =
@@ -27,8 +28,8 @@ let parse_dfa source_name =
         };
       try
         let def = Parser.lexer_definition Lexer.main lexbuf in
-        let entries, transitions = Lexgen.make_dfa def.entrypoints in
-        Ok (entries, transitions)
+        let entries, automata = Lexgen.make_dfa def.entrypoints in
+        Ok (entries, automata)
       with exn ->
         let bt = Printexc.get_raw_backtrace () in
         let msg =
@@ -156,23 +157,27 @@ let rec token automata lexbuf _buf _len _curr _last (state, last_action) =
           log "%d --> %d" state state';
           token automata lexbuf _buf _len _curr _last (state', last_action))
 
-(** Outer loop: parses tokens, analyses actions and moves between entrypoints *)
-let rec tokenize (lexbuf : Lexing.lexbuf) (entrypoint : entrypoint)
-    (automata : Lexgen.automata array) (tokens : Token.t list) =
+(** Performs a single run of the rule [entrypoint], producing a token. If the
+    token's [action] field is [-1], the lexer failed. *)
+let next_token (lexbuf : Lexing.lexbuf) (entrypoint : entrypoint)
+    (automata : Lexgen.automata array) =
   let initial = fst entrypoint.auto_initial_state in
 
+  (* Update [lexbuf.lex_start_pos] and set the initial context of the inner loop *)
   let _curr = lexbuf.Lexing.lex_curr_pos in
   let _last = _curr in
   let _len = lexbuf.Lexing.lex_buffer_len in
   let _buf = lexbuf.Lexing.lex_buffer in
   let _last_action = -1 in
   lexbuf.Lexing.lex_start_pos <- _curr;
-
   log "%B eof reached" lexbuf.lex_eof_reached;
+
+  (* Run the inner loop *)
   let state, action =
     token automata lexbuf _buf _len _curr _last (initial, _last_action)
   in
 
+  (* Update the position fields of lexbuf with the new offsets *)
   begin
     let _curr_p = lexbuf.Lexing.lex_curr_p in
     if _curr_p != Lexing.dummy_pos then begin
@@ -186,10 +191,16 @@ let rec tokenize (lexbuf : Lexing.lexbuf) (entrypoint : entrypoint)
     end
   end;
 
-  let tok = Token.make lexbuf action in
+  Token.make lexbuf action
+
+(** Outer loop: parses tokens through multiple runs of the same rule
+    [entrypoint], collects into a list. *)
+let rec tokenize (lexbuf : Lexing.lexbuf) (entrypoint : entrypoint)
+    (automata : Lexgen.automata array) (tokens : Token.t list) =
+  let tok = next_token lexbuf entrypoint automata in
   let tokens = tok :: tokens in
 
-  if action < 0 then (
+  if tok.action < 0 then (
     (* Exception: empty token. We are interested in this event so we still produce a token (with empty text and action of -1) which we treat specially in the UI. *)
     log "empty token found";
     List.rev tokens)
@@ -198,9 +209,8 @@ let rec tokenize (lexbuf : Lexing.lexbuf) (entrypoint : entrypoint)
     List.rev tokens)
   else tokenize lexbuf entrypoint automata tokens
 
-let tokenize ~start_rule_idx lexbuf (entrypoints, auto) =
+let tokenize_with_idx ~start_rule_idx lexbuf (entrypoints, auto) =
   tokenize lexbuf (List.nth entrypoints start_rule_idx) auto []
 
-let tokenize_to_json i l a : Yojson.Safe.t =
-  let res = tokenize ~start_rule_idx:i l a in
-  `List (L.map Token.yojson_of_t res)
+let tokenize_with_entry lexbuf entrypoint automata =
+  tokenize lexbuf entrypoint automata []
