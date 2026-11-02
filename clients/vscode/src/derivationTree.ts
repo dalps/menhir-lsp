@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 import { TreeProvider } from "./TreeProvider";
+import { Entry, ModuleEntries } from "./types";
+import { execServerCmd } from "./extension";
 
 export type DerivationTree =
   | string
@@ -65,5 +67,44 @@ export class FileProvider extends TreeProvider<vscode.Uri> {
     element?: vscode.Uri | undefined,
   ): vscode.ProviderResult<vscode.Uri[]> {
     return vscode.workspace.findFiles(this.pattern);
+  }
+}
+
+export class EntrypointProvider extends TreeProvider<Entry | ModuleEntries> {
+  constructor(
+    context: vscode.ExtensionContext,
+    public command: string,
+  ) {
+    super(context);
+  }
+  getTreeItem(
+    element: Entry | ModuleEntries,
+  ): vscode.TreeItem | Thenable<vscode.TreeItem> {
+    if (element.name) {
+      const item = new vscode.TreeItem(element.name);
+      item.contextValue = "entrypoint";
+      item.iconPath = new vscode.ThemeIcon("symbol-function");
+      item.command = { command: "vscode.open", title: "Focus in editor" };
+      return item;
+    }
+
+    const uri = vscode.Uri.parse(element.moduleUri);
+    const item = new vscode.TreeItem(
+      uri,
+      vscode.TreeItemCollapsibleState.Expanded,
+    );
+    item.iconPath = vscode.ThemeIcon.File;
+    item.command = { command: "vscode.open", title: "Open", arguments: [uri] };
+    return item;
+  }
+
+  getChildren(
+    element?: Entry | ModuleEntries | undefined,
+  ): vscode.ProviderResult<(Entry | ModuleEntries)[]> {
+    if (!element) {
+      return execServerCmd(this.command) as Promise<ModuleEntries[]>;
+    }
+
+    return element.entrypoints ?? [];
   }
 }

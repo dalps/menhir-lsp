@@ -16,14 +16,21 @@ import { activateStatusBar } from "./status";
 import { liftRange, rand, setupQuickPick, uriEqual } from "./utils";
 import { readFileSync } from "fs";
 import path = require("path");
-import { RawRange } from "./webviews/ast/types";
 import {
   ActionMapping as ActionBinding,
   ActionMapProvider,
   DerivationTree,
   DerivationTreeProvider,
+  EntrypointProvider,
   FileProvider,
 } from "./derivationTree";
+import {
+  InputSourceKind,
+  Entry,
+  InputSource,
+  Token,
+  ModuleEntries,
+} from "./types";
 
 let client: LanguageClient;
 
@@ -127,8 +134,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   const actionProvider = new ActionMapProvider(context);
 
-  const lexerProvider = new FileProvider(context, "**/*.mll");
-  const parserProvider = new FileProvider(context, "**/*.mly");
+  const lexerProvider = new EntrypointProvider(context, "listLexerRules");
+  const parserProvider = new EntrypointProvider(context, "listParsers");
 
   // derivationTreeProvider.onDidChangeTreeData((d) =>
   //   console.log("tree data has changed.", d),
@@ -264,73 +271,86 @@ export function activate(context: vscode.ExtensionContext) {
     registerCmd("connectParserWithLexer", (rule, entry) =>
       connectParserView(actionProvider, rule, entry),
     ),
+    // Note: commands invoked from tree items buttons receive the item's data as the first argument
+    registerCmd("editRegexpTokenBinding", (binding) => {
+      if (!currentParserEntrypoint) {
+        console.error("Error: a parser entrypoint must be set.");
+        return;
+      }
+      editRegexpBinding(binding, currentParserEntrypoint);
+    }),
   );
+
+  vscode.workspace.onDidOpenTextDocument(({ languageId }) => {
+    languageId === "ocaml.ocamllex" && lexerProvider.refresh([]);
+    languageId === "ocaml.menhir" && parserProvider.refresh([]);
+  });
 
   //////////////////////////////////////////////////////////////////////////////
 }
 
-type Entrypoint = { name: string; moduleUri: string };
+let currentParserEntrypoint: Entry | undefined = undefined;
 
-enum InputSourceKind {
-  ActiveEditor,
-  File,
-  TextBox,
+async function selectEntrypointQuickPick(
+  msg: string,
+  modules: ModuleEntries[],
+) {
+  return setupQuickPick<Entry>(
+    msg,
+    modules.flatMap(({ moduleUri, entrypoints }) => {
+      let sep: vscode.QuickPickItem & Entry = {
+        name: "",
+        label: moduleUri.fsPath,
+        resourceUri: moduleUri,
+        kind: vscode.QuickPickItemKind.Separator,
+      };
+      let entries = entrypoints.map((rule) => ({
+        ...rule,
+        label: `\$(symbol-function) ${rule.name} · ${moduleUri.toString().split("/").at(-1)}`,
+        // description: vscode.Uri.parse(moduleUri).path,
+      }));
+      return [sep, ...entries];
+    }),
+  );
 }
 
-type InputSource = { value: InputSourceKind };
+async function selectParser() {
+  const modules = await execServerCmd<ModuleEntries[]>("listParsers");
 
-interface Token {
-  range: Range;
-  rawRange: RawRange;
-  text: string;
-  action: number;
+  if (modules.length <= 0) {
+    vscode.window.showErrorMessage(
+      "You need to open at least one .mly file that has been compiled to the CMLY format.\n\nAdd the --cmly flag inside the menhir stanza of the dune file that declares the parser you'd like to use.",
+    );
+    return;
+  }
+
+  return await selectEntrypointQuickPick("Select Parser Entry Point", modules);
+}
+
+async function selectLexer() {
+  const lexers = await execServerCmd<ModuleEntries[]>("listLexerRules");
+
+  if (lexers.length <= 0) {
+    vscode.window.showErrorMessage("You need to open at least one .mll file");
+    return;
+  }
+
+  return await selectEntrypointQuickPick("Select Lexer Entry Point", lexers);
 }
 
 async function connectParserView(
   actionProvider: ActionMapProvider,
-  startSymbol?: Entrypoint,
-  lexerRule?: Entrypoint,
+  startSymbol?: Entry,
+  lexerRule?: Entry,
 ) {
-  if (!startSymbol) {
-    const parser = await execServerCmd<Entrypoint[]>("listParsers");
+  startSymbol = startSymbol || (await selectParser());
+  if (!startSymbol) return;
 
-    if (parser.length <= 0) {
-      vscode.window.showErrorMessage(
-        "You need to open at least one .mly file that has been compiled to the CMLY format.\n\nAdd the --cmly flag inside the menhir stanza of the dune file that declares the parser you'd like to use.",
-      );
-      return;
-    }
+  currentParserEntrypoint = startSymbol;
 
-    console.log(parser);
+  lexerRule = lexerRule || (await selectLexer());
 
-    // Ask which parser rule to run
-    startSymbol = await setupQuickPick<Entrypoint>(
-      "Select Parser Entry Point",
-      parser.map((rule) => {
-        return {
-          ...rule,
-          label: `\$(symbol-function) ${rule.name} · ${rule.moduleUri.split("/").at(-1)}`,
-          description: vscode.Uri.parse(rule.moduleUri).path,
-        };
-      }),
-    );
-  }
-
-  if (!lexerRule) {
-    const lexers = await execServerCmd<Entrypoint[]>("listLexerRules");
-
-    // Ask which lexer rule to run
-    lexerRule = await setupQuickPick(
-      "Select Lexer Entry Point",
-      lexers.map((rule) => {
-        return {
-          ...rule,
-          label: `\$(symbol-function) ${rule.name} · \$(symbol-module) ${rule.moduleUri.split("/").at(-1)}`,
-          description: rule.moduleUri,
-        };
-      }),
-    );
-  }
+  if (!lexerRule) return;
 
   const bindings = await execServerCmd<ActionBinding[]>(
     "connectParserWithLexer",
@@ -344,32 +364,10 @@ async function connectParserView(
 
 async function startParserView(
   treeProvider: DerivationTreeProvider,
-  startSymbol?: Entrypoint,
+  startSymbol?: Entry,
 ) {
-  if (!startSymbol) {
-    const parser = await execServerCmd<Entrypoint[]>("listParsers");
-
-    if (parser.length <= 0) {
-      vscode.window.showErrorMessage(
-        "You need to open at least one .mly file that has been compiled to the CMLY format.\n\nAdd the --cmly flag inside the menhir stanza of the dune file that declares the parser you'd like to use.",
-      );
-      return;
-    }
-
-    console.log(parser);
-
-    // Ask which lexer rule to run
-    startSymbol = await setupQuickPick<Entrypoint>(
-      "Select Parser Entry Point",
-      parser.map((rule) => {
-        return {
-          ...rule,
-          label: `\$(symbol-function) ${rule.name} · ${rule.moduleUri.split("/").at(-1)}`,
-          description: vscode.Uri.parse(rule.moduleUri).path,
-        };
-      }),
-    );
-  }
+  startSymbol = startSymbol || (await selectParser());
+  if (!startSymbol) return;
 
   const cmd = "startParser";
 
@@ -397,34 +395,15 @@ async function startParserView(
   treeProvider.refresh([d0]);
 }
 
-async function startTokenizerView(rule?: Entrypoint, source?: InputSource) {
+async function startTokenizerView(rule?: Entry, source?: InputSource) {
   let editor = vscode.window.activeTextEditor;
 
-  if (!rule) {
-    const lexers = await execServerCmd<Entrypoint[]>("listLexerRules");
+  rule = rule || (await selectLexer());
+  if (!rule) return;
 
-    if (lexers.length <= 0) {
-      vscode.window.showErrorMessage("You need to open at least one .mll file");
-      return;
-    }
-
-    console.log(lexers);
-
-    // Ask which lexer rule to run
-    rule = await setupQuickPick<Entrypoint>(
-      "Select Lexer Entry Point",
-      lexers.map((rule) => {
-        return {
-          ...rule,
-          label: `\$(symbol-function) ${rule.name} · \$(symbol-module) ${rule.moduleUri.split("/").at(-1)}`,
-          description: rule.moduleUri,
-        };
-      }),
-    );
-  }
-
-  if (!source) {
-    source = await setupQuickPick("Select the input source", [
+  source =
+    source ||
+    (await setupQuickPick("Select the input source", [
       {
         label: "$(target) Active Editor",
         value: InputSourceKind.ActiveEditor,
@@ -434,10 +413,9 @@ async function startTokenizerView(rule?: Entrypoint, source?: InputSource) {
         value: InputSourceKind.File,
       },
       { label: "$(pencil) Enter some text", value: InputSourceKind.TextBox },
-    ]);
+    ]));
 
-    if (!source) return;
-  }
+  if (!source) return;
 
   // vscode.workspace.findFiles
   let cmd = "startTokenizer";
@@ -606,4 +584,24 @@ export async function gotoImplementation(
     } as ExecuteCommandParams,
     CancellationToken.None,
   );
+}
+
+async function editRegexpBinding(
+  binding: ActionBinding,
+  entry: Entry,
+): Promise<ActionBinding | undefined> {
+  const tokens = (await execServerCmd("listTokens", entry)) as string[];
+
+  const newToken = await vscode.window.showQuickPick(
+    tokens.map((s): vscode.QuickPickItem => ({ label: s })),
+    {
+      title: `Select the token to match to action ${binding.action}`,
+    },
+  );
+
+  if (!newToken) return;
+
+  // todo: update the map on the server side
+
+  return { ...binding, token: newToken.label };
 }

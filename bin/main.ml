@@ -346,26 +346,26 @@ class lsp_server =
       | `PreviousDummyMessage -> focus Msg.previous_dummy_message
       | `ListParsers ->
           (* only show the parsers that have been compiled to cmly *)
-          let entry_points =
-            mly_buffers
-            |> CCHashtbl.map_list (fun uri state ->
+          let entrypoints =
+            mly_buffers |> CCHashtbl.to_list
+            |> L.filter_map (fun (uri, state) ->
                 let open O in
-                match state.Mly.cmly with
-                | None -> []
-                | Some (module G : MenhirSdk.Cmly_api.GRAMMAR) ->
-                    L.map
-                      (fun (nt, _, _) ->
-                        `Assoc
-                          [
-                            ("name", `String (G.Nonterminal.name nt));
-                            ("moduleUri", Uri.yojson_of_t uri);
-                          ])
-                      G.Grammar.entry_points)
-            |> L.flatten
+                let+ (module G : MenhirSdk.Cmly_api.GRAMMAR) = state.Mly.cmly in
+                `Assoc
+                  [
+                    ("moduleUri", Uri.yojson_of_t uri);
+                    ( "entrypoints",
+                      `List
+                        (L.map
+                           (fun (nt, _, _) ->
+                             `Assoc
+                               [ ("name", `String (G.Nonterminal.name nt)) ])
+                           G.Grammar.entry_points) );
+                  ])
           in
-          Some (`List entry_points)
+          Some (`List entrypoints)
       | `ListLexerRules ->
-          let entry_points =
+          let entrypoints =
             CCHashtbl.keys_list mll_buffers
             |> L.filter_map (fun uri ->
                 let open O in
@@ -374,17 +374,18 @@ class lsp_server =
                 let+ entries, automata =
                   Lex.Driver.parse_file path |> R.to_opt
                 in
-                L.map
-                  (fun e ->
-                    `Assoc
-                      [
-                        ("name", `String e.Lex.Lexgen.auto_name);
-                        ("moduleUri", Uri.yojson_of_t uri);
-                      ])
-                  entries)
-            |> L.flatten
+                `Assoc
+                  [
+                    ("moduleUri", Uri.yojson_of_t uri);
+                    ( "entrypoints",
+                      `List
+                        (L.map
+                           (fun e ->
+                             `Assoc [ ("name", `String e.Lex.Lexgen.auto_name) ])
+                           entries) );
+                  ])
           in
-          Some (`List entry_points)
+          Some (`List entrypoints)
       | `StartParser ->
           let* input, entrypoint_name, mly_uri =
             match args with
