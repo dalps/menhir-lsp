@@ -328,17 +328,13 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         log_error "rejected token %s" (Terminal.name t);
         Error (`Rejected (T t))
 
-  (* Modeling things a lexer can produce. *)
-  type lexer_value =
-    | Skip
-    | Fail
-    | Newline of terminal option
-    | Token of terminal
+  (* Modeling the things a semantic action of a lexer rule can do. *)
+  type lexer_behavior = Skip | Fail | Produce of terminal
 
   let parse_with_positions (entrypoint : entrypoint)
       (lexer_entry : Tokenizer.entrypoint)
       (lexer_automata : Lex.Lexgen.automata array)
-      (lexer_action_map : lexer_value ActionMap.t) (input : string)
+      (lexer_action_map : lexer_behavior ActionMap.t) (input : string)
       (token_derivation_tree, _) result =
     let lexbuf = Lexing.from_string input in
     let start_nt, _, start_lr1 = entrypoint in
@@ -350,16 +346,13 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
       let open O in
       (* todo: filter out lexer actions that do not produce a token (i.e. they either loop or throw an error) *)
       match ActionMap.find_opt data.action lexer_action_map with
-      | None -> Error (spr "Token: don't know how to interpret %s" data.text)
+      | None ->
+          Error (spr "unbound action: don't know how to interpret %s" data.text)
       | Some terminal -> (
           match terminal with
           | Skip -> next_token ()
           | Fail -> Error "lexer error"
-          | Newline o -> (
-              (* Normally, most lexers skip line breaks they're whitespace, but others may still produce end-of-line tokens whose location must span exactly two lines, e.g. 1:32-2:0. In that case, `Lexer.new_line` should be called after setting the token's start position and before setting the end position, todo in Tokenizer. *)
-              Lexing.new_line lexbuf;
-              match o with None -> next_token () | Some term -> Ok (term, tok))
-          | Token term -> Ok (term, tok))
+          | Produce term -> Ok (term, tok))
     in
 
     let tokens =
@@ -373,7 +366,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
       lexer's rule by searching for token occurrences within the rule's actions.
   *)
   let connect_lexer_entry (entry : OcamllexSyntax.Syntax.entry) :
-      terminal option ActionMap.t =
+      lexer_behavior option ActionMap.t =
     let actions =
       L.map
         (fun OcamllexSyntax.Located.{ v = _, { v = text; _ }; _ } -> text)
@@ -382,31 +375,49 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     let log s = log_src "connect_lexer" s in
     L.foldi
       (fun (acc : _ ActionMap.t) (idx : int) (text : string) ->
-        (* Logic: parse the actions and see if it contains any constructor whose name matches a token known by [G]. *)
+        (* Logic: parse the action text and see if it contains any constructor whose name matches a token known by [G] or calls [Lexing.new_line] or resembles code that raises an exception. We're really oversimplifying stuff here and the following static code analysis may be cursed. *)
         try
           log "parsing action #%d with text %S" idx text;
           let ocaml_ast =
             Ppxlib.Parse.implementation (Lexing.from_string text)
           in
-          let constructors = Menhir_lsp_lib.OcamlSymbols.get_tags ocaml_ast in
+
+          let vars =
+            Menhir_lsp_lib.OcamlSymbols.get_fvars ocaml_ast
+            |> L.map (fun (v : string Ppxlib.Loc.t) -> v.txt)
+          in
+          let does_fail =
+            L.exists (fun txt -> txt = "raise" || txt = "failwith") vars
+          in
+          let does_skip = L.mem entry.name.v vars in
+          let constructors =
+            Menhir_lsp_lib.OcamlSymbols.get_tags ocaml_ast
+            |> L.map Ppxlib.Loc.txt
+          in
           log "constructors found: %a"
-            (L.pp (fun out t -> pf out "%s" (Ppxlib.Loc.txt t)))
+            (L.pp (fun out t -> pf out "%s" t))
             constructors;
-          let v =
+          let does_token =
             Terminal.fold
-              (fun token acc' ->
-                if
-                  L.exists
-                    (fun loc ->
-                      String.equal (Terminal.name token) (Ppxlib.Loc.txt loc))
-                    constructors
-                then Some token
+              (fun term acc' ->
+                if L.exists (String.equal (Terminal.name term)) constructors
+                then Some term
                 else acc')
               None
           in
-          ActionMap.add idx v acc
+          let action =
+            match (does_fail, does_skip, does_token) with
+            | true, _, _ -> Some Fail
+            | _, true, _ -> Some Skip
+            | _, _, Some v -> Some (Produce v)
+            | _ ->
+                (* uninterpreted action, the user should set its behaviour in the UI. *)
+                None
+          in
+          ActionMap.add idx action acc
         with _ ->
           log "failed to parse action #%d" idx;
-          acc)
+          (* We could be more lenient and skip it to read the next token instead of divergin. *)
+          ActionMap.add idx None acc)
       ActionMap.empty actions
 end

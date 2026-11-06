@@ -447,18 +447,39 @@ class lsp_server =
               lexer_state.grammar.entrypoints
           in
           let map = D.connect_lexer_entry rule.v in
+          let mk_action_value ?(token : terminal option) kind : Json.t =
+            `Assoc
+              ([ ("kind", `String kind) ]
+              @
+              match token with
+              | Some t ->
+                  [
+                    ( "token",
+                      `Assoc
+                        [
+                          ("name", `String (Terminal.name t));
+                          ("id", `Int (Terminal.to_int t));
+                        ] );
+                  ]
+              | _ -> [])
+          in
           let bindings : Json.t list =
             D.ActionMap.fold
-              (fun key option t ->
+              (fun k v acc ->
                 `Assoc
                   [
-                    ("action", `Int key);
-                    ( "token",
-                      match option with
+                    ("action", `Int k);
+                    (* todo: include stringified regexp for displaying *)
+                    ( "value",
+                      match v with
                       | None -> `Null
-                      | Some t -> `String (Terminal.name t) );
+                      | Some t -> (
+                          match t with
+                          | D.Skip -> mk_action_value "skip"
+                          | D.Fail -> mk_action_value "fail"
+                          | D.Produce t -> mk_action_value ~token:t "token") );
                   ]
-                :: t)
+                :: acc)
               map []
           in
           Some (`List bindings)

@@ -131,7 +131,11 @@
       },
       {
         "view": "menhir-lsp-workspace-parsers",
-        "contents": "The parsers available in the workspace which have been compiled to the [CMLY format](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec110) will appear here, ready for debugging.\n\nTo ask dune to generate the CMLY representation of a parser, open the dune file next its .mly file and add the `--cmly` flag inside the Menhir stanza. [(dune docs)](https://dune.readthedocs.io/en/stable/reference/dune/menhir.html)."
+        "contents": "The parsers available in the workspace which have been compiled to the [CMLY format](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec110) will appear here, ready for debugging.\n\nTo ask dune to generate the CMLY representation of a parser, open the dune file next its .mly file and add the `--cmly` flag inside the Menhir stanza.\n\n[Menhir stanza docs](https://dune.readthedocs.io/en/stable/reference/dune/menhir.html)"
+      },
+      {
+        "view": "menhir-lsp-action-map",
+        "contents": "This view lets you associate a lexer's actions to a parser's tokens. It will be filled in after you click the \"Plug lexer\" button on a parser in the Workspace Parsers view and have selected a lexer that will produce tokens for it.\nThe initial map is inferred automatically and may be inaccurate, therefore it is your responsibility to make sure the actions have the correct semantics.\n\nThere are three kinds of behaviors you can set as the regexp's action:\n- **Produce** a token of the selected parser\n- **Skip** and read the next token\n- **Fail** (halt the lexer.)\nOnce the map suitably models the actual behavior of the OCaml code in your lexer rule, you can start interpreting sentences by pressing the \"Play\" button at the top of the view."
       }
     ],
     "viewsContainers": {
