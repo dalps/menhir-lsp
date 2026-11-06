@@ -72,7 +72,8 @@ let stats source_file =
     arr
 
 module Token = struct
-  type t = { text : string; loc : range; action : int }
+  type data = { text : string; action : int }
+  type t = data Range.located
 
   let make (lexbuf : Lexing.lexbuf) action : t =
     let text =
@@ -82,20 +83,11 @@ module Token = struct
     let startp = Lexing.lexeme_start_p lexbuf in
     if String.contains text '\n' then Lexing.new_line lexbuf;
     let endp = Lexing.lexeme_end_p lexbuf in
-    { text; loc = (startp, endp); action }
+    Range.locate { text; action } (Range.of_lexical_positions (startp, endp))
 
-  let yojson_of_t ({ text; loc; action } : t) : Yojson.Safe.t =
-    let range = Range.of_lexical_positions loc |> Range.yojson_of_t in
-    let start, end_ =
-      CCPair.map_same (fun (pos : Lexing.position) -> pos.pos_cnum) loc
-    in
-    `Assoc
-      [
-        ("range", range);
-        ("rawRange", `List [ `Int start; `Int end_ ]);
-        ("text", `String text);
-        ("action", `Int action);
-      ]
+  let yojson_of_t ({ v = { text; action }; p } : t) : Yojson.Safe.t =
+    let range = Range.yojson_of_t p in
+    `Assoc [ ("range", range); ("text", `String text); ("action", `Int action) ]
 end
 
 let eof = 0x100
@@ -200,7 +192,7 @@ let rec tokenize (lexbuf : Lexing.lexbuf) (entrypoint : entrypoint)
   let tok = next_token lexbuf entrypoint automata in
   let tokens = tok :: tokens in
 
-  if tok.action < 0 then (
+  if tok.v.action < 0 then (
     (* Exception: empty token. We are interested in this event so we still produce a token (with empty text and action of -1) which we treat specially in the UI. *)
     log "empty token found";
     List.rev tokens)

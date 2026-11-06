@@ -25,11 +25,12 @@ let log_error s = log ~mode:bold ~color:red s
 
 (** This module is responsible for driving the a parser automaton encoded in the
     CMLY format. It takes a compiled CMLY Grammar module as input and returns
-    and adapter that allows interactive parsing. The facilities provided are
+    and adapter that does computes derivation trees. The facilities provided are
     similar to those of Menhir's Incremental API. *)
 module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   open G
 
+  type 'a located = 'a Utils.Range.Located.t
   let main entrypoint_idx =
     let nt, p, lr1 = Grammar.entry_points.-[0] in
     let nt = Nonterminal.name nt in
@@ -107,12 +108,9 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   type simple_derivation = (terminal, nonterminal) derivation
 
   type token_derivation_tree =
-    ( terminal * Tokenizer.Token.t,
-      nonterminal * Tokenizer.range )
-    derivation_tree
+    (terminal located, nonterminal located) derivation_tree
 
-  type token_derivation =
-    (terminal * Tokenizer.Token.t, nonterminal * Tokenizer.range) derivation
+  type token_derivation = (terminal located, nonterminal located) derivation
 
   let yojson_of_derivation ~visit_t ~visit_nt :
       ('t, 'nt) derivation -> Yojson.Safe.t =
@@ -229,12 +227,23 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
   type token = Tokenizer.Token.t
 
-  (* todo: fix the locations. (check out how menhir code calculates positions) *)
   let rec loop_with_positions ((start_nt, _, start_lr1) as entrypoint) state
-      (stack : (symbol * lr1) list) (tokens : (terminal * token) Seq.t)
-      start_pos end_pos derivation : (token_derivation_tree, _) result =
-    (* The token stream should be persistent to enable peeking without consumption. *)
-    let ((t, token) as x), tokens' = Seq.uncons tokens |> Option.get in
+      (stack : (symbol * lr1) located list)
+      (tokens : (terminal * token, string) result Seq.t) start_pos end_pos
+      (derivation : token_derivation) : (token_derivation_tree, _) result =
+    (* Peek the lookahead token. *)
+    (* To allow peeking without advancing the buffer, the token stream should be a persistent sequence as opposed to an ephemeral one.
+    The sequence should also be infinite so that [Option.get] shall never fail. This is given by the built in behaviour of the lexer: whenever the lexbuf is at the end of file, it always returns the EOF token.
+    *)
+    let open Utils.Range in
+    let module Range = Utils.Range in
+    let open Utils.Range.Located in
+    let open R in
+    let r, tokens' = Seq.uncons tokens |> Option.get in
+    let* t, token = r |> R.map_err (fun msg -> `LexerError msg) in
+    (* todo: use map_err to yield partial derivation alongside  error *)
+    let startp, endp = (token.p.start, token.p.end_) in
+
     let default_reduction = Lr1.default_reduction state in
 
     (* Consume a token and shift to a new state, or reduce a production *)
@@ -248,32 +257,46 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         log_action "shifting %s to state %d" (G.Terminal.name t)
           (G.Lr1.to_int state');
         loop_with_positions entrypoint state'
-          (push stack (T t, state'))
-          tokens' start_pos (snd token.loc) (push derivation (Leaf x))
+          (push stack (Located.map (fun _ -> (T t, state')) token))
+          tokens' startp endp
+          (push derivation (Leaf (Located.map (fun _ -> t) token)))
     | None, Some p -> (
         (* When a default reduction is indicated, there are no possible shift transitions and we continue with a reduction. *)
         let rhs =
           Production.rhs p |> Array.to_list |> L.map (fun (s, _, _) -> s)
         in
         let lhs = Production.lhs p in
-        (* Remove the top elements corresponding to the production's RHS from the stack *)
-        let stack' =
-          sub ~cmp:(fun x1 (x2, _) -> Symbol.compare x1 x2) (L.rev rhs) stack
-        in
-        let reductees, derivation' =
+        (* Pop the top elements corresponding to the production's RHS from the stack *)
+        let items, stack' =
           sub_split
-            ~cmp:(fun symbol derivation_tree ->
+            ~cmp:(fun x1 { v = x2, _; _ } -> Symbol.compare x1 x2)
+            (L.rev rhs) stack
+        in
+        (* The start position of the expression being reduced is in the last item popped item.
+           What if we're reducing the empty production? (items = nil) *)
+        let first_item_endp =
+          L.head_opt items |> O.map_or ~default:endp Located.endp
+        in
+        let last_item_startp =
+          L.last_opt items |> O.map_or ~default:startp Located.startp
+        in
+        let terms, derivation' =
+          sub_split
+            ~cmp:(fun symbol (derivation_tree : token_derivation_tree) ->
               match (symbol, derivation_tree) with
-              | T t1, Leaf (t2, _) -> Terminal.compare t1 t2
-              | N nt1, Branches ((nt2, _), _) -> Nonterminal.compare nt1 nt2
+              | T t1, Leaf t2 -> Terminal.compare t1 t2.v
+              | N nt1, Branches (nt2, _) -> Nonterminal.compare nt1 nt2.v
               | _ -> 1)
             (L.rev rhs) derivation
         in
         (* Query the transitions of the current top element on the lhs nonterminal to get the next lr1 state *)
         let top_lr1 : lr1 =
-          peek stack' |> O.map snd |> O.value ~default:start_lr1
+          peek stack'
+          |> O.map (fun { v } -> snd v)
+          |> O.value ~default:start_lr1
         in
-        let data = (lhs, (start_pos, end_pos)) in
+        let range = Range.make last_item_startp first_item_endp in
+        let data = locate lhs range in
         match get_trans top_lr1 (N lhs) with
         | None when Production.kind p = `START ->
             log_action "reducing start production %a" Print.production p;
@@ -281,14 +304,14 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
             Ok (Branches (data, derivation))
         | None ->
             log_error "rejected nonterminal %s" (Nonterminal.name lhs);
-            raise (Rejected (N lhs))
+            Error (`Rejected (N lhs))
         | Some state' ->
             log_action "reducing production %a to state %d" Print.production p
               (G.Lr1.to_int state');
             loop_with_positions entrypoint state'
-              (push stack' (N lhs, state'))
-              tokens (fst token.loc) (fst token.loc)
-              (push derivation' (Branches (data, L.rev reductees))))
+              (push stack' (locate (N lhs, state') range))
+              tokens last_item_startp first_item_endp
+              (push derivation' (Branches (data, L.rev terms))))
     | Some s', Some p when Terminal.equal t end_pseudotoken ->
         log
           "[End Of Stream Conflict] between shifting token %s to state %d and \
@@ -305,22 +328,46 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         log_error "rejected token %s" (Terminal.name t);
         Error (`Rejected (T t))
 
-  let parse_string (entrypoint : entrypoint)
+  (* Modeling things a lexer can produce. *)
+  type lexer_value =
+    | Skip
+    | Fail
+    | Newline of terminal option
+    | Token of terminal
+
+  let parse_with_positions (entrypoint : entrypoint)
       (lexer_entry : Tokenizer.entrypoint)
       (lexer_automata : Lex.Lexgen.automata array)
-      (lexer_action_map : Terminal.t ActionMap.t) (input : string)
+      (lexer_action_map : lexer_value ActionMap.t) (input : string)
       (token_derivation_tree, _) result =
     let lexbuf = Lexing.from_string input in
     let start_nt, _, start_lr1 = entrypoint in
-    let next_token () =
-      let t : token = Tokenizer.next_token lexbuf lexer_entry lexer_automata in
+    let rec next_token () =
+      let tok : token =
+        Tokenizer.next_token lexbuf lexer_entry lexer_automata
+      in
+      let data = tok.v in
       let open O in
-      let+ terminal = ActionMap.find_opt t.action lexer_action_map in
-      (terminal, t)
+      (* todo: filter out lexer actions that do not produce a token (i.e. they either loop or throw an error) *)
+      match ActionMap.find_opt data.action lexer_action_map with
+      | None -> Error (spr "Token: don't know how to interpret %s" data.text)
+      | Some terminal -> (
+          match terminal with
+          | Skip -> next_token ()
+          | Fail -> Error "lexer error"
+          | Newline o -> (
+              (* Normally, most lexers skip line breaks they're whitespace, but others may still produce end-of-line tokens whose location must span exactly two lines, e.g. 1:32-2:0. In that case, `Lexer.new_line` should be called after setting the token's start position and before setting the end position, todo in Tokenizer. *)
+              Lexing.new_line lexbuf;
+              match o with None -> next_token () | Some term -> Ok (term, tok))
+          | Token term -> Ok (term, tok))
     in
-    let tokens = Seq.(memoize (of_dispenser next_token)) in
-    loop_with_positions entrypoint start_lr1 [] tokens Lexing.dummy_pos
-      Lexing.dummy_pos []
+
+    let tokens =
+      (* Seq.(memoize (of_dispenser (next_token >> O.of_result))); *)
+      Seq.(memoize (of_dispenser (next_token >> O.some)))
+    in
+    loop_with_positions entrypoint start_lr1 [] tokens Position.dummy
+      Position.dummy []
 
   (** Creates a mapping between this [G]'s tokens and the actions of the given
       lexer's rule by searching for token occurrences within the rule's actions.

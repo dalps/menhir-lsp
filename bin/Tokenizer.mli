@@ -1,4 +1,5 @@
 open Lex
+open Menhir_lsp_lib.Utils
 
 type range = Lexing.position * Lexing.position
 type rule = { name : string; module_path : string }
@@ -8,7 +9,8 @@ type lexer_machine = entrypoint list * Lex.Lexgen.automata array
 val parse_dfa : string -> (lexer_machine, string) result
 
 module Token : sig
-  type t = { text : string; loc : range; action : int }
+  type data = { text : string; action : int }
+  type t = data Range.Located.t
 
   val make : Lexing.lexbuf -> int -> t
   val yojson_of_t : t -> Yojson.Safe.t

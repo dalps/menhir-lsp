@@ -177,6 +177,7 @@ module Position = struct
   include LSP.Position
 
   let start = { line = 0; character = 0 }
+  let dummy = { line = -1; character = -1 }
 
   let is_dummy (lp : Lexing.position) =
     lp.pos_lnum = Lexing.dummy_pos.pos_lnum
@@ -355,6 +356,26 @@ module Range = struct
     with
     | (Lt | Eq), (Gt | Eq) | (Gt | Eq), (Lt | Eq) -> true
     | _ -> false
+
+  let make start end_ = Range.create ~start ~end_
+
+  type 'a located = { v : 'a; p : Range.t }
+
+  module Located = struct
+    type 'a t = 'a located
+
+    let make v p : 'a t = { v; p }
+    let map f (loc : 'a t) : 'b t = { loc with v = f loc.v }
+    let value (loc : 'a t) = loc.v
+    let range (loc : 'a t) = loc.p
+    let startp (loc : 'a t) = loc.p.start
+    let endp (loc : 'a t) = loc.p.end_
+    let pp pp_v out (loc : 'a t) = pf out "%a%a" pp_v loc.v pp loc.p
+    let show pp_v (loc : 'a t) = spr "%a" (pp pp_v) loc
+    let print pp_v (loc : 'a t) = pr "%a" (pp pp_v) loc
+  end
+
+  let locate = Located.make
 end
 
 (** Surround the given string in Markdown code block fences. *)
