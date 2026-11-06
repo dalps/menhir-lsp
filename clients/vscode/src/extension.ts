@@ -12,25 +12,23 @@ import {
   TransportKind,
 } from "vscode-languageclient/node";
 import { ASTPanel, getWebviewOptions } from "./astPanel";
-import { activateStatusBar } from "./status";
-import { liftRange, rand, setupQuickPick, uriEqual } from "./utils";
-import { readFileSync } from "fs";
-import path = require("path");
 import {
-  ActionMapping as ActionBinding,
   ActionMapProvider,
-  DerivationTree,
   DerivationTreeProvider,
   EntrypointProvider,
-  FileProvider,
 } from "./derivationTree";
+import { activateStatusBar } from "./status";
 import {
-  InputSourceKind,
+  ActionMapping,
+  DerivationTree,
   Entry,
   InputSource,
-  Token,
+  InputSourceKind,
   ModuleEntries,
+  Token,
 } from "./types";
+import { liftRange, rand, setupQuickPick, uriEqual } from "./utils";
+import path = require("path");
 
 let client: LanguageClient;
 
@@ -268,9 +266,9 @@ export function activate(context: vscode.ExtensionContext) {
     registerCmd("startParser", (start) =>
       startParserView(derivationTreeProvider, start),
     ),
-    registerCmd("connectParserWithLexer", (rule, entry) =>
-      connectParserView(actionProvider, rule, entry),
-    ),
+    registerCmd("connectParserWithLexer", (rule, entry) => {
+      connectParserView(actionProvider, rule, entry);
+    }),
     // Note: commands invoked from tree items buttons receive the item's data as the first argument
     registerCmd("editRegexpTokenBinding", (binding) => {
       if (!currentParserEntrypoint) {
@@ -298,10 +296,10 @@ async function selectEntrypointQuickPick(
   return setupQuickPick<Entry>(
     msg,
     modules.flatMap(({ moduleUri, entrypoints }) => {
+      let uri = vscode.Uri.parse(moduleUri);
       let sep: vscode.QuickPickItem & Entry = {
-        name: "",
-        label: moduleUri.fsPath,
-        resourceUri: moduleUri,
+        label: uri.fsPath,
+        resourceUri: uri,
         kind: vscode.QuickPickItemKind.Separator,
       };
       let entries = entrypoints.map((rule) => ({
@@ -352,7 +350,7 @@ async function connectParserView(
 
   if (!lexerRule) return;
 
-  const bindings = await execServerCmd<ActionBinding[]>(
+  const bindings = await execServerCmd<ActionMapping[]>(
     "connectParserWithLexer",
     null,
     lexerRule,
@@ -586,10 +584,7 @@ export async function gotoImplementation(
   );
 }
 
-async function editRegexpBinding(
-  binding: ActionBinding,
-  entry: Entry,
-): Promise<ActionBinding | undefined> {
+async function editRegexpBinding(binding: ActionMapping, entry: Entry) {
   const tokens = (await execServerCmd("listTokens", entry)) as string[];
 
   const newToken = await vscode.window.showQuickPick(

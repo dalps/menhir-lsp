@@ -1,12 +1,14 @@
 import * as vscode from "vscode";
-import { TreeProvider } from "./TreeProvider";
-import { Entry, ModuleEntries } from "./types";
 import { execServerCmd } from "./extension";
-import { liftRange } from "./utils";
-
-export type DerivationTree =
-  | string
-  | { nt: string; children: DerivationTree[] };
+import { TreeProvider } from "./TreeProvider";
+import {
+  ActionMapping,
+  DerivationTree,
+  Entry,
+  LexerActionKind,
+  ModuleEntries,
+} from "./types";
+import { openCommand as open, themeicon } from "./utils";
 
 const isTerminal = (tree: DerivationTree) => typeof tree === "string";
 
@@ -35,14 +37,35 @@ export class DerivationTreeProvider extends TreeProvider<DerivationTree> {
   }
 }
 
-export type ActionMapping = { action: number; token: string };
-
 export class ActionMapProvider extends TreeProvider<ActionMapping> {
   getTreeItem(
     element: ActionMapping,
   ): vscode.TreeItem | Thenable<vscode.TreeItem> {
-    const item = new vscode.TreeItem(`${element.action} -> ${element.token}`);
+    const item = new vscode.TreeItem(`${element.regexp.value}`);
     item.collapsibleState = vscode.TreeItemCollapsibleState.None;
+    const uri = vscode.Uri.parse(element.moduleUri);
+    item.command = open(uri, element.regexp);
+
+    if (!element.value) {
+      item.iconPath = themeicon("warning", "list.warningForeground");
+      item.description = "Uninterpreted.";
+      return item;
+    }
+
+    switch (element.value.kind) {
+      case LexerActionKind.Fail:
+        item.iconPath = themeicon("error");
+        item.tooltip = "Halt on this pattern.";
+        break;
+      case LexerActionKind.Skip:
+        item.iconPath = themeicon("skip");
+        item.tooltip = "Skip this pattern.";
+        break;
+      case LexerActionKind.Produce:
+        item.iconPath = themeicon("milestone");
+        item.tooltip = `Emit the token ${element.value.token!.name} on this pattern.`;
+        break;
+    }
 
     return item;
   }
@@ -78,6 +101,7 @@ export class EntrypointProvider extends TreeProvider<Entry | ModuleEntries> {
   ) {
     super(context);
   }
+
   getTreeItem(
     element: Entry | ModuleEntries,
   ): vscode.TreeItem | Thenable<vscode.TreeItem> {
@@ -86,13 +110,8 @@ export class EntrypointProvider extends TreeProvider<Entry | ModuleEntries> {
     if ("name" in element) {
       const item = new vscode.TreeItem(element.name);
       item.contextValue = "entrypoint";
-      item.iconPath = new vscode.ThemeIcon("symbol-function");
-      const selection = liftRange(element.range);
-      item.command = {
-        command: "vscode.open",
-        title: "Focus in editor",
-        arguments: [uri, { selection } as vscode.TextDocumentShowOptions],
-      };
+      item.command = open(uri, element);
+      item.iconPath = themeicon("symbol-function");
       return item;
     }
 
@@ -100,8 +119,9 @@ export class EntrypointProvider extends TreeProvider<Entry | ModuleEntries> {
       uri,
       vscode.TreeItemCollapsibleState.Expanded,
     );
+    item.contextValue = "module";
     item.iconPath = vscode.ThemeIcon.File;
-    item.command = { command: "vscode.open", title: "Open", arguments: [uri] };
+    item.command = open(uri);
     return item;
   }
 

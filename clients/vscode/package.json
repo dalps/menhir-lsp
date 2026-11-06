@@ -67,6 +67,28 @@
       }
     ],
     "menus": {
+      "view/item/context": [
+        {
+          "command": "menhir-lsp-client.editRegexpTokenBinding",
+          "when": "view == menhir-lsp-action-map",
+          "group": "inline"
+        },
+        {
+          "command": "menhir-lsp-client.startTokenizer",
+          "when": "view == menhir-lsp-workspace-lexers && viewItem == entrypoint",
+          "group": "inline"
+        },
+        {
+          "command": "menhir-lsp-client.runParser",
+          "when": "view == menhir-lsp-workspace-parsers && viewItem == entrypoint",
+          "group": "inline"
+        },
+        {
+          "command": "menhir-lsp-client.connectParserWithLexer",
+          "when": "view == menhir-lsp-workspace-parsers && viewItem == entrypoint",
+          "group": "inline"
+        }
+      ],
       "editor/context": [
         {
           "when": "editorTextFocus && (editorLangId == ocaml.menhir || editorLangId == ocaml.ocamllex)",
@@ -155,7 +177,8 @@
       },
       {
         "title": "Menhir: Connect Parser With Lexer",
-        "command": "menhir-lsp-client.connectParserWithLexer"
+        "command": "menhir-lsp-client.connectParserWithLexer",
+        "icon": "$(debug-connected)"
       },
       {
         "title": "Menhir: Start Interactive Tokenizer",
@@ -213,6 +236,12 @@
         "title": "echo errors",
         "enablement": "never",
         "command": "menhir-lsp-client.echoErrors"
+      },
+      {
+        "title": "Menhir: Edit Regexp-Token Binding",
+        "shortTitle": "Edit Binding",
+        "command": "menhir-lsp-client.editRegexpTokenBinding",
+        "icon": "$(edit)"
       },
       {
         "title": "Menhir: Run Parser",

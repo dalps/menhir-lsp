@@ -19,6 +19,7 @@ let command_dict =
     ("previousDummyMessage", `PreviousDummyMessage);
     ("listLexerRules", `ListLexerRules);
     ("listParsers", `ListParsers);
+    ("listTokens", `ListTokens);
     ("startTokenizer", `StartTokenizer);
     ("startParser", `StartParser);
     ("connectParserWithLexer", `StartParserWithLexer);
@@ -384,6 +385,22 @@ class lsp_server =
                 Some (make_entries_dict uri entries))
           in
           Some (`List entrypoints)
+      | `ListTokens ->
+          let* entrypoint_name, mly_uri =
+            match args with
+            | Some [ `Assoc ((_, `String name) :: (_, `String moduleUri) :: _) ]
+              ->
+                Some (name, moduleUri)
+            | _ -> None
+          in
+          let* state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
+          let* cmly = state.cmly in
+          let module G = (val cmly : MenhirSdk.Cmly_api.GRAMMAR) in
+          let open G in
+          let res =
+            Terminal.fold (fun t acc -> `String (Terminal.name t) :: acc) []
+          in
+          Some (`List res)
       | `StartParser ->
           let* input, entrypoint_name, mly_uri =
             match args with
@@ -465,11 +482,15 @@ class lsp_server =
           in
           let bindings : Json.t list =
             D.ActionMap.fold
-              (fun k v acc ->
+              (fun k (regexp, v) acc ->
                 `Assoc
                   [
+                    ("moduleUri", `String mll_uri);
                     ("action", `Int k);
-                    (* todo: include stringified regexp for displaying *)
+                    ( "regexp",
+                      Utils.Range.Located.yojson_of_t
+                        (fun s -> `String s)
+                        regexp );
                     ( "value",
                       match v with
                       | None -> `Null

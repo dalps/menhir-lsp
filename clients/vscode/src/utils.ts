@@ -1,5 +1,7 @@
 import * as vscode from "vscode";
 import { Range } from "vscode-languageclient";
+import { WithRange } from "./types";
+import { CodiconId } from "./codicons";
 
 export const uriEqual = (u1: vscode.Uri, u2: vscode.Uri) =>
   u1.scheme === u2.scheme && u1.path === u2.path;
@@ -62,3 +64,27 @@ export function clamp(min: number, max: number, n: number) {
 export function lerp(min: number, max: number, t: number) {
   return min * (1 - t) + max * t;
 }
+
+export function openCommand(
+  uri: vscode.Uri,
+  element?: WithRange,
+): vscode.Command {
+  return {
+    command: "vscode.open",
+    title: "Focus in editor",
+    arguments: element
+      ? [
+          uri,
+          {
+            selection: liftRange(element?.range),
+          } as vscode.TextDocumentShowOptions,
+        ]
+      : [uri],
+  };
+}
+
+export const themeicon = (id: CodiconId, colorId?: string | undefined) =>
+  new vscode.ThemeIcon(
+    id,
+    colorId ? new vscode.ThemeColor(colorId) : undefined,
+  );

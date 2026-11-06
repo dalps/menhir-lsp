@@ -365,6 +365,7 @@ module Range = struct
     type 'a t = 'a located
 
     let make v p : 'a t = { v; p }
+    let of_lexpos v p = { v; p = of_lexical_positions p }
     let map f (loc : 'a t) : 'b t = { loc with v = f loc.v }
     let value (loc : 'a t) = loc.v
     let range (loc : 'a t) = loc.p
@@ -373,6 +374,9 @@ module Range = struct
     let pp pp_v out (loc : 'a t) = pf out "%a%a" pp_v loc.v pp loc.p
     let show pp_v (loc : 'a t) = spr "%a" (pp pp_v) loc
     let print pp_v (loc : 'a t) = pr "%a" (pp pp_v) loc
+
+    let yojson_of_t y_of_a ({ v; p } : 'a t) : Yojson.Safe.t =
+      `Assoc [ ("value", y_of_a v); ("range", yojson_of_t p) ]
   end
 
   let locate = Located.make
