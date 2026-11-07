@@ -266,6 +266,10 @@ export function activate(context: vscode.ExtensionContext) {
     registerCmd("startParser", (start) =>
       startParserView(derivationTreeProvider, start),
     ),
+    registerCmd("refreshEntrypoints", () => {
+      lexerProvider.refresh([]);
+      parserProvider.refresh([]);
+    }),
     registerCmd("connectParserWithLexer", (rule, entry) => {
       connectParserView(actionProvider, rule, entry);
     }),
@@ -280,6 +284,11 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   vscode.workspace.onDidOpenTextDocument(({ languageId }) => {
+    languageId === "ocaml.ocamllex" && lexerProvider.refresh([]);
+    languageId === "ocaml.menhir" && parserProvider.refresh([]);
+  });
+
+  vscode.workspace.onDidChangeTextDocument(({ document: { languageId } }) => {
     languageId === "ocaml.ocamllex" && lexerProvider.refresh([]);
     languageId === "ocaml.menhir" && parserProvider.refresh([]);
   });

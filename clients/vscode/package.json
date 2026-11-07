@@ -67,6 +67,13 @@
       }
     ],
     "menus": {
+      "view/title": [
+        {
+          "command": "menhir-lsp-client.refreshEntrypoints",
+          "when": "view == menhir-lsp-workspace-parsers || view == menhir-lsp-workspace-lexers",
+          "group": "navigation"
+        },
+      ],
       "view/item/context": [
         {
           "command": "menhir-lsp-client.editRegexpTokenBinding",
@@ -242,6 +249,11 @@
         "shortTitle": "Edit Binding",
         "command": "menhir-lsp-client.editRegexpTokenBinding",
         "icon": "$(edit)"
+      },
+      {
+        "title": "Menhir: Refresh Entrypoints",
+        "command": "menhir-lsp-client.refreshEntrypoints",
+        "icon": "$(refresh)"
       },
       {
         "title": "Menhir: Run Parser",
