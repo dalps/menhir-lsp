@@ -27,8 +27,8 @@ export type Token = WithRange & {
 };
 
 export type DerivationTree =
-  | string
-  | { nt: string; children: DerivationTree[] };
+  | MaybeLocated<string>
+  | { nt: MaybeLocated<string>; children: DerivationTree[] };
 
 export type ActionMapping = // todo: don't repeat moduleUri
   WithModuleUri & {
@@ -50,6 +50,10 @@ export type Located<T> = WithRange & {
 };
 
 export type Maybe<T> = T | null;
+
+export type MaybeLocated<T> = Partial<WithRange & WithModuleUri> & {
+  value: T;
+};
 
 export enum LexerActionKind {
   Skip = "skip",

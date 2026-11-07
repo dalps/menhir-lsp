@@ -73,6 +73,11 @@
           "when": "view == menhir-lsp-workspace-parsers || view == menhir-lsp-workspace-lexers",
           "group": "navigation"
         },
+        {
+          "command": "menhir-lsp-client.startParserWithPositions",
+          "when": "view == menhir-lsp-action-map",
+          "group": "navigation"
+        }
       ],
       "view/item/context": [
         {
@@ -179,10 +184,6 @@
     },
     "commands": [
       {
-        "title": "Menhir: Start Interactive Parser",
-        "command": "menhir-lsp-client.startParser"
-      },
-      {
         "title": "Menhir: Connect Parser With Lexer",
         "command": "menhir-lsp-client.connectParserWithLexer",
         "icon": "$(debug-connected)"
@@ -256,8 +257,23 @@
         "icon": "$(refresh)"
       },
       {
+        "title": "Menhir: Next Step",
+        "command": "menhir-lsp-client.next-step",
+        "icon": "$(arrow-right)"
+      },
+      {
+        "title": "Menhir: Previous Step",
+        "command": "menhir-lsp-client.previous-step",
+        "icon": "$(arrow-left)"
+      },
+      {
         "title": "Menhir: Run Parser",
-        "command": "menhir-lsp-client.runParser",
+        "command": "menhir-lsp-client.startParser",
+        "icon": "$(play)"
+      },
+      {
+        "title": "Menhir: Run Parser With Position Tracking",
+        "command": "menhir-lsp-client.startParserWithPositions",
         "icon": "$(play)"
       }
     ],

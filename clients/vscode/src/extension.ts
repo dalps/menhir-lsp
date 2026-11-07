@@ -266,6 +266,13 @@ export function activate(context: vscode.ExtensionContext) {
     registerCmd("startParser", (start) =>
       startParserView(derivationTreeProvider, start),
     ),
+    registerCmd("startParserWithPositions", (source) =>
+      startParserWithPositionsView(
+        actionProvider,
+        derivationTreeProvider,
+        source,
+      ),
+    ),
     registerCmd("refreshEntrypoints", () => {
       lexerProvider.refresh([]);
       parserProvider.refresh([]);
@@ -345,6 +352,7 @@ async function selectLexer() {
   return await selectEntrypointQuickPick("Select Lexer Entry Point", lexers);
 }
 
+/** Updates the `ActionProvider` singleton to remember a pair of (parser, lexer) entrypoints and the mapping from the lexer's regexes to the parser's tokens. */
 async function connectParserView(
   actionProvider: ActionMapProvider,
   startSymbol?: Entry,
@@ -354,7 +362,6 @@ async function connectParserView(
   if (!startSymbol) return;
 
   currentParserEntrypoint = startSymbol;
-
   lexerRule = lexerRule || (await selectLexer());
 
   if (!lexerRule) return;
@@ -366,6 +373,8 @@ async function connectParserView(
     startSymbol,
   );
 
+  actionProvider.lexerEntrypoint = lexerRule;
+  actionProvider.parserEntrypoint = startSymbol;
   actionProvider.refresh(bindings);
 }
 
@@ -402,26 +411,49 @@ async function startParserView(
   treeProvider.refresh([d0]);
 }
 
+/** Invoked from the "regexp-token mapping" side view. */
+async function startParserWithPositionsView(
+  actionProvider: ActionMapProvider,
+  treeProvider: DerivationTreeProvider,
+  source?: InputSource,
+) {
+  const cmd = "startParserWithPositions";
+
+  source = source || (await askForSourceKind());
+  if (!source) return;
+
+  if (source.value !== InputSourceKind.ActiveEditor) {
+    vscode.window.showErrorMessage(
+      "Only interpreting the active editor is supported at the moment.",
+    );
+    return;
+  }
+
+  let editor = vscode.window.activeTextEditor;
+
+  if (!editor) {
+    vscode.window.showErrorMessage("No active editor available.");
+    return;
+  }
+
+  const derivations = await execServerCmd<DerivationTree[]>(
+    cmd,
+    editor.document.uri.toString(),
+    actionProvider.lexerEntrypoint,
+    actionProvider.parserEntrypoint,
+    actionProvider.getChildren(),
+  );
+
+  treeProvider.refresh(derivations);
+}
+
 async function startTokenizerView(rule?: Entry, source?: InputSource) {
   let editor = vscode.window.activeTextEditor;
 
   rule = rule || (await selectLexer());
   if (!rule) return;
 
-  source =
-    source ||
-    (await setupQuickPick("Select the input source", [
-      {
-        label: "$(target) Active Editor",
-        value: InputSourceKind.ActiveEditor,
-      },
-      {
-        label: "$(file-text) Read input from a file",
-        value: InputSourceKind.File,
-      },
-      { label: "$(pencil) Enter some text", value: InputSourceKind.TextBox },
-    ]));
-
+  source = source || (await askForSourceKind());
   if (!source) return;
 
   // vscode.workspace.findFiles
@@ -431,7 +463,7 @@ async function startTokenizerView(rule?: Entry, source?: InputSource) {
     case InputSourceKind.ActiveEditor:
       {
         if (!editor) {
-          vscode.window.showErrorMessage("No active editor found.");
+          vscode.window.showErrorMessage("No active editor available.");
           return;
         }
         const updateUI = async () => {
@@ -608,4 +640,18 @@ async function editRegexpBinding(binding: ActionMapping, entry: Entry) {
   // todo: update the map on the server side
 
   return { ...binding, token: newToken.label };
+}
+
+function askForSourceKind() {
+  return setupQuickPick("Select the input source", [
+    {
+      label: "$(target) Active Editor",
+      value: InputSourceKind.ActiveEditor,
+    },
+    {
+      label: "$(file-text) Read input from a file",
+      value: InputSourceKind.File,
+    },
+    { label: "$(pencil) Enter some text", value: InputSourceKind.TextBox },
+  ]);
 }

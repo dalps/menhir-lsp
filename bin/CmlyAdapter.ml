@@ -146,7 +146,8 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         method! visit_Leaf () = visit_t
 
         method! visit_Branches () nt dv =
-          visit_nt nt (super#visit_derivation () dv)
+          `Assoc
+            [ ("nt", visit_nt nt); ("children", super#visit_derivation () dv) ]
       end
     in
     v#visit_derivation ()
@@ -154,8 +155,12 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   let yojson_of_simple_derivation : simple_derivation -> Yojson.Safe.t =
     yojson_of_derivation
       ~visit_t:(fun t -> `String (Terminal.name t))
-      ~visit_nt:(fun nt dv ->
-        `Assoc [ ("nt", `String (Nonterminal.name nt)); ("children", dv) ])
+      ~visit_nt:(fun nt -> `String (Nonterminal.name nt))
+
+  let yojson_of_token_derivation : token_derivation -> Yojson.Safe.t =
+    yojson_of_derivation
+      ~visit_t:(Located.yojson_of_t (fun t -> `String (Terminal.name t)))
+      ~visit_nt:(Located.yojson_of_t (fun nt -> `String (Nonterminal.name nt)))
 
   let rec loop ((start_nt, _, start_lr1) as entrypoint) state
       (stack : (symbol * lr1) list) tokens derivation : simple_derivation_tree =
@@ -247,7 +252,11 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     let tokens = Seq.(append tokens (repeat end_pseudotoken)) in
     loop entrypoint start_lr1 [] tokens []
 
-  module ActionMap = Map.Make (Int)
+  module ActionMap = struct
+    include Map.Make (Int)
+
+    (* todo: move json (de)serializer here *)
+  end
 
   type token = Tokenizer.Token.t
 
@@ -265,7 +274,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     let open R in
     let r, tokens' = Seq.uncons tokens |> Option.get in
     let* t, token = r |> R.map_err (fun msg -> `LexerError msg) in
-    (* todo: use map_err to yield partial derivation alongside  error *)
+    (* todo: use [map_err] to yield partial derivation alongside the error *)
     let startp, endp = (token.p.start, token.p.end_) in
 
     let default_reduction = Lr1.default_reduction state in
@@ -353,14 +362,13 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         Error (`Rejected (T t))
 
   (* Modeling the things a semantic action of a lexer rule can do. *)
-  type lexer_behavior = Skip | Fail | Produce of terminal located
+  type lexer_behavior = Skip | Fail | Produce of int
 
   let parse_with_positions (entrypoint : entrypoint)
       (lexer_entry : Tokenizer.entrypoint)
       (lexer_automata : Lex.Lexgen.automata array)
-      (lexer_action_map : lexer_behavior ActionMap.t) (input : string)
+      (lexer_action_map : lexer_behavior ActionMap.t) (lexbuf : Lexing.lexbuf) :
       (token_derivation_tree, _) result =
-    let lexbuf = Lexing.from_string input in
     let start_nt, _, start_lr1 = entrypoint in
     let rec next_token () =
       let tok : token =
@@ -376,7 +384,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           match terminal with
           | Skip -> next_token ()
           | Fail -> Error "lexer error"
-          | Produce term -> Ok (term.v, tok))
+          | Produce term -> Ok (Terminal.of_int term, tok))
     in
 
     let tokens =
@@ -444,11 +452,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
             match (does_fail, does_skip, does_token) with
             | true, _, _ -> Some Fail
             | _, true, _ -> Some Skip
-            | _, _, Some v ->
-                Some
-                  (Produce
-                     (Located.make v (position_of_terminal v |> Option.get)))
-                (* [Option.get] is safe if we assume [v] cannot be a pseudotoken ('error' or '#') *)
+            | _, _, Some v -> Some (Produce (Terminal.to_int v))
             | _ ->
                 (* uninterpreted action, the user should set its behaviour through the UI. *)
                 None

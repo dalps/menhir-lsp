@@ -22,7 +22,8 @@ let command_dict =
     ("listTokens", `ListTokens);
     ("startTokenizer", `StartTokenizer);
     ("startParser", `StartParser);
-    ("connectParserWithLexer", `StartParserWithLexer);
+    ("startParserWithPositions", `StartParserWithPositions);
+    ("connectParserWithLexer", `ConnectParserWithLexer);
   ]
 
 let doc_type_of_uri uri : doc_type option =
@@ -430,7 +431,7 @@ class lsp_server =
           let derivation = D.parse_terminals entrypoint input in
           let json = D.yojson_of_simple_derivation [ derivation ] in
           Some json
-      | `StartParserWithLexer ->
+      | `ConnectParserWithLexer ->
           (* let* text_source = uri_of_args args in *)
           let* rule_name, mll_uri, entrypoint_name, mly_uri =
             match args with
@@ -475,16 +476,17 @@ class lsp_server =
                     ( "token",
                       `Assoc
                         [
+                          ("id", `Int (Terminal.to_int t.v));
                           ("moduleUri", `String mly_uri);
                           ("range", Utils.Range.yojson_of_t t.p);
                           ("name", `String (Terminal.name t.v));
-                          ("id", `Int (Terminal.to_int t.v));
                         ] );
                   ]
               | _ -> [])
           in
           let bindings : Json.t list =
-            D.ActionMap.fold
+            let open D in
+            ActionMap.fold
               (fun k (regexp, v) acc ->
                 `Assoc
                   [
@@ -499,14 +501,97 @@ class lsp_server =
                       | None -> `Null
                       | Some t -> (
                           match t with
-                          | D.Skip -> mk_action_value "skip"
-                          | D.Fail -> mk_action_value "fail"
-                          | D.Produce t -> mk_action_value ~token:t "token") );
+                          | Skip -> mk_action_value "skip"
+                          | Fail -> mk_action_value "fail"
+                          | Produce t ->
+                              let t = Terminal.of_int t in
+                              let token =
+                                (* [Option.get] is safe if we assume [v] cannot be a pseudotoken ('error' or '#') *)
+                                Utils.Range.Located.make t
+                                  (position_of_terminal t |> Option.get)
+                              in
+                              mk_action_value ~token "token") );
                   ]
                 :: acc)
               map []
           in
           Some (`List bindings)
+      | `StartParserWithPositions ->
+          let data =
+            match args with
+            | Some
+                [
+                  `String sourceUri;
+                  `Assoc ((_, `String lexerName) :: (_, `String lexerUri) :: _);
+                  `Assoc ((_, `String parserName) :: (_, `String moduleUri) :: _);
+                  `List actions;
+                ] ->
+                Some
+                  ( sourceUri,
+                    lexerName,
+                    lexerUri,
+                    parserName,
+                    moduleUri,
+                    actions )
+            | _ -> None
+          in
+          let* source_uri, rule_name, mll_uri, entrypoint_name, mly_uri, actions
+              =
+            data
+          in
+          let source_uri = Uri.of_string source_uri in
+          let* mly_state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
+          let* cmly = mly_state.cmly in
+          let module G = (val cmly : MenhirSdk.Cmly_api.GRAMMAR) in
+          let module D = CmlyAdapter.Make (G) in
+          let open G in
+          let open Lex in
+          let* entrypoint = D.get_entrypoint entrypoint_name in
+          let mll_uri = Uri.of_string mll_uri in
+          let* mll_state = CCHashtbl.get mll_buffers mll_uri in
+          let* lexer_entry, lexer_automata =
+            match Lex.Driver.parse_file (Uri.to_path mll_uri) with
+            | Ok (entrypoints, automata) ->
+                let+ idx, e =
+                  L.find_idx
+                    (fun e -> String.equal e.Lexgen.auto_name rule_name)
+                    entrypoints
+                in
+                (e, automata)
+            | Error _ -> None
+          in
+          let open D in
+          let map : lexer_behavior ActionMap.t =
+            L.fold_left
+              (fun acc obj ->
+                match obj with
+                | `Assoc
+                    [
+                      _;
+                      ("action", `Int k);
+                      _;
+                      ("value", `Assoc (("kind", `String kind) :: data));
+                    ] -> (
+                    match (kind, data) with
+                    | "skip", _ -> ActionMap.add k Skip acc
+                    | "fail", _ -> ActionMap.add k Fail acc
+                    | "token", ("token", `Assoc (("id", `Int t) :: _)) :: _ ->
+                        ActionMap.add k (Produce t) acc
+                    | _ ->
+                        log "bad payload";
+                        acc)
+                | _ -> acc)
+              ActionMap.empty actions
+          in
+          In_channel.with_open_text (Uri.to_path source_uri) (fun ic ->
+              let lexbuf = Lexing.from_channel ic in
+              let res =
+                parse_with_positions entrypoint lexer_entry lexer_automata map
+                  lexbuf
+              in
+              match res with
+              | Ok dv -> Some (yojson_of_token_derivation [ dv ])
+              | Error _ -> (* todo: return a partial derivation *) None)
       | `StartTokenizer -> (
           let open Lex in
           let open Tokenizer in

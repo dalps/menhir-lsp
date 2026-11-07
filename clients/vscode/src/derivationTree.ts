@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { TreeItem, TreeItemCollapsibleState, Uri } from "vscode";
 import { execServerCmd } from "./extension";
 import { TreeProvider } from "./TreeProvider";
 import {
@@ -8,21 +9,27 @@ import {
   LexerActionKind,
   ModuleEntries,
   Terminal,
+  WithRange,
 } from "./types";
 import { openCommand as open, themeicon } from "./utils";
 
-const isTerminal = (tree: DerivationTree) => typeof tree === "string";
+const isNonterminal = (tree: DerivationTree) => "nt" in tree;
 
 export class DerivationTreeProvider extends TreeProvider<DerivationTree> {
-  getTreeItem(
-    element: DerivationTree,
-  ): vscode.TreeItem | Thenable<vscode.TreeItem> {
-    const isT = isTerminal(element);
+  getTreeItem(element: DerivationTree): TreeItem | Thenable<TreeItem> {
+    const isT = !isNonterminal(element);
 
-    const item = new vscode.TreeItem(isT ? element : element.nt);
+    const data = isT ? element : element.nt;
+    const { moduleUri, range, value } = data;
+    const item = new TreeItem(value);
+
     item.collapsibleState = isT
-      ? vscode.TreeItemCollapsibleState.None
-      : vscode.TreeItemCollapsibleState.Expanded;
+      ? TreeItemCollapsibleState.None
+      : TreeItemCollapsibleState.Expanded;
+
+    if (moduleUri && range) {
+      item.command = open(Uri.parse(moduleUri), data as WithRange);
+    }
 
     return item;
   }
@@ -34,11 +41,14 @@ export class DerivationTreeProvider extends TreeProvider<DerivationTree> {
 
     const tree = element;
 
-    return isTerminal(tree) ? [] : tree.children;
+    return isNonterminal(tree) ? tree.children : [];
   }
 }
 
 export class ActionMapProvider extends TreeProvider<ActionMapping | Terminal> {
+  public parserEntrypoint: Entry | undefined = undefined;
+  public lexerEntrypoint: Entry | undefined = undefined;
+
   getTreeItem(
     element: ActionMapping | Terminal,
   ): vscode.TreeItem | Thenable<vscode.TreeItem> {
@@ -97,6 +107,13 @@ export class ActionMapProvider extends TreeProvider<ActionMapping | Terminal> {
       return [element.value.token!];
     }
   }
+
+  // refresh(newData: (ActionMapping | Terminal)[], p: Entry, l: Entry): void {
+  //   super.refresh(newData);
+
+  //   this.parserEntrypoint = p;
+  //   this.lexerEntrypoint = l;
+  // }
 }
 
 export class FileProvider extends TreeProvider<vscode.Uri> {
