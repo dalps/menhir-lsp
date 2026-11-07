@@ -464,7 +464,8 @@ class lsp_server =
               lexer_state.grammar.entrypoints
           in
           let map = D.connect_lexer_entry rule.v in
-          let mk_action_value ?(token : terminal option) kind : Json.t =
+          let mk_action_value ?(token : terminal Utils.Range.Located.t option)
+              kind : Json.t =
             `Assoc
               ([ ("kind", `String kind) ]
               @
@@ -474,8 +475,10 @@ class lsp_server =
                     ( "token",
                       `Assoc
                         [
-                          ("name", `String (Terminal.name t));
-                          ("id", `Int (Terminal.to_int t));
+                          ("moduleUri", `String mly_uri);
+                          ("range", Utils.Range.yojson_of_t t.p);
+                          ("name", `String (Terminal.name t.v));
+                          ("id", `Int (Terminal.to_int t.v));
                         ] );
                   ]
               | _ -> [])

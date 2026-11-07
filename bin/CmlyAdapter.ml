@@ -92,6 +92,21 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
       None
     |> Option.get
 
+  let lift_range r =
+    Utils.Range.of_lexical_positions (Range.startp r, Range.endp r)
+
+  (** Get the the location a terminal's declaration. Returns [None] on the
+      pseudotokens [error] and [#]. *)
+  let position_of_terminal =
+    let toks = Surface.Syntax.tokens Surface.before_inlining in
+    Terminal.tabulate (fun t ->
+        L.find_map
+          (fun (name, data) ->
+            if Terminal.name t = name then
+              Some (Surface.Token.position data |> lift_range)
+            else None)
+          toks)
+
   let get ~by ~eq (lr1 : lr1) sym =
     L.find_map (fun (x, state') -> O.wrap (eq sym x) state') (by lr1)
 
@@ -338,7 +353,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         Error (`Rejected (T t))
 
   (* Modeling the things a semantic action of a lexer rule can do. *)
-  type lexer_behavior = Skip | Fail | Produce of terminal
+  type lexer_behavior = Skip | Fail | Produce of terminal located
 
   let parse_with_positions (entrypoint : entrypoint)
       (lexer_entry : Tokenizer.entrypoint)
@@ -361,7 +376,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           match terminal with
           | Skip -> next_token ()
           | Fail -> Error "lexer error"
-          | Produce term -> Ok (term, tok))
+          | Produce term -> Ok (term.v, tok))
     in
 
     let tokens =
@@ -384,7 +399,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           let fmt = new MF.Ocamllex.formatter MF.Utils.Config.default_config in
           let regexp_text =
             fmt#visit_regular_expression_syntax () regexp.v
-            |> spr "%a" PPrint.ToFormatter.compact
+            |> spr "%a" (PPrint.ToFormatter.pretty 1. 9999)
           in
           Utils.Range.Located.
             (of_lexpos regexp_text regexp.p, of_lexpos text.v text.p))
@@ -429,13 +444,17 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
             match (does_fail, does_skip, does_token) with
             | true, _, _ -> Some Fail
             | _, true, _ -> Some Skip
-            | _, _, Some v -> Some (Produce v)
+            | _, _, Some v ->
+                Some
+                  (Produce
+                     (Located.make v (position_of_terminal v |> Option.get)))
+                (* [Option.get] is safe if we assume [v] cannot be a pseudotoken ('error' or '#') *)
             | _ ->
-                (* uninterpreted action, the user should set its behaviour in the UI. *)
+                (* uninterpreted action, the user should set its behaviour through the UI. *)
                 None
           with _ ->
             log "failed to parse action #%d" idx;
-            (* We could be more lenient and skip it to read the next token instead of divergin. *)
+            (* We could be more lenient and skip it to read the next token instead of diverging here. *)
             None
         in
         ActionMap.add idx (regexp, data) acc)

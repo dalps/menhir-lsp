@@ -1,6 +1,7 @@
 import { Range } from "vscode-languageclient";
 import { RawRange } from "./webviews/ast/types";
 
+// Used to represent either lexer and parser entrypoints.
 export type Entry = WithRange &
   // carries a copy of the parent's moduleUri. todo: don't repeat moduleUri
   WithModuleUri & {
@@ -56,10 +57,13 @@ export enum LexerActionKind {
   Produce = "token",
 }
 
-export interface LexerAction {
-  kind: LexerActionKind;
-  token?: {
+export type Terminal = WithModuleUri &
+  WithRange & {
     name: string;
     id: number;
   };
+
+export interface LexerAction {
+  kind: LexerActionKind;
+  token?: Terminal;
 }

@@ -70,7 +70,7 @@
       "view/item/context": [
         {
           "command": "menhir-lsp-client.editRegexpTokenBinding",
-          "when": "view == menhir-lsp-action-map",
+          "when": "view == menhir-lsp-action-map && viewItem == regexpKey",
           "group": "inline"
         },
         {
