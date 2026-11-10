@@ -1,29 +1,12 @@
 open Menhir_lsp_lib.Utils
 module MF = Menhirformat_lib
 module Located = Utils.Range.Located
-
-let white = 30
-let red = 31
-let green = 32
-let yellow = 33
-let blue = 34
-let purple = 35
-let cyan = 36
-let regular = 0
-let bold = 1
-let dimmed = 2
-let underlined = 4
-
-let log ?(debug = false) ?(mode = regular) ?(color = white) s =
-  Format.kasprintf
-    (fun s -> if debug then pr "\x1b[%d;%dm%s\x1b[0m\n%!" mode color s else ())
-    s
-
 open L
 open O
 
-let log_action s = log ~mode:underlined ~color:green s
-let log_error s = log ~mode:bold ~color:red s
+let log_action s = log_src "action" s
+let log_error s = log_src "error" s
+let ( !! ) = Option.get
 
 (** This module is responsible for driving the a parser automaton encoded in the
     CMLY format. It takes a compiled CMLY Grammar module as input and returns
@@ -167,16 +150,15 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     (* We require the stream be persistent as opposed to ephemeral. *)
     let t, tokens' = Seq.uncons tokens |> Option.get in
 
-    log ~color:blue ~mode:bold "## State %d, looking at %s" (Lr1.to_int state)
-      (Terminal.name t);
-    log ~color:blue "### Available transitions";
+    log "## State %d, looking at %s" (Lr1.to_int state) (Terminal.name t);
+    log "### Available transitions";
     print_transitions state;
-    log ~color:blue "### Available reductions";
+    log "### Available reductions";
     print_reductions state;
     let default_reduction = Lr1.default_reduction state in
-    log ~color:blue "### Default reduction";
+    log "### Default reduction";
     log "%a" (Format.pp_print_option Print.production) default_reduction;
-    log ~color:blue "### Stack";
+    log "### Stack";
     print_stack stack;
 
     (* Consume a token and shift to a new state, or reduce a production *)
@@ -231,13 +213,13 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
               tokens
               (push derivation' (Branches (lhs, L.rev reductees))))
     | Some s', Some p when Terminal.equal t end_pseudotoken ->
-        log ~mode:bold ~color:yellow
+        log
           "[End Of Stream Conflict] between shifting token %s to state %d and \
            reducing production %a"
           (Terminal.name t) (Lr1.to_int s') Print.production p;
         raise (Conflict ((T t, s'), p))
     | Some s', Some p ->
-        log ~mode:bold ~color:yellow
+        log
           "[Shift/Reduce Conflict] between shifting token %s to state %d and \
            reducing production %a"
           (Terminal.name t) (Lr1.to_int s') Print.production p;
@@ -260,38 +242,87 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
   type token = Tokenizer.Token.t
 
+  let lexer_error msg =
+    log_error "lexer failure: %s" msg;
+    `LexerError msg
+
+  (** The sequence [tokens] should also be infinite so that [Option.get] shall
+      never fail. This is guaranteed by the built in behaviour of the lexer we
+      use: whenever the lexbuf is at the end of file, it always returns the same
+      value. *)
+  let read tokens =
+    let open R in
+    let res, _ = !!(Seq.uncons tokens) in
+    let+ t, token = res |> R.map_err lexer_error in
+    (t, token)
+
+  (* Checks whether [s] has a reduction on the [#] pseudotoken. This is used for setting the
+      [please_discard] flag: when [s] also has a default reduction, then it's on [#], which
+      appears when the start symbol is about to be reduced, so reading the input stream is not necessary. *)
+  let has_red_on_sharp (s : lr1) =
+    L.exists
+      (fun (t, _) -> Terminal.equal t end_pseudotoken)
+      (Lr1.get_reductions s)
+
   let rec loop_with_positions ((start_nt, _, start_lr1) as entrypoint) state
-      (stack : (symbol * lr1) located list)
+      (stack : (symbol * lr1) located list) (tok : (terminal * token) option)
       (tokens : (terminal * token, string) result Seq.t) start_pos end_pos
-      (derivation : token_derivation) : (token_derivation_tree, _) result =
-    (* Peek the lookahead token. *)
-    (* To allow peeking without advancing the buffer, the token stream should be a persistent sequence as opposed to an ephemeral one.
-    The sequence should also be infinite so that [Option.get] shall never fail. This is given by the built in behaviour of the lexer: whenever the lexbuf is at the end of file, it always returns the EOF token.
-    *)
+      (please_discard : bool) (derivation : token_derivation) :
+      (token_derivation_tree, _) result =
     let open Utils.Range in
     let module Range = Utils.Range in
     let open Utils.Range.Located in
-    let open R in
-    let r, tokens' = Seq.uncons tokens |> Option.get in
-    let* t, token = r |> R.map_err (fun msg -> `LexerError msg) in
-    (* todo: use [map_err] to yield partial derivation alongside the error *)
-    let startp, endp = (token.p.start, token.p.end_) in
-
     let default_reduction = Lr1.default_reduction state in
 
-    (* Consume a token and shift to a new state, or reduce a production *)
+    let open R in
+    let* tok =
+      if please_discard then read tokens
+      else
+        (* Since the loop is called with [please_discard] set to [true] and we don't need to worry about recognizing the empty language or the singleton epsilon language (because Menhir rejects them statically), this [Option.get] should be safe and sound. *)
+        Ok !!tok
+    in
+    let t, token = tok in
+    let start_pos, end_pos = (token.p.start, token.p.end_) in
+
     let shift_state : lr1 option = get_trans state (T t) in
+
+    (* Note: a default reduction does not need a lookahead token *)
     let reduce_production : production option =
       default_reduction <|> fun () -> get_prod state t
     in
+
+    log "###################################################";
+    log "looking at %a, please_discard: %B"
+      (fun out (t, _) -> pf out "%a" Print.terminal t)
+      tok please_discard;
+    log "default reduction for state %d: %a" (Lr1.to_int state)
+      (pp_option Print.production)
+      default_reduction;
+    log "shift transition: %a"
+      (pp_option (fun out d -> pf out "%d" (Lr1.to_int d)))
+      shift_state;
+    log "reduce transition: %a" (pp_option Print.production) reduce_production;
+
+    (* Selects between the (default) reduction on the current lookahead or shifting a new token. *)
     match (shift_state, reduce_production) with
     | Some state', None ->
-        (* If there is a matching shift transition for the lookahead token, run that, otherwise look for a matching reduction. *)
+        (* Hold off reading another token if we've arrived at the start symbol.
+          See https://cambium.inria.fr/~fpottier/menhir/manual.html#sec50 and middle/ReferenceInterpreter.ml#166 and docstring of [test_default_reduction] *)
+        let please_discard =
+          match Lr1.default_reduction state' with
+          | Some _ when has_red_on_sharp state' ->
+              log
+                "will not call the lexer next run because we're about to \
+                 reduce the start production";
+              false
+          | _ -> true
+        in
+
         log_action "shifting %s to state %d" (G.Terminal.name t)
           (G.Lr1.to_int state');
         loop_with_positions entrypoint state'
           (push stack (Located.map (fun _ -> (T t, state')) token))
-          tokens' startp endp
+          (Some tok) tokens start_pos end_pos please_discard
           (push derivation (Leaf (Located.map (fun _ -> t) token)))
     | None, Some p -> (
         (* When a default reduction is indicated, there are no possible shift transitions and we continue with a reduction. *)
@@ -308,10 +339,10 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         (* The start position of the expression being reduced is in the last item popped item.
            What if we're reducing the empty production? (items = nil) *)
         let first_item_endp =
-          L.head_opt items |> O.map_or ~default:endp Located.endp
+          L.head_opt items |> O.map_or ~default:end_pos Located.endp
         in
         let last_item_startp =
-          L.last_opt items |> O.map_or ~default:startp Located.startp
+          L.last_opt items |> O.map_or ~default:start_pos Located.startp
         in
         let terms, derivation' =
           sub_split
@@ -343,8 +374,11 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
               (G.Lr1.to_int state');
             loop_with_positions entrypoint state'
               (push stack' (locate (N lhs, state') range))
-              tokens last_item_startp first_item_endp
-              (push derivation' (Branches (data, L.rev terms))))
+              (Some tok) tokens last_item_startp first_item_endp
+              false (* Never discard the lookahead token after a reduction *)
+              (push derivation' (Branches (data, L.rev terms)))
+        (* These two following cases are silly because Menhir resolves the conflicts when building the tables. todo: confirm and remove *)
+        )
     | Some s', Some p when Terminal.equal t end_pseudotoken ->
         log
           "[End Of Stream Conflict] between shifting token %s to state %d and \
@@ -389,10 +423,10 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
     let tokens =
       (* Seq.(memoize (of_dispenser (next_token >> O.of_result))); *)
-      Seq.(memoize (of_dispenser (next_token >> O.some)))
+      Seq.(of_dispenser (next_token >> O.some))
     in
-    loop_with_positions entrypoint start_lr1 [] tokens Position.dummy
-      Position.dummy []
+    loop_with_positions entrypoint start_lr1 [] None tokens Position.dummy
+      Position.dummy true []
 
   (** Creates a mapping between this [G]'s tokens and the actions of the given
       lexer's rule by searching for token occurrences within the rule's actions.
