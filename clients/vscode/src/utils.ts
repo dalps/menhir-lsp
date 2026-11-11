@@ -90,13 +90,18 @@ export const themeicon = (id: CodiconId, colorId?: string | undefined) =>
   );
 
 /** Shorthand to build markdown strings from template literals tagged `md`.
- * It wraps the text of the placeholders expressions in inline code fences. */
-export const md = (strings: TemplateStringsArray, ...vars: any[]) =>
+ * Some MD features can be accessed by wrapping the placeholder expressions in
+ * particular objects. For example, to render the value of `e` in an inline code
+ * blocks, write `{ $: e }` inside the placeholder `${..}` syntax. */
+export const md = (strings: TemplateStringsArray, ...values: any[]) =>
   new vscode.MarkdownString(
-    strings
-      .map((s, idx) =>
-        idx === strings.length - 1 ? s : s + `\`${vars[idx]}\``,
-      )
-      .join(""),
+    String.raw(
+      { raw: strings },
+      ...values.map((v) => (v.$ ? `\`${v.$}\`` : v)),
+    ),
     true,
   );
+
+export function stringOfRange(range: vscode.Range | Range): string {
+  return `[${range.start.line}:${range.start.character}-${range.end.line}:${range.end.character}]`;
+}

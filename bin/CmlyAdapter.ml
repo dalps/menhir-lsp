@@ -121,8 +121,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   type token_derivation =
     ((terminal * token) located, nonterminal located) derivation
 
-  let yojson_of_derivation ~visit_t ~visit_nt :
-      ('t, 'nt) derivation -> Yojson.Safe.t =
+  let yojson_of_derivation ~visit_t ~visit_nt =
     let v =
       object
         inherit [_] deriv_reduce as super
@@ -135,14 +134,14 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
             [ ("nt", visit_nt nt); ("children", super#visit_derivation () dv) ]
       end
     in
-    v#visit_derivation ()
+    (v#visit_derivation (), v#visit_derivation_tree ())
 
-  let yojson_of_simple_derivation : simple_derivation -> Yojson.Safe.t =
+  let yojson_of_simple_derivation, yojson_of_simple_derivation_tree =
     yojson_of_derivation
       ~visit_t:(fun t -> `String (Terminal.name t))
       ~visit_nt:(fun nt -> `String (Nonterminal.name nt))
 
-  let yojson_of_token_derivation : token_derivation -> Yojson.Safe.t =
+  let yojson_of_token_derivation, yojson_of_token_derivation_tree =
     yojson_of_derivation
       ~visit_t:
         (Located.yojson_of_t (fun (t, tok) ->
@@ -278,11 +277,12 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     let open Utils.Range in
     let module Range = Utils.Range in
     let open Utils.Range.Located in
+    let attach_derivation res = R.map_err (fun err -> (err, derivation)) res in
     let default_reduction = Lr1.default_reduction state in
 
     let open R in
     let* tok =
-      if please_discard then read tokens
+      if please_discard then read tokens |> attach_derivation
       else
         (* Since the loop is called with [please_discard] set to [true] and we don't need to worry about recognizing the empty language or the singleton epsilon language (because Menhir rejects them statically), this [Option.get] should be safe and sound. *)
         Ok !!tok
@@ -374,7 +374,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
             Ok (Branches (data, derivation))
         | None ->
             log_error "rejected nonterminal %s" (Nonterminal.name lhs);
-            Error (`Rejected (N lhs))
+            Error (`Rejected (N lhs)) |> attach_derivation
         | Some state' ->
             log_action "reducing production %a to state %d" Print.production p
               (G.Lr1.to_int state');
@@ -390,16 +390,16 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           "[End Of Stream Conflict] between shifting token %s to state %d and \
            reducing production %a"
           (Terminal.name t) (Lr1.to_int s') Print.production p;
-        Error (`EOS_conflict ((T t, s'), p))
+        Error (`EOS_conflict ((T t, s'), p)) |> attach_derivation
     | Some s', Some p ->
         log
           "[Shift/Reduce Conflict] between shifting token %s to state %d and \
            reducing production %a"
           (Terminal.name t) (Lr1.to_int s') Print.production p;
-        Error (`ShiftReduce_conflict ((T t, s'), p))
+        Error (`ShiftReduce_conflict ((T t, s'), p)) |> attach_derivation
     | None, None ->
         log_error "rejected token %s" (Terminal.name t);
-        Error (`Rejected (T t))
+        Error (`Rejected (T t)) |> attach_derivation
 
   (* Modeling the things a semantic action of a lexer rule can do. *)
   type lexer_behavior = Skip | Fail | Produce of int

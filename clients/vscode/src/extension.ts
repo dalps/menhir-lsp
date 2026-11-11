@@ -25,12 +25,19 @@ import {
   InputSource,
   InputSourceKind,
   ModuleEntries,
+  Result,
+  Terminal,
   Token,
 } from "./types";
 import { liftRange, rand, setupQuickPick, uriEqual } from "./utils";
 import path = require("path");
+import { CodiconId } from "./codicons";
 
 let client: LanguageClient;
+let derivationTreeView: vscode.TreeView<DerivationTree>;
+let actionBindingView: vscode.TreeView<ActionMapping | Terminal>;
+let workspaceLexersView: vscode.TreeView<Entry | ModuleEntries>;
+let workspaceParsersView: vscode.TreeView<Entry | ModuleEntries>;
 
 const serverName = "menhir-lsp";
 const clientName = "menhir-lsp-client";
@@ -145,28 +152,25 @@ export function activate(context: vscode.ExtensionContext) {
   // );
 
   //#region Views
-  const derivationTreeView = vscode.window.createTreeView(
+  derivationTreeView = vscode.window.createTreeView(
     "menhir-lsp-derivation-view",
     {
       treeDataProvider: derivationTreeProvider,
     },
   );
 
-  const actionBindingView = vscode.window.createTreeView(
-    "menhir-lsp-action-map",
-    {
-      treeDataProvider: actionProvider,
-    },
-  );
+  actionBindingView = vscode.window.createTreeView("menhir-lsp-action-map", {
+    treeDataProvider: actionProvider,
+  });
 
-  const workspaceLexersView = vscode.window.createTreeView(
+  workspaceLexersView = vscode.window.createTreeView(
     "menhir-lsp-workspace-lexers",
     {
       treeDataProvider: lexerProvider,
     },
   );
 
-  const workspaceParsersView = vscode.window.createTreeView(
+  workspaceParsersView = vscode.window.createTreeView(
     "menhir-lsp-workspace-parsers",
     {
       treeDataProvider: parserProvider,
@@ -438,7 +442,9 @@ async function startParserWithPositionsView(
 
   let sourceUri = editor.document.uri.toString();
 
-  const derivations = await execServerCmd<DerivationTree[]>(
+  const res = await execServerCmd<
+    Result<DerivationTree, { message: string; dv: DerivationTree[] }>
+  >(
     cmd,
     sourceUri,
     actionProvider.lexerEntrypoint,
@@ -446,7 +452,22 @@ async function startParserWithPositionsView(
     actionProvider.getChildren(),
   );
 
-  treeProvider.refresh(derivations);
+  if (res.kind === "ok") {
+    treeProvider.refresh([res.value]);
+    derivationTreeView.description =
+      derivationTreeView.message =
+      derivationTreeView.badge =
+        undefined;
+    return;
+  }
+
+  derivationTreeView.badge = {
+    tooltip: `Error`,
+    value: 1,
+  };
+  derivationTreeView.description = `(Error)`;
+  derivationTreeView.message = `Error: ${res.value.message}. Showing a possibly empty forest of partial derivations.`;
+  treeProvider.refresh(res.value.dv);
 }
 
 async function startTokenizerView(rule?: Entry, source?: InputSource) {

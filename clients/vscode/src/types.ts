@@ -71,3 +71,7 @@ export interface LexerAction {
   kind: LexerActionKind;
   token?: Terminal;
 }
+
+export type Result<T, E> =
+  | { kind: "ok"; value: T }
+  | { kind: "error"; value: E };

@@ -515,7 +515,7 @@ class lsp_server =
                 :: acc)
               map []
           in
-          Some (`List bindings)
+          Some (`List (List.rev bindings))
       | `StartParserWithPositions ->
           let log s = log_src "interpreter" s in
           let data =
@@ -596,14 +596,22 @@ class lsp_server =
           In_channel.with_open_text (Uri.to_path source_uri) (fun ic ->
               Utils.Range.Located.track_file source_uri;
               let lexbuf = Lexing.from_channel ic in
-              let res =
-                parse_with_positions entrypoint lexer_entry lexer_automata map
-                  lexbuf
-              in
-              log "done!";
-              match res with
-              | Ok dv -> Some (yojson_of_token_derivation [ dv ])
-              | Error _ -> (* todo: return a partial derivation *) None)
+              parse_with_positions entrypoint lexer_entry lexer_automata map
+                lexbuf
+              |> yojson_of_result ~ok:yojson_of_token_derivation_tree
+                   ~error:(fun (msg, dv) ->
+                     `Assoc
+                       [
+                         ( "message",
+                           `String
+                             (match msg with
+                             | `LexerError msg -> msg
+                             | `Rejected x ->
+                                 spr "rejected terminal %s" (Symbol.name x)
+                             | _ -> "weird error") );
+                         ("dv", yojson_of_token_derivation (L.rev dv));
+                       ])
+              |> some)
       | `StartTokenizer -> (
           let open Lex in
           let open Tokenizer in

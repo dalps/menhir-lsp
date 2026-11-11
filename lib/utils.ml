@@ -478,3 +478,10 @@ let pp_error_location out ((startp, endp) : Lexing.position * Lexing.position) =
     let char2 = endp.pos_cnum - startp.pos_bol + 1 in
     if file = "" then pf out "Line %d, characters %d-%d" line char1 char2
     else pf out "File %S, line %d, characters %d-%d" file line char1 char2
+
+let yojson_of_result ~ok ~error (r : ('a, 'e) result) : Yojson.Safe.t =
+  `Assoc
+    [
+      ("kind", `String (match r with Ok _ -> "ok" | Error _ -> "error"));
+      ("value", R.fold ~ok ~error r);
+    ]
