@@ -113,11 +113,13 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
   type simple_derivation_tree = (terminal, nonterminal) derivation_tree
   type simple_derivation = (terminal, nonterminal) derivation
+  type token = Tokenizer.Token.t
 
   type token_derivation_tree =
-    (terminal located, nonterminal located) derivation_tree
+    ((terminal * token) located, nonterminal located) derivation_tree
 
-  type token_derivation = (terminal located, nonterminal located) derivation
+  type token_derivation =
+    ((terminal * token) located, nonterminal located) derivation
 
   let yojson_of_derivation ~visit_t ~visit_nt :
       ('t, 'nt) derivation -> Yojson.Safe.t =
@@ -142,7 +144,13 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
   let yojson_of_token_derivation : token_derivation -> Yojson.Safe.t =
     yojson_of_derivation
-      ~visit_t:(Located.yojson_of_t (fun t -> `String (Terminal.name t)))
+      ~visit_t:
+        (Located.yojson_of_t (fun (t, tok) ->
+             `Assoc
+               [
+                 ("terminal", `String (Terminal.name t));
+                 ("token", Tokenizer.Token.yojson_of_t tok);
+               ]))
       ~visit_nt:(Located.yojson_of_t (fun nt -> `String (Nonterminal.name nt)))
 
   let rec loop ((start_nt, _, start_lr1) as entrypoint) state
@@ -240,8 +248,6 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     (* todo: move json (de)serializer here *)
   end
 
-  type token = Tokenizer.Token.t
-
   let lexer_error msg =
     log_error "lexer failure: %s" msg;
     `LexerError msg
@@ -323,7 +329,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         loop_with_positions entrypoint state'
           (push stack (Located.map (fun _ -> (T t, state')) token))
           (Some tok) tokens start_pos end_pos please_discard
-          (push derivation (Leaf (Located.map (fun _ -> t) token)))
+          (push derivation (Leaf (Located.map (fun _ -> (t, token)) token)))
     | None, Some p -> (
         (* When a default reduction is indicated, there are no possible shift transitions and we continue with a reduction. *)
         let rhs =
@@ -348,7 +354,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           sub_split
             ~cmp:(fun symbol (derivation_tree : token_derivation_tree) ->
               match (symbol, derivation_tree) with
-              | T t1, Leaf t2 -> Terminal.compare t1 t2.v
+              | T t1, Leaf t2 -> Terminal.compare t1 (fst t2.v)
               | N nt1, Branches (nt2, _) -> Nonterminal.compare nt1 nt2.v
               | _ -> 1)
             (L.rev rhs) derivation

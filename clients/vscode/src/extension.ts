@@ -415,19 +415,19 @@ async function startParserView(
 async function startParserWithPositionsView(
   actionProvider: ActionMapProvider,
   treeProvider: DerivationTreeProvider,
-  source?: InputSource,
+  source: InputSource = { value: InputSourceKind.ActiveEditor },
 ) {
   const cmd = "startParserWithPositions";
 
-  source = source || (await askForSourceKind());
-  if (!source) return;
+  // source = source || (await askForSourceKind());
+  // if (!source) return;
 
-  if (source.value !== InputSourceKind.ActiveEditor) {
-    vscode.window.showErrorMessage(
-      "Only interpreting the active editor is supported at the moment.",
-    );
-    return;
-  }
+  // if (source.value !== InputSourceKind.ActiveEditor) {
+  //   vscode.window.showErrorMessage(
+  //     "Only interpreting the active editor is supported at the moment.",
+  //   );
+  //   return;
+  // }
 
   let editor = vscode.window.activeTextEditor;
 
@@ -436,9 +436,11 @@ async function startParserWithPositionsView(
     return;
   }
 
+  let sourceUri = editor.document.uri.toString();
+
   const derivations = await execServerCmd<DerivationTree[]>(
     cmd,
-    editor.document.uri.toString(),
+    sourceUri,
     actionProvider.lexerEntrypoint,
     actionProvider.parserEntrypoint,
     actionProvider.getChildren(),

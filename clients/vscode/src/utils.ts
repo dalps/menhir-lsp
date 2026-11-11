@@ -88,3 +88,15 @@ export const themeicon = (id: CodiconId, colorId?: string | undefined) =>
     id,
     colorId ? new vscode.ThemeColor(colorId) : undefined,
   );
+
+/** Shorthand to build markdown strings from template literals tagged `md`.
+ * It wraps the text of the placeholders expressions in inline code fences. */
+export const md = (strings: TemplateStringsArray, ...vars: any[]) =>
+  new vscode.MarkdownString(
+    strings
+      .map((s, idx) =>
+        idx === strings.length - 1 ? s : s + `\`${vars[idx]}\``,
+      )
+      .join(""),
+    true,
+  );

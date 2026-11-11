@@ -11,7 +11,7 @@ import {
   Terminal,
   WithRange,
 } from "./types";
-import { openCommand as open, themeicon } from "./utils";
+import { md, openCommand as open, themeicon } from "./utils";
 
 const isNonterminal = (tree: DerivationTree) => "nt" in tree;
 
@@ -20,8 +20,17 @@ export class DerivationTreeProvider extends TreeProvider<DerivationTree> {
     const isT = !isNonterminal(element);
 
     const data = isT ? element : element.nt;
-    const { moduleUri, range, value } = data;
-    const item = new TreeItem(value);
+    const { moduleUri, range } = data;
+    const item = new TreeItem(isT ? element.value.terminal : element.nt.value);
+
+    item.iconPath = themeicon(isT ? "symbol-constant" : "symbol-method");
+    item.tooltip = isT
+      ? md`Terminal ${element.value.terminal} · Text ${element.value.token.text}
+
+*Click to highlight in active editor*`
+      : md`Nonterminal ${element.nt.value}
+
+*Click to highlight in active editor*`;
 
     item.collapsibleState = isT
       ? TreeItemCollapsibleState.None

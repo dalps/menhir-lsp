@@ -364,6 +364,8 @@ module Range = struct
   module Located = struct
     type 'a t = 'a located
 
+    let file_uri = ref None
+    let track_file uri = file_uri := Some uri
     let make v p : 'a t = { v; p }
     let of_lexpos v p = { v; p = of_lexical_positions p }
     let map f (loc : 'a t) : 'b t = { loc with v = f loc.v }
@@ -376,7 +378,12 @@ module Range = struct
     let print pp_v (loc : 'a t) = pr "%a" (pp pp_v) loc
 
     let yojson_of_t y_of_a ({ v; p } : 'a t) : Yojson.Safe.t =
-      `Assoc [ ("value", y_of_a v); ("range", yojson_of_t p) ]
+      `Assoc
+        [
+          ("value", y_of_a v);
+          ("range", yojson_of_t p);
+          ("moduleUri", O.map_or ~default:`Null Uri.yojson_of_t !file_uri);
+        ]
   end
 
   let locate = Located.make

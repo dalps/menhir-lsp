@@ -517,6 +517,7 @@ class lsp_server =
           in
           Some (`List bindings)
       | `StartParserWithPositions ->
+          let log s = log_src "interpreter" s in
           let data =
             match args with
             | Some
@@ -544,6 +545,7 @@ class lsp_server =
           let* cmly = mly_state.cmly in
           let module G = (val cmly : MenhirSdk.Cmly_api.GRAMMAR) in
           let module D = CmlyAdapter.Make (G) in
+          log "got adapter";
           let open G in
           let open Lex in
           let* entrypoint = D.get_entrypoint entrypoint_name in
@@ -560,6 +562,7 @@ class lsp_server =
                 (e, automata)
             | Error _ -> None
           in
+          log "got lexer";
           let open D in
           let map : lexer_behavior ActionMap.t =
             L.fold_left
@@ -572,10 +575,16 @@ class lsp_server =
                       _;
                       ("value", `Assoc (("kind", `String kind) :: data));
                     ] -> (
+                    log "matching action #%d" k;
                     match (kind, data) with
-                    | "skip", _ -> ActionMap.add k Skip acc
-                    | "fail", _ -> ActionMap.add k Fail acc
+                    | "skip", _ ->
+                        log "to Skip";
+                        ActionMap.add k Skip acc
+                    | "fail", _ ->
+                        log "to Fail";
+                        ActionMap.add k Fail acc
                     | "token", ("token", `Assoc (("id", `Int t) :: _)) :: _ ->
+                        log "to Produce %d" t;
                         ActionMap.add k (Produce t) acc
                     | _ ->
                         log "bad payload";
@@ -583,12 +592,15 @@ class lsp_server =
                 | _ -> acc)
               ActionMap.empty actions
           in
+          log "reading input from file %s" (Uri.to_path source_uri);
           In_channel.with_open_text (Uri.to_path source_uri) (fun ic ->
+              Utils.Range.Located.track_file source_uri;
               let lexbuf = Lexing.from_channel ic in
               let res =
                 parse_with_positions entrypoint lexer_entry lexer_automata map
                   lexbuf
               in
+              log "done!";
               match res with
               | Ok dv -> Some (yojson_of_token_derivation [ dv ])
               | Error _ -> (* todo: return a partial derivation *) None)

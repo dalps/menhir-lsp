@@ -27,7 +27,7 @@ export type Token = WithRange & {
 };
 
 export type DerivationTree =
-  | MaybeLocated<string>
+  | MaybeLocated<{ terminal: string; token: Token }>
   | { nt: MaybeLocated<string>; children: DerivationTree[] };
 
 export type ActionMapping = // todo: don't repeat moduleUri
