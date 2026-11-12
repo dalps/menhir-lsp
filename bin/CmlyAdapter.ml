@@ -16,11 +16,19 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   open G
 
   type 'a located = 'a Utils.Range.Located.t
-  type entrypoint = nonterminal * production * lr1
+
+  type entrypoint = {
+    start_nt : nonterminal;
+    start_prod : production;
+    start_lr1 : lr1;
+  }
 
   let get_entrypoint name : entrypoint option =
-    L.find_opt
-      (fun (nt, _, _) -> String.equal (Nonterminal.name nt) name)
+    L.find_map
+      (fun (start_nt, start_prod, start_lr1) ->
+        if_
+          (fun _ -> String.equal (Nonterminal.name start_nt) name)
+          { start_nt; start_prod; start_lr1 })
       Grammar.entry_points
 
   let main entrypoint_idx =
@@ -121,6 +129,30 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   type token_derivation =
     ((terminal * token) located, nonterminal located) derivation
 
+  type json = Yojson.Safe.t
+
+  module T = Terminal
+  module NT = Nonterminal
+  module P = Production
+  module X = Symbol
+
+  let yotagged tag value : json =
+    `Assoc [ ("kind", `String tag); ("value", value) ]
+
+  let yodict assoc : json = `Assoc assoc
+  let yolist f l : json = `List (L.map f l)
+  let yolr1 x : json = `Int (Lr1.to_int x)
+  let yosymbol x : json = `String (X.name x)
+  let yoterminal t : json = `String (T.name t)
+  let yononterminal t : json = `String (NT.name t)
+
+  let yoproduction (p : production) : json =
+    `Assoc
+      [
+        (("lhs", `String (NT.name (P.lhs p)));
+         ("rhs", yolist (fun (x, _, _) -> yosymbol x) (P.rhs p |> Array.to_list)));
+      ]
+
   let yojson_of_derivation ~visit_t ~visit_nt =
     let v =
       object
@@ -137,9 +169,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     (v#visit_derivation (), v#visit_derivation_tree ())
 
   let yojson_of_simple_derivation, yojson_of_simple_derivation_tree =
-    yojson_of_derivation
-      ~visit_t:(fun t -> `String (Terminal.name t))
-      ~visit_nt:(fun nt -> `String (Nonterminal.name nt))
+    yojson_of_derivation ~visit_t:yoterminal ~visit_nt:yononterminal
 
   let yojson_of_token_derivation, yojson_of_token_derivation_tree =
     yojson_of_derivation
@@ -147,12 +177,12 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         (Located.yojson_of_t (fun (t, tok) ->
              `Assoc
                [
-                 ("terminal", `String (Terminal.name t));
+                 ("terminal", yoterminal t);
                  ("token", Tokenizer.Token.yojson_of_t tok);
                ]))
-      ~visit_nt:(Located.yojson_of_t (fun nt -> `String (Nonterminal.name nt)))
+      ~visit_nt:(Located.yojson_of_t yononterminal)
 
-  let rec loop ((start_nt, _, start_lr1) as entrypoint) state
+  let rec loop ({ start_nt; start_lr1; _ } as entrypoint) state
       (stack : (symbol * lr1) list) tokens derivation : simple_derivation_tree =
     (* We require the stream be persistent as opposed to ephemeral. *)
     let t, tokens' = Seq.uncons tokens |> Option.get in
@@ -236,7 +266,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         raise (Rejected (T t))
 
   let parse_terminals (entrypoint : entrypoint) (input : string list) =
-    let start_nt, _, start_lr1 = entrypoint in
+    let { start_nt; start_lr1 } = entrypoint in
     let tokens = input |> L.map terminal_of_name |> L.to_seq in
     let tokens = Seq.(append tokens (repeat end_pseudotoken)) in
     loop entrypoint start_lr1 [] tokens []
@@ -269,11 +299,15 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
       (fun (t, _) -> Terminal.equal t end_pseudotoken)
       (Lr1.get_reductions s)
 
-  let rec loop_with_positions ((start_nt, _, start_lr1) as entrypoint) state
-      (stack : (symbol * lr1) located list) (tok : (terminal * token) option)
-      (tokens : (terminal * token, string) result Seq.t) start_pos end_pos
-      (please_discard : bool) (derivation : token_derivation) :
-      (token_derivation_tree, _) result =
+  let has_defred (s : lr1) = is_some (Lr1.default_reduction s)
+
+  type stack = (symbol * lr1) located list
+  type lookahead = terminal * token
+
+  let rec loop_with_positions ({ start_nt; start_lr1; _ } as entrypoint) state
+      (stack : stack) (tok : lookahead option)
+      (tokens : (lookahead, string) result Seq.t) (please_discard : bool)
+      (derivation : token_derivation) : (token_derivation_tree, _) result =
     let open Utils.Range in
     let module Range = Utils.Range in
     let open Utils.Range.Located in
@@ -328,7 +362,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           (G.Lr1.to_int state');
         loop_with_positions entrypoint state'
           (push stack (Located.map (fun _ -> (T t, state')) token))
-          (Some tok) tokens start_pos end_pos please_discard
+          (Some tok) tokens please_discard
           (push derivation (Leaf (Located.map (fun _ -> (t, token)) token)))
     | None, Some p -> (
         (* When a default reduction is indicated, there are no possible shift transitions and we continue with a reduction. *)
@@ -380,7 +414,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
               (G.Lr1.to_int state');
             loop_with_positions entrypoint state'
               (push stack' (locate (N lhs, state') range))
-              (Some tok) tokens last_item_startp first_item_endp
+              (Some tok) tokens
               false (* Never discard the lookahead token after a reduction *)
               (push derivation' (Branches (data, L.rev terms)))
         (* These two following cases are silly because Menhir resolves the conflicts when building the tables. todo: confirm and remove *)
@@ -404,19 +438,15 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   (* Modeling the things a semantic action of a lexer rule can do. *)
   type lexer_behavior = Skip | Fail | Produce of int
 
-  let parse_with_positions (entrypoint : entrypoint)
-      (lexer_entry : Tokenizer.entrypoint)
+  let make_token_supplier (lexer_entry : Tokenizer.entrypoint)
       (lexer_automata : Lex.Lexgen.automata array)
-      (lexer_action_map : lexer_behavior ActionMap.t) (lexbuf : Lexing.lexbuf) :
-      (token_derivation_tree, _) result =
-    let start_nt, _, start_lr1 = entrypoint in
+      (lexer_action_map : lexer_behavior ActionMap.t) (lexbuf : Lexing.lexbuf) =
     let rec next_token () =
       let tok : token =
         Tokenizer.next_token lexbuf lexer_entry lexer_automata
       in
       let data = tok.v in
       let open O in
-      (* todo: filter out lexer actions that do not produce a token (i.e. they either loop or throw an error) *)
       match ActionMap.find_opt data.action lexer_action_map with
       | None ->
           Error (spr "unbound action: don't know how to interpret %s" data.text)
@@ -426,13 +456,245 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           | Fail -> Error "lexer error"
           | Produce term -> Ok (Terminal.of_int term, tok))
     in
+    next_token
 
+  let parse_with_positions (entrypoint : entrypoint)
+      (lexer_entry : Tokenizer.entrypoint)
+      (lexer_automata : Lex.Lexgen.automata array)
+      (lexer_action_map : lexer_behavior ActionMap.t) (lexbuf : Lexing.lexbuf) :
+      (token_derivation_tree, _) result =
+    let { start_nt; start_lr1; _ } = entrypoint in
+    let next_token =
+      make_token_supplier lexer_entry lexer_automata lexer_action_map lexbuf
+    in
     let tokens =
       (* Seq.(memoize (of_dispenser (next_token >> O.of_result))); *)
       Seq.(of_dispenser (next_token >> O.some))
     in
-    loop_with_positions entrypoint start_lr1 [] None tokens Position.dummy
-      Position.dummy true []
+    loop_with_positions entrypoint start_lr1 [] None tokens true []
+
+  type env = {
+    entrypoint : entrypoint;
+    state : lr1;
+    lookahead : lookahead option;
+    stack : stack;
+    derivation : token_derivation;
+  }
+
+  and checkpoint =
+    | InputNeeded of env
+    | Shifting of terminal * env
+    | Reducing of production * env
+    | Accepted of token_derivation_tree
+    | Rejected of symbol * env
+  (* [@@deriving visitors { name = "checkpoint_reduce"; variety = "reduce" }] *)
+
+  let yojson_of_stack (stack : stack) : json =
+    yolist
+      (Located.yojson_of_t (fun (x, lr1) ->
+           `Assoc [ ("symbol", yosymbol x); ("state", yolr1 lr1) ]))
+      stack
+
+  let yojson_of_env ({ entrypoint; state; lookahead; stack; derivation } : env)
+      : json =
+    `Assoc
+      [
+        ("stack", yojson_of_stack stack);
+        ("state", yolr1 state);
+        ("derivation", yojson_of_token_derivation derivation);
+        ("lookahead", yojson_of_option (fun (t, _) -> yoterminal t) lookahead);
+      ]
+
+  let yojson_of_checkpoint (c : checkpoint) : json =
+    let with_env env l = `Assoc (("env", yojson_of_env env) :: l) in
+    match c with
+    | InputNeeded env -> yotagged "inputNeeded" (with_env env [])
+    | Shifting (t, env) ->
+        yotagged "shifting" (with_env env [ ("terminal", yoterminal t) ])
+    | Reducing (p, env) ->
+        yotagged "reducing" (with_env env [ ("production", yoproduction p) ])
+    | Accepted dv -> yotagged "accepted" (yojson_of_token_derivation_tree dv)
+    | Rejected (x, env) ->
+        yotagged "rejected" (with_env env [ ("symbol", yosymbol x) ])
+
+  let should_discard : checkpoint -> bool = function
+    | Shifting (_, { state = s }) -> not (has_defred s && has_red_on_sharp s)
+    | InputNeeded _ | Reducing (_, _) | Accepted _ | Rejected (_, _) -> false
+
+  let rec offer (tok : lookahead) : checkpoint -> checkpoint = function
+    | InputNeeded env -> step { env with lookahead = Some tok } false
+    | _ -> failwith "offer expects an InputNeed checkpoint"
+
+  and step
+      ({ entrypoint; state; lookahead = tok; stack; derivation } as env : env)
+      (please_discard : bool) : checkpoint =
+    let open Utils.Range in
+    let module Range = Utils.Range in
+    let open Utils.Range.Located in
+    let default_reduction = Lr1.default_reduction state in
+
+    if please_discard then InputNeeded env
+    else
+      let tok =
+        (* Since the loop is called with [please_discard] set to [true] and we don't need to worry about recognizing the empty language or the singleton epsilon language (because Menhir rejects them statically), this [Option.get] should be safe and sound. *)
+        !!tok
+      in
+      let t, token = tok in
+      let start_pos, end_pos = (token.p.start, token.p.end_) in
+
+      let shift_state : lr1 option = get_trans state (T t) in
+
+      (* Note: a default reduction does not need a lookahead token *)
+      let reduce_production : production option =
+        default_reduction <|> fun () -> get_prod state t
+      in
+
+      log "###################################################";
+      log "looking at %a, please_discard: %B"
+        (fun out (t, _) -> pf out "%a" Print.terminal t)
+        tok please_discard;
+      log "default reduction for state %d: %a" (Lr1.to_int state)
+        (pp_option Print.production)
+        default_reduction;
+      log "shift transition: %a"
+        (pp_option (fun out d -> pf out "%d" (Lr1.to_int d)))
+        shift_state;
+      log "reduce transition: %a" (pp_option Print.production) reduce_production;
+
+      (* Selects between the (default) reduction on the current lookahead or shifting a new token. *)
+      match (shift_state, reduce_production) with
+      | Some state', None ->
+          let env' : env =
+            {
+              entrypoint;
+              state = state';
+              stack = push stack (Located.map (fun _ -> (T t, state')) token);
+              lookahead = Some tok;
+              derivation =
+                push derivation (Leaf (Located.map (fun _ -> (t, token)) token));
+            }
+          in
+          log_action "shifting %s to state %d" (G.Terminal.name t)
+            (G.Lr1.to_int state');
+          Shifting (t, env')
+      | None, Some p -> (
+          (* When a default reduction is indicated, there are no possible shift transitions and we continue with a reduction. *)
+          let rhs =
+            Production.rhs p |> Array.to_list |> L.map (fun (s, _, _) -> s)
+          in
+          let lhs = Production.lhs p in
+          (* Pop the top elements corresponding to the production's RHS from the stack *)
+          let items, stack' =
+            sub_split
+              ~cmp:(fun x1 { v = x2, _; _ } -> Symbol.compare x1 x2)
+              (L.rev rhs) stack
+          in
+          (* The start position of the expression being reduced is in the last item popped item.
+           What if we're reducing the empty production? (items = nil) *)
+          let first_item_endp =
+            L.head_opt items |> O.map_or ~default:end_pos Located.endp
+          in
+          let last_item_startp =
+            L.last_opt items |> O.map_or ~default:start_pos Located.startp
+          in
+          let terms, derivation' =
+            sub_split
+              ~cmp:(fun symbol (derivation_tree : token_derivation_tree) ->
+                match (symbol, derivation_tree) with
+                | T t1, Leaf t2 -> Terminal.compare t1 (fst t2.v)
+                | N nt1, Branches (nt2, _) -> Nonterminal.compare nt1 nt2.v
+                | _ -> 1)
+              (L.rev rhs) derivation
+          in
+          (* Query the transitions of the current top element on the lhs nonterminal to get the next lr1 state *)
+          let top_lr1 : lr1 =
+            peek stack'
+            |> O.map (fun { v } -> snd v)
+            |> O.value ~default:entrypoint.start_lr1
+          in
+          let range = Range.make last_item_startp first_item_endp in
+          let data = locate lhs range in
+          match get_trans top_lr1 (N lhs) with
+          | None when Production.kind p = `START ->
+              log_action "reducing start production %a" Print.production p;
+              log_action "accepting";
+              Accepted (Branches (data, derivation))
+          | None ->
+              log_error "rejected nonterminal %s" (Nonterminal.name lhs);
+              Rejected (N lhs, env)
+          | Some state' ->
+              log_action "reducing production %a to state %d" Print.production p
+                (G.Lr1.to_int state');
+              let env' : env =
+                {
+                  entrypoint;
+                  state = state';
+                  lookahead = Some tok;
+                  stack = push stack' (locate (N lhs, state') range);
+                  derivation = push derivation' (Branches (data, L.rev terms));
+                }
+              in
+              Reducing (p, env'))
+      | _ ->
+          log_error "rejected token %s" (Terminal.name t);
+          Rejected (T t, env)
+
+  let start_env (entrypoint : entrypoint) : env =
+    {
+      entrypoint;
+      state = entrypoint.start_lr1;
+      lookahead = None;
+      stack = [];
+      derivation = [];
+    }
+
+  (** Returns two closures to step forward an backward on an history of
+      derivations.
+
+      Invariant: [step_back (step_forward c) = c] for any [c : checkpoint] that
+      isn't [Accepted] or [Rejected]. *)
+  let parse_with_checkpoints (entrypoint : entrypoint)
+      (lexer_entry : Tokenizer.entrypoint)
+      (lexer_automata : Lex.Lexgen.automata array)
+      (lexer_action_map : lexer_behavior ActionMap.t) (lexbuf : Lexing.lexbuf) =
+    let next_token =
+      make_token_supplier lexer_entry lexer_automata lexer_action_map lexbuf
+    in
+    (* todo: store the history in a self element of env, so as to form a chain of environments *)
+    let history : checkpoint list ref = ref [] in
+
+    (* Initializes a checkpoint for [entrypoint] and resets the history. *)
+    let init_checkpoint : checkpoint =
+      history := [];
+      InputNeeded (start_env entrypoint)
+    in
+
+    (* Unwraps a checkpoint and sets up the environment to call [step]. *)
+    let step_forward (c : checkpoint) : checkpoint =
+      let save () = history := c :: !history in
+      match c with
+      | InputNeeded env ->
+          save ();
+          let env =
+            (* todo: store lexbuf in env and pass it to next_token *)
+            { env with lookahead = Some (next_token () |> R.get_exn) }
+          in
+          step env false
+      | Shifting (_, env) | Reducing (_, env) ->
+          save ();
+          step env (should_discard c)
+      | Accepted _ | Rejected (_, _) -> (* makes no progress *) c
+    in
+
+    (* Forgets a history step and returns it. *)
+    let step_back () : checkpoint option =
+      match !history with
+      | [] -> None
+      | c :: cs ->
+          history := cs;
+          Some c
+    in
+    (init_checkpoint, step_forward, step_back)
 
   (** Creates a mapping between this [G]'s tokens and the actions of the given
       lexer's rule by searching for token occurrences within the rule's actions.

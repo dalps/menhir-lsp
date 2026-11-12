@@ -485,3 +485,6 @@ let yojson_of_result ~ok ~error (r : ('a, 'e) result) : Yojson.Safe.t =
       ("kind", `String (match r with Ok _ -> "ok" | Error _ -> "error"));
       ("value", R.fold ~ok ~error r);
     ]
+
+let yojson_of_option f : 'a option -> Yojson.Safe.t =
+  O.map_or f ~default:`Null

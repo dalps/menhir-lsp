@@ -72,6 +72,26 @@ export interface LexerAction {
   token?: Terminal;
 }
 
-export type Result<T, E> =
-  | { kind: "ok"; value: T }
-  | { kind: "error"; value: E };
+export type Variant<tag extends string, A> = { kind: tag; value: A };
+
+export type Result<T, E> = Variant<"ok", T> | Variant<"error", E>;
+
+export type Production = { lhs: string; rhs: string[] };
+export type Stack = { symbol: string; state: number }[];
+export type Lexbuf = { startOfs: number; currOfs: number };
+
+export type Env = {
+  stack: Stack;
+  state: number;
+  derivation: DerivationTree[];
+  lookahead: string;
+};
+
+export type WithEnv = { env: Env };
+
+export type Checkpoint =
+  | Variant<"inputNeeded", WithEnv>
+  | Variant<"shifting", WithEnv & { terminal: string }>
+  | Variant<"reducing", WithEnv & { production: Production }>
+  | Variant<"accepted", DerivationTree>
+  | Variant<"rejected", WithEnv & { symbol: string }>;
