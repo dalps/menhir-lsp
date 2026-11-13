@@ -501,13 +501,15 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     lookahead : lookahead option;
     stack : stack;
     derivation : token_derivation;
+    last : checkpoint;
+        (** A chain of checkpoints that led up to the current env. *)
   }
 
   and checkpoint =
     | InputNeeded of env
     | Shifting of terminal * env
     | Reducing of production * env
-    | Accepted of token_derivation_tree
+    | Accepted of token_derivation_tree * env
     | Rejected of symbol * env
   (* [@@deriving visitors { name = "checkpoint_reduce"; variety = "reduce" }] *)
 
@@ -535,7 +537,8 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         yotagged "shifting" (with_env env [ ("terminal", yoterminal t) ])
     | Reducing (p, env) ->
         yotagged "reducing" (with_env env [ ("production", yoproduction p) ])
-    | Accepted dv -> yotagged "accepted" (yojson_of_token_derivation_tree dv)
+    | Accepted (dv, _) ->
+        yotagged "accepted" (yojson_of_token_derivation_tree dv)
     | Rejected (x, env) ->
         yotagged "rejected" (with_env env [ ("symbol", yosymbol x) ])
 
@@ -588,6 +591,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
       | Some state', None ->
           let env' : env =
             {
+              env with
               entrypoint;
               state = state';
               stack = push stack (Located.map (fun _ -> (T t, state')) token);
@@ -640,7 +644,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           | None when Production.kind p = `START ->
               log_action "reducing start production %a" Print.production p;
               log_action "accepting";
-              Accepted (Branches (data, derivation))
+              Accepted (Branches (data, derivation), env)
           | None ->
               log_error "rejected nonterminal %s" (Nonterminal.name lhs);
               Rejected (N lhs, env)
@@ -649,6 +653,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
                 (G.Lr1.to_int state');
               let env' : env =
                 {
+                  env with
                   entrypoint;
                   state = state';
                   lookahead = Some tok;
@@ -662,19 +667,26 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           Rejected (T t, env)
 
   let start_env (entrypoint : entrypoint) : env =
-    {
-      entrypoint;
-      state = entrypoint.start_lr1;
-      lookahead = None;
-      stack = [];
-      derivation = [];
-    }
+    let rec env =
+      {
+        entrypoint;
+        state = entrypoint.start_lr1;
+        lookahead = None;
+        stack = [];
+        derivation = [];
+        last = InputNeeded env;
+      }
+    in
+    env
 
   (** Returns two closures to step forward an backward on an history of
       derivations.
 
-      Invariant: [step_back (step_forward c) = c] for any [c : checkpoint] that
-      isn't [Accepted] or [Rejected]. *)
+      Invariant: [step_forward (step_back c) = c] for any [c : checkpoint].
+
+      [step_back (step_forward c) = c] also holds as long as [c] is neither
+      [Accepted] or [Rejected], because [step_forward] makes no progress on
+      them. *)
   let parse_with_checkpoints (entrypoint : entrypoint)
       (lexer_entry : Tokenizer.entrypoint)
       (lexer_automata : Lex.Lexgen.automata array)
@@ -682,40 +694,33 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     let next_token =
       make_token_supplier lexer_entry lexer_automata lexer_action_map lexbuf
     in
-    (* todo: store the history in a self element of env, so as to form a chain of environments *)
-    let history : checkpoint list ref = ref [] in
 
     (* Initializes a checkpoint for [entrypoint] and resets the history. *)
-    let init_checkpoint : checkpoint =
-      history := [];
-      InputNeeded (start_env entrypoint)
-    in
+    let init_checkpoint : checkpoint = InputNeeded (start_env entrypoint) in
 
-    (* Unwraps a checkpoint and sets up the environment to call [step]. *)
+    (* Unwraps a checkpoint and sets up the environment to call [step]. Also updates the history of checkpoints. *)
     let step_forward (c : checkpoint) : checkpoint =
-      let save () = history := c :: !history in
       match c with
       | InputNeeded env ->
-          save ();
           let env =
             (* todo: store lexbuf in env and pass it to next_token *)
             { env with lookahead = Some (next_token () |> R.get_exn) }
           in
           step env false
-      | Shifting (_, env) | Reducing (_, env) ->
-          save ();
-          step env (should_discard c)
+      | Shifting (_, env) | Reducing (_, env) -> step env (should_discard c)
       | Accepted _ | Rejected (_, _) -> (* makes no progress *) c
     in
 
     (* Forgets a history step and returns it. *)
-    let step_back () : checkpoint option =
-      match !history with
-      | [] -> None
-      | c :: cs ->
-          history := cs;
-          Some c
+    let step_back : checkpoint -> checkpoint = function
+      | InputNeeded env
+      | Shifting (_, env)
+      | Reducing (_, env)
+      | Accepted (_, env)
+      | Rejected (_, env) ->
+          env.last
     in
+
     (init_checkpoint, step_forward, step_back)
 
   (** Creates a mapping between this [G]'s tokens and the actions of the given
