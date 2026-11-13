@@ -7,7 +7,7 @@ module MF = Menhirformat_lib
 
 type doc_type = Mll | Mly | Messages
 
-(* This spares us having to pattern-match strings and prevents bugs caused by typos.*)
+(* This saves us having to pattern-match against strings and prevents introducing bugs caused by typos.*)
 let command_dict =
   [
     ("getAst", `GetAst);
@@ -24,6 +24,7 @@ let command_dict =
     ("startParser", `StartParser);
     ("startParserWithPositions", `StartParserWithPositions);
     ("connectParserWithLexer", `ConnectParserWithLexer);
+    ("startParserWithCheckpoints", `StartParserWithCheckpoints);
   ]
 
 let doc_type_of_uri uri : doc_type option =
@@ -420,17 +421,10 @@ class lsp_server =
           let* state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
           let* cmly = state.cmly in
           let module G = (val cmly : MenhirSdk.Cmly_api.GRAMMAR) in
-          let open G in
-          let* entrypoint =
-            L.find_opt
-              (fun (nt, _, _) ->
-                String.equal (Nonterminal.name nt) entrypoint_name)
-              Grammar.entry_points
-          in
           let module D = CmlyAdapter.Make (G) in
+          let* entrypoint = D.get_entrypoint entrypoint_name in
           let derivation = D.parse_terminals entrypoint input in
-          let json = D.yojson_of_simple_derivation [ derivation ] in
-          Some json
+          Some (D.yojson_of_simple_derivation [ derivation ])
       | `ConnectParserWithLexer ->
           (* let* text_source = uri_of_args args in *)
           let* rule_name, mll_uri, entrypoint_name, mly_uri =
@@ -564,34 +558,7 @@ class lsp_server =
           in
           log "got lexer";
           let open D in
-          let map : lexer_behavior ActionMap.t =
-            L.fold_left
-              (fun acc obj ->
-                match obj with
-                | `Assoc
-                    [
-                      _;
-                      ("action", `Int k);
-                      _;
-                      ("value", `Assoc (("kind", `String kind) :: data));
-                    ] -> (
-                    log "matching action #%d" k;
-                    match (kind, data) with
-                    | "skip", _ ->
-                        log "to Skip";
-                        ActionMap.add k Skip acc
-                    | "fail", _ ->
-                        log "to Fail";
-                        ActionMap.add k Fail acc
-                    | "token", ("token", `Assoc (("id", `Int t) :: _)) :: _ ->
-                        log "to Produce %d" t;
-                        ActionMap.add k (Produce t) acc
-                    | _ ->
-                        log "bad payload";
-                        acc)
-                | _ -> acc)
-              ActionMap.empty actions
-          in
+          let map = lexer_behavior_map_of_yojson actions in
           log "reading input from file %s" (Uri.to_path source_uri);
           In_channel.with_open_text (Uri.to_path source_uri) (fun ic ->
               Utils.Range.Located.track_file source_uri;
@@ -612,6 +579,64 @@ class lsp_server =
                          ("dv", yojson_of_token_derivation (L.rev dv));
                        ])
               |> some)
+      | `StartParserWithCheckpoints ->
+          let log s = log_src "small-step" s in
+          let data =
+            match args with
+            | Some
+                [
+                  `String sourceUri;
+                  `Assoc ((_, `String lexerName) :: (_, `String lexerUri) :: _);
+                  `Assoc ((_, `String parserName) :: (_, `String moduleUri) :: _);
+                  `List actions;
+                ] ->
+                Some
+                  ( sourceUri,
+                    lexerName,
+                    lexerUri,
+                    parserName,
+                    moduleUri,
+                    actions )
+            | _ -> None
+          in
+          let* source_uri, rule_name, mll_uri, entrypoint_name, mly_uri, actions
+              =
+            data
+          in
+          let source_uri = Uri.of_string source_uri in
+          let* mly_state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
+          let* cmly = mly_state.cmly in
+          let module G = (val cmly : MenhirSdk.Cmly_api.GRAMMAR) in
+          let module D = CmlyAdapter.Make (G) in
+          log "got adapter";
+          let open G in
+          let open Lex in
+          let* entrypoint = D.get_entrypoint entrypoint_name in
+          let mll_uri = Uri.of_string mll_uri in
+          let* mll_state = CCHashtbl.get mll_buffers mll_uri in
+          let* lexer_entry, lexer_automata =
+            match Lex.Driver.parse_file (Uri.to_path mll_uri) with
+            | Ok (entrypoints, automata) ->
+                let+ idx, e =
+                  L.find_idx
+                    (fun e -> String.equal e.Lexgen.auto_name rule_name)
+                    entrypoints
+                in
+                (e, automata)
+            | Error _ -> None
+          in
+          log "got lexer";
+          let open D in
+          let map = lexer_behavior_map_of_yojson actions in
+          log "reading input from file %s" (Uri.to_path source_uri);
+          In_channel.with_open_text (Uri.to_path source_uri) (fun ic ->
+              Utils.Range.Located.track_file source_uri;
+              let lexbuf = Lexing.from_string (In_channel.input_all ic) in
+              let c0, step_forward, step_back =
+                parse_with_checkpoints entrypoint lexer_entry lexer_automata map
+                  lexbuf
+              in
+              Some (yojson_of_checkpoint c0))
       | `StartTokenizer -> (
           let open Lex in
           let open Tokenizer in

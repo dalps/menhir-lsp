@@ -8,6 +8,7 @@ import {
   Entry,
   LexerActionKind,
   ModuleEntries,
+  StackItem,
   Terminal,
   WithRange,
 } from "./types";
@@ -184,5 +185,13 @@ export class EntrypointProvider extends TreeProvider<Entry | ModuleEntries> {
     }
 
     return "name" in element ? [] : element.entrypoints;
+  }
+}
+
+export class StackProvider extends TreeProvider<StackItem> {
+  getTreeItem(element: StackItem): vscode.TreeItem | Thenable<vscode.TreeItem> {
+    const item = new TreeItem(`${element.symbol}(${element.state})`);
+
+    return item;
   }
 }

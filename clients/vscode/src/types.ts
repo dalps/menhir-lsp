@@ -77,7 +77,13 @@ export type Variant<tag extends string, A> = { kind: tag; value: A };
 export type Result<T, E> = Variant<"ok", T> | Variant<"error", E>;
 
 export type Production = { lhs: string; rhs: string[] };
-export type Stack = { symbol: string; state: number }[];
+export type StackItem = {
+  symbol: string;
+  state: number;
+};
+
+export type Stack = StackItem[];
+
 export type Lexbuf = { startOfs: number; currOfs: number };
 
 export type Env = {

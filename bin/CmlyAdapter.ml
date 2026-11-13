@@ -273,8 +273,6 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
   module ActionMap = struct
     include Map.Make (Int)
-
-    (* todo: move json (de)serializer here *)
   end
 
   let lexer_error msg =
@@ -437,6 +435,34 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
   (* Modeling the things a semantic action of a lexer rule can do. *)
   type lexer_behavior = Skip | Fail | Produce of int
+
+  let lexer_behavior_map_of_yojson : json list -> lexer_behavior ActionMap.t =
+    L.fold_left
+      (fun acc obj ->
+        match obj with
+        | `Assoc
+            [
+              _;
+              ("action", `Int k);
+              _;
+              ("value", `Assoc (("kind", `String kind) :: data));
+            ] -> (
+            log "matching action #%d" k;
+            match (kind, data) with
+            | "skip", _ ->
+                log "to Skip";
+                ActionMap.add k Skip acc
+            | "fail", _ ->
+                log "to Fail";
+                ActionMap.add k Fail acc
+            | "token", ("token", `Assoc (("id", `Int t) :: _)) :: _ ->
+                log "to Produce %d" t;
+                ActionMap.add k (Produce t) acc
+            | _ ->
+                log "bad payload";
+                acc)
+        | _ -> acc)
+      ActionMap.empty
 
   let make_token_supplier (lexer_entry : Tokenizer.entrypoint)
       (lexer_automata : Lex.Lexgen.automata array)

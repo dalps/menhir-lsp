@@ -16,16 +16,19 @@ import {
   ActionMapProvider,
   DerivationTreeProvider,
   EntrypointProvider,
+  StackProvider,
 } from "./derivationTree";
 import { activateStatusBar } from "./status";
 import {
   ActionMapping,
+  Checkpoint,
   DerivationTree,
   Entry,
   InputSource,
   InputSourceKind,
   ModuleEntries,
   Result,
+  StackItem,
   Terminal,
   Token,
 } from "./types";
@@ -35,6 +38,7 @@ import { CodiconId } from "./codicons";
 
 let client: LanguageClient;
 let derivationTreeView: vscode.TreeView<DerivationTree>;
+let stackView: vscode.TreeView<StackItem>;
 let actionBindingView: vscode.TreeView<ActionMapping | Terminal>;
 let workspaceLexersView: vscode.TreeView<Entry | ModuleEntries>;
 let workspaceParsersView: vscode.TreeView<Entry | ModuleEntries>;
@@ -72,6 +76,9 @@ const serverCmdWithActiveEditor = (command: string) =>
       editor.selection.active,
     );
   });
+
+const setContext = (key: string, value: any) =>
+  vscode.commands.executeCommand("setContext", `${clientName}.${key}`, value);
 
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -136,6 +143,7 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   const derivationTreeProvider = new DerivationTreeProvider(context);
+  const stackProvider = new StackProvider(context);
 
   const actionProvider = new ActionMapProvider(context);
 
@@ -158,6 +166,10 @@ export function activate(context: vscode.ExtensionContext) {
       treeDataProvider: derivationTreeProvider,
     },
   );
+
+  stackView = vscode.window.createTreeView("menhir-lsp-stack-view", {
+    treeDataProvider: stackProvider,
+  });
 
   actionBindingView = vscode.window.createTreeView("menhir-lsp-action-map", {
     treeDataProvider: actionProvider,
@@ -274,6 +286,14 @@ export function activate(context: vscode.ExtensionContext) {
       startParserWithPositionsView(
         actionProvider,
         derivationTreeProvider,
+        source,
+      ),
+    ),
+    registerCmd("startParserWithCheckpoints", (source) =>
+      startParserWithCheckpointsView(
+        actionProvider,
+        derivationTreeProvider,
+        stackProvider,
         source,
       ),
     ),
@@ -468,6 +488,76 @@ async function startParserWithPositionsView(
   derivationTreeView.description = `(Error)`;
   derivationTreeView.message = `Error: ${res.value.message}. Showing a possibly empty forest of partial derivations.`;
   treeProvider.refresh(res.value.dv);
+}
+
+/** Invoked from the "regexp-token mapping" side view. */
+async function startParserWithCheckpointsView(
+  actionProvider: ActionMapProvider,
+  treeProvider: DerivationTreeProvider,
+  stackProvider: StackProvider,
+  source: InputSource = { value: InputSourceKind.ActiveEditor },
+) {
+  const cmd = "startParserWithCheckpoints";
+
+  let editor = vscode.window.activeTextEditor;
+
+  if (!editor) {
+    vscode.window.showErrorMessage("No active editor available.");
+    return;
+  }
+
+  let sourceUri = editor.document.uri.toString();
+
+  const c0 = await execServerCmd<Checkpoint>(
+    cmd,
+    sourceUri,
+    actionProvider.lexerEntrypoint,
+    actionProvider.parserEntrypoint,
+    actionProvider.getChildren(),
+  );
+
+  // todo: add "disconnect" command that unsets this and disposes of other things
+  setContext("interpreterRunning", true);
+
+  let i = 0;
+
+  derivationTreeView.description = `(${c0.kind})`;
+  derivationTreeView.message = `Checkpoint #${i} · ${c0.kind}`;
+
+  // Refresh the views' data providers
+  switch (c0.kind) {
+    case "accepted":
+      treeProvider.refresh([c0.value]);
+      break;
+
+    default:
+      let { env } = c0.value;
+      derivationTreeView.message += ` · State ${env.state}`;
+
+      env.lookahead &&
+        (derivationTreeView.message += `, looking at ${env.lookahead}`);
+
+      stackView.description = `${env.stack.length} items`;
+      stackProvider.refresh(env.stack);
+      treeProvider.refresh(env.derivation);
+      break;
+  }
+
+  // Update the derivation view message
+  switch (c0.kind) {
+    case "inputNeeded":
+      break;
+    case "shifting":
+      derivationTreeView.message += ` · Shifting token ${c0.value.terminal}`;
+      break;
+    case "reducing":
+      let { lhs, rhs } = c0.value.production;
+      derivationTreeView.message += ` · Reducing production ${lhs} -> ${rhs.join(" ")}`;
+    case "accepted":
+      break;
+    case "rejected":
+      break;
+  }
 }
 
 async function startTokenizerView(rule?: Entry, source?: InputSource) {
