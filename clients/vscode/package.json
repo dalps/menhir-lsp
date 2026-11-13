@@ -77,6 +77,26 @@
           "command": "menhir-lsp-client.startParserWithPositions",
           "when": "view == menhir-lsp-action-map",
           "group": "navigation"
+        },
+        {
+          "command": "menhir-lsp-client.startParserWithCheckpoints",
+          "when": "view == menhir-lsp-action-map",
+          "group": "navigation"
+        },
+        {
+          "command": "menhir-lsp-client.stopInterpreter",
+          "when": "view == menhir-lsp-action-map",
+          "group": "navigation"
+        },
+        {
+          "command": "menhir-lsp-client.stepForward",
+          "when": "view == menhir-lsp-derivation-view",
+          "group": "navigation@1"
+        },
+        {
+          "command": "menhir-lsp-client.stepBackward",
+          "when": "view == menhir-lsp-derivation-view",
+          "group": "navigation@0"
         }
       ],
       "view/item/context": [
@@ -91,7 +111,7 @@
           "group": "inline"
         },
         {
-          "command": "menhir-lsp-client.runParser",
+          "command": "menhir-lsp-client.startParser",
           "when": "view == menhir-lsp-workspace-parsers && viewItem == entrypoint",
           "group": "inline"
         },
@@ -105,6 +125,23 @@
         {
           "when": "editorTextFocus && (editorLangId == ocaml.menhir || editorLangId == ocaml.ocamllex)",
           "command": "menhir-lsp-client.gotoImplementation"
+        }
+      ],
+      "editor/title": [
+        {
+          "when": "(editorLangId == ocaml.menhir || editorLangId == ocaml.ocamllex)",
+          "command": "menhir-lsp-client.gotoImplementation",
+          "group": "navigation"
+        },
+        {
+          "when": "editorLangId == ocaml.menhir",
+          "command": "menhir-lsp-client.connectParserWithLexer",
+          "group": "navigation"
+        },
+        {
+          "when": "editorLangId == ocaml.menhir",
+          "command": "menhir-lsp-client.startParser",
+          "group": "navigation"
         }
       ]
     },
@@ -149,6 +186,12 @@
           "name": "Derivation Explorer",
           "icon": "icons/icon_outline_thick.svg",
           "contextualTitle": "Derivation Explorer"
+        },
+        {
+          "id": "menhir-lsp-stack-view",
+          "name": "Stack Explorer",
+          "icon": "icons/icon_outline_thick.svg",
+          "contextualTitle": "Stack Explorer"
         },
         {
           "id": "menhir-lsp-action-map",
@@ -196,7 +239,8 @@
       {
         "title": "Menhir: Go To Implementation",
         "shortTitle": "Go To Implementation",
-        "command": "menhir-lsp-client.gotoImplementation"
+        "command": "menhir-lsp-client.gotoImplementation",
+        "icon": "$(open-preview)"
       },
       {
         "title": "Menhir: Show Language Server Output",
@@ -257,13 +301,15 @@
         "icon": "$(refresh)"
       },
       {
-        "title": "Menhir: Next Step",
-        "command": "menhir-lsp-client.next-step",
+        "title": "Menhir: Step Forward",
+        "enablement": "menhir-lsp-client.interpreterRunning == true",
+        "command": "menhir-lsp-client.stepForward",
         "icon": "$(arrow-right)"
       },
       {
-        "title": "Menhir: Previous Step",
-        "command": "menhir-lsp-client.previous-step",
+        "title": "Menhir: Step Back",
+        "enablement": "menhir-lsp-client.interpreterRunning == true",
+        "command": "menhir-lsp-client.stepBackward",
         "icon": "$(arrow-left)"
       },
       {
@@ -275,6 +321,18 @@
         "title": "Menhir: Run Parser With Position Tracking",
         "command": "menhir-lsp-client.startParserWithPositions",
         "icon": "$(play)"
+      },
+      {
+        "title": "Menhir: Run Parser With Checkpoints",
+        "enablement": "menhir-lsp-client.interpreterRunning == false",
+        "command": "menhir-lsp-client.startParserWithCheckpoints",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "title": "Menhir: Stop Interpreter",
+        "enablement": "menhir-lsp-client.interpreterRunning == true",
+        "command": "menhir-lsp-client.stopInterpreter",
+        "icon": "$(debug-stop)"
       }
     ],
     "configuration": {

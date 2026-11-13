@@ -297,6 +297,7 @@ export function activate(context: vscode.ExtensionContext) {
         source,
       ),
     ),
+
     registerCmd("refreshEntrypoints", () => {
       lexerProvider.refresh([]);
       parserProvider.refresh([]);
@@ -499,6 +500,12 @@ async function startParserWithCheckpointsView(
 ) {
   const cmd = "startParserWithCheckpoints";
 
+  if (!actionProvider.parserEntrypoint || !actionProvider.lexerEntrypoint) {
+    vscode.window.showErrorMessage("Parser is not connected to a lexer.");
+    return;
+  }
+
+  let parserUri = actionProvider.parserEntrypoint.moduleUri;
   let editor = vscode.window.activeTextEditor;
 
   if (!editor) {
@@ -516,49 +523,83 @@ async function startParserWithCheckpointsView(
     actionProvider.getChildren(),
   );
 
-  // todo: add "disconnect" command that unsets this and disposes of other things
   setContext("interpreterRunning", true);
 
-  let i = 0;
+  updateViews(c0);
 
-  derivationTreeView.description = `(${c0.kind})`;
-  derivationTreeView.message = `Checkpoint #${i} · ${c0.kind}`;
+  function updateViews(c: Checkpoint) {
+    let i = 0;
 
-  // Refresh the views' data providers
-  switch (c0.kind) {
-    case "accepted":
-      treeProvider.refresh([c0.value]);
-      break;
+    derivationTreeView.description = `(${c.kind})`;
+    derivationTreeView.message = `Checkpoint #${i} · ${c.kind}`;
 
-    default:
-      let { env } = c0.value;
-      derivationTreeView.message += ` · State ${env.state}`;
+    // Refresh the views' data providers
+    switch (c.kind) {
+      case "accepted":
+        treeProvider.refresh([c.value]);
+        break;
 
-      env.lookahead &&
-        (derivationTreeView.message += `, looking at ${env.lookahead}`);
+      default:
+        let { env } = c.value;
+        derivationTreeView.message += ` · State ${env.state}`;
 
-      stackView.description = `${env.stack.length} items`;
-      stackProvider.refresh(env.stack);
-      treeProvider.refresh(env.derivation);
-      break;
+        env.lookahead &&
+          (derivationTreeView.message += `, looking at ${env.lookahead}`);
+
+        stackView.description = `${env.stack.length} items`;
+        stackProvider.refresh(env.stack);
+        treeProvider.refresh(env.derivation);
+        break;
+    }
+
+    // Update the derivation view message
+    switch (c.kind) {
+      case "inputNeeded":
+        break;
+      case "shifting":
+        derivationTreeView.message += ` · Shifting token ${c.value.terminal}`;
+        break;
+      case "reducing":
+        let { lhs, rhs } = c.value.production;
+        derivationTreeView.message += ` · Reducing production ${lhs} -> ${rhs.join(" ")}`;
+      case "accepted":
+        break;
+      case "rejected":
+        break;
+    }
   }
 
-  // Update the derivation view message
-  switch (c0.kind) {
-    case "inputNeeded":
-      break;
-    case "shifting":
-      derivationTreeView.message += ` · Shifting token ${c0.value.terminal}`;
-      break;
-    case "reducing":
-      let { lhs, rhs } = c0.value.production;
-      derivationTreeView.message += ` · Reducing production ${lhs} -> ${rhs.join(" ")}`;
-    case "accepted":
-      break;
-    case "rejected":
-      break;
-  }
+  const disposables: vscode.Disposable[] = [];
+
+  disposables.push(
+    registerCmd("stepForward", async () => {
+      const c = await execServerCmd<Checkpoint>("stepForward", parserUri);
+
+      updateViews(c);
+    }),
+    registerCmd("stepBackward", async () => {
+      const c = await execServerCmd<Checkpoint>("stepBackward", parserUri);
+
+      updateViews(c);
+    }),
+    registerCmd("stopInterpreter", async () => {
+      setContext("interpreterRunning", false);
+      await execServerCmd("disconnect", parserUri);
+
+      treeProvider.refresh([]);
+      stackProvider.refresh([]);
+
+      disposables.forEach((d) => d.dispose());
+    }),
+  );
 }
+
+// async function stepForward(actionProvider: ActionMapProvider,
+//   treeProvider: DerivationTreeProvider,
+//   stackProvider: StackProvider,
+//   source: InputSource = { value: InputSourceKind.ActiveEditor }) {
+
+//   }
 
 async function startTokenizerView(rule?: Entry, source?: InputSource) {
   let editor = vscode.window.activeTextEditor;

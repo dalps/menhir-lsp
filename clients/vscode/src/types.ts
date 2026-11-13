@@ -67,20 +67,24 @@ export type Terminal = WithModuleUri &
     id: number;
   };
 
-export interface LexerAction {
-  kind: LexerActionKind;
-  token?: Terminal;
-}
+export type WithKind<K> = { kind: K };
 
-export type Variant<tag extends string, A> = { kind: tag; value: A };
+export type LexerAction = WithKind<LexerActionKind> & {
+  token?: Terminal;
+};
+
+export type Variant<tag extends string, A> = WithKind<tag> & { value: A };
 
 export type Result<T, E> = Variant<"ok", T> | Variant<"error", E>;
 
 export type Production = { lhs: string; rhs: string[] };
-export type StackItem = {
+
+export type Symbol = WithKind<"t" | "nt"> & { name: string };
+
+export type StackItem = Located<{
   symbol: string;
   state: number;
-};
+}>;
 
 export type Stack = StackItem[];
 

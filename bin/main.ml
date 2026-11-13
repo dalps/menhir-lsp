@@ -25,6 +25,9 @@ let command_dict =
     ("startParserWithPositions", `StartParserWithPositions);
     ("connectParserWithLexer", `ConnectParserWithLexer);
     ("startParserWithCheckpoints", `StartParserWithCheckpoints);
+    ("stepForward", `StepForward);
+    ("stepBackward", `StepBackward);
+    ("disconnect", `Disconnect);
   ]
 
 let doc_type_of_uri uri : doc_type option =
@@ -311,8 +314,16 @@ class lsp_server =
         match args with
         | Some (`String uri :: _) -> Some (Uri.of_string uri)
         | _ ->
-            log "Failed to read uri argument";
+            log "Failed to read uri as the first argument";
             None
+      in
+      (* Helper for handling the interpreter commands *)
+      let with_adapter k =
+        let* uri = uri_of_args args in
+        let* state = CCHashtbl.get mly_buffers uri in
+        let+ adapter = state.cmly in
+        log "✔ got of %a adapter" pp_uri uri;
+        k adapter
       in
       (* Helper for handling .messages commands *)
       let focus f =
@@ -617,11 +628,23 @@ class lsp_server =
           In_channel.with_open_text (Uri.to_path source_uri) (fun ic ->
               Utils.Range.Located.track_file source_uri;
               let lexbuf = Lexing.from_string (In_channel.input_all ic) in
-              let c0, step_forward, step_back =
-                parse_with_checkpoints entrypoint lexer_entry lexer_automata map
-                  lexbuf
-              in
-              Some (yojson_of_checkpoint c0))
+              parse_with_checkpoints entrypoint lexer_entry lexer_automata map
+                lexbuf;
+              Some (yojson_of_checkpoint (current_checkpoint ())))
+      | `StepForward ->
+          with_adapter (fun (module D) ->
+              let open D in
+              step_forward ();
+              current_checkpoint () |> yojson_of_checkpoint)
+      | `StepBackward ->
+          with_adapter (fun (module D) ->
+              let open D in
+              step_back ();
+              current_checkpoint () |> yojson_of_checkpoint)
+      | `Disconnect ->
+          with_adapter (fun (module D) ->
+              D.disconnect ();
+              `Null)
       | `StartTokenizer -> (
           let open Lex in
           let open Tokenizer in

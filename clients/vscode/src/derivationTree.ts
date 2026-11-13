@@ -190,7 +190,9 @@ export class EntrypointProvider extends TreeProvider<Entry | ModuleEntries> {
 
 export class StackProvider extends TreeProvider<StackItem> {
   getTreeItem(element: StackItem): vscode.TreeItem | Thenable<vscode.TreeItem> {
-    const item = new TreeItem(`${element.symbol}(${element.state})`);
+    const item = new TreeItem(
+      `${element.value.symbol}(${element.value.state})`,
+    );
 
     return item;
   }

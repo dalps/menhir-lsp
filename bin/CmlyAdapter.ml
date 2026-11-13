@@ -145,8 +145,8 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   let yoproduction (p : production) : json =
     `Assoc
       [
-        (("lhs", `String (NT.name (P.lhs p)));
-         ("rhs", yolist (fun (x, _, _) -> yosymbol x) (P.rhs p |> Array.to_list)));
+        ("lhs", `String (NT.name (P.lhs p)));
+        ("rhs", yolist (fun (x, _, _) -> yosymbol x) (P.rhs p |> Array.to_list));
       ]
 
   let yojson_of_derivation ~visit_t ~visit_nt =
@@ -666,21 +666,16 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           log_error "rejected token %s" (Terminal.name t);
           Rejected (T t, env)
 
-  let start_env (entrypoint : entrypoint) : env =
-    let rec env =
-      {
-        entrypoint;
-        state = entrypoint.start_lr1;
-        lookahead = None;
-        stack = [];
-        derivation = [];
-        last = InputNeeded env;
-      }
-    in
-    env
+  type interpreter_state = {
+    mutable current : checkpoint;
+    step_forward : checkpoint -> checkpoint;
+    step_back : checkpoint -> checkpoint;
+  }
 
-  (** Returns two closures to step forward an backward on an history of
-      derivations.
+  let interpreter_state : interpreter_state option ref = ref None
+
+  (** Computes two closures to step forward an backward on an history of
+      checkpoints.
 
       Invariant: [step_forward (step_back c) = c] for any [c : checkpoint].
 
@@ -695,8 +690,19 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
       make_token_supplier lexer_entry lexer_automata lexer_action_map lexbuf
     in
 
+    let rec bottom : env =
+      {
+        entrypoint;
+        state = entrypoint.start_lr1;
+        lookahead = None;
+        stack = [];
+        derivation = [];
+        last = InputNeeded bottom;
+      }
+    in
+
     (* Initializes a checkpoint for [entrypoint] and resets the history. *)
-    let init_checkpoint : checkpoint = InputNeeded (start_env entrypoint) in
+    let init_checkpoint : checkpoint = InputNeeded bottom in
 
     (* Unwraps a checkpoint and sets up the environment to call [step]. Also updates the history of checkpoints. *)
     let step_forward (c : checkpoint) : checkpoint =
@@ -721,7 +727,27 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           env.last
     in
 
-    (init_checkpoint, step_forward, step_back)
+    interpreter_state :=
+      Some { current = init_checkpoint; step_forward; step_back }
+
+  let get_state () =
+    match !interpreter_state with
+    | None -> failwith "Interpreter not connected"
+    | Some i -> i
+
+  let current_checkpoint () =
+    let i = get_state () in
+    i.current
+
+  let step_forward () =
+    let i = get_state () in
+    i.current <- i.step_forward i.current
+
+  let step_back () =
+    let i = get_state () in
+    i.current <- i.step_back i.current
+
+  let disconnect () = interpreter_state := None
 
   (** Creates a mapping between this [G]'s tokens and the actions of the given
       lexer's rule by searching for token occurrences within the rule's actions.
@@ -953,7 +979,6 @@ module type S = sig
   val should_discard : checkpoint -> bool
   val offer : lookahead -> checkpoint -> checkpoint
   val step : env -> bool -> checkpoint
-  val start_env : entrypoint -> env
 
   val parse_with_checkpoints :
     entrypoint ->
@@ -961,7 +986,12 @@ module type S = sig
     Lex.Lexgen.automata array ->
     lexer_behavior ActionMap.t ->
     Lexing.lexbuf ->
-    checkpoint * (checkpoint -> checkpoint) * (checkpoint -> checkpoint)
+    unit
+
+  val current_checkpoint : unit -> checkpoint
+  val step_forward : unit -> unit
+  val step_back : unit -> unit
+  val disconnect : unit -> unit
 
   val connect_lexer_entry :
     OcamllexSyntax.Syntax.entry ->
