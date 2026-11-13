@@ -353,19 +353,15 @@ class lsp_server =
             mly_buffers |> CCHashtbl.to_list
             |> L.filter_map (fun (uri, state) ->
                 let open O in
-                let+ (module G : MenhirSdk.Cmly_api.GRAMMAR) = state.Mly.cmly in
+                let+ (module D) = state.Mly.cmly in
+                let module G = D.G in
                 let uri = Uri.yojson_of_t uri in
                 let entries =
                   L.filter_map
                     (function
                       | M.Syntax.Old { v = { pr_nt }; p }
                       | M.Syntax.New { v = { pr_nt }; p } ->
-                          let+ _ =
-                            L.find_opt
-                              (fun (nt, _, _) ->
-                                String.equal (G.Nonterminal.name nt) pr_nt.v)
-                              G.Grammar.entry_points
-                          in
+                          let+ _ = D.get_entrypoint pr_nt.v in
                           (pr_nt.v, Range.of_lexical_positions p))
                     state.grammar.pg_rules
                 in
@@ -396,8 +392,8 @@ class lsp_server =
             | _ -> None
           in
           let* state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
-          let* cmly = state.cmly in
-          let module G = (val cmly : MenhirSdk.Cmly_api.GRAMMAR) in
+          let* (module D) = state.cmly in
+          let module G = D.G in
           let open G in
           let res =
             Terminal.fold (fun t acc -> `String (Terminal.name t) :: acc) []
@@ -420,8 +416,8 @@ class lsp_server =
           in
           let* state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
           let* cmly = state.cmly in
-          let module G = (val cmly : MenhirSdk.Cmly_api.GRAMMAR) in
-          let module D = CmlyAdapter.Make (G) in
+          let* (module D) = state.Mly.cmly in
+          let module G = D.G in
           let* entrypoint = D.get_entrypoint entrypoint_name in
           let derivation = D.parse_terminals entrypoint input in
           Some (D.yojson_of_simple_derivation [ derivation ])
@@ -439,19 +435,12 @@ class lsp_server =
             | _ -> None
           in
           let* state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
-          let* cmly = state.cmly in
-          let module G = (val cmly : MenhirSdk.Cmly_api.GRAMMAR) in
-          let open G in
-          let* entrypoint =
-            L.find_opt
-              (fun (nt, _, _) ->
-                String.equal (Nonterminal.name nt) entrypoint_name)
-              Grammar.entry_points
-          in
+          let* (module D) = state.Mly.cmly in
+          let open D.G in
+          let* entrypoint = D.get_entrypoint entrypoint_name in
           let* lexer_state =
             CCHashtbl.get mll_buffers (Uri.of_string mll_uri)
           in
-          let module D = CmlyAdapter.Make (G) in
           let* rule_idx, rule =
             let open OcamllexSyntax.Syntax in
             L.find_idx
@@ -536,11 +525,9 @@ class lsp_server =
           in
           let source_uri = Uri.of_string source_uri in
           let* mly_state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
-          let* cmly = mly_state.cmly in
-          let module G = (val cmly : MenhirSdk.Cmly_api.GRAMMAR) in
-          let module D = CmlyAdapter.Make (G) in
+          let* (module D) = mly_state.cmly in
+          let open D.G in
           log "got adapter";
-          let open G in
           let open Lex in
           let* entrypoint = D.get_entrypoint entrypoint_name in
           let mll_uri = Uri.of_string mll_uri in
@@ -605,11 +592,9 @@ class lsp_server =
           in
           let source_uri = Uri.of_string source_uri in
           let* mly_state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
-          let* cmly = mly_state.cmly in
-          let module G = (val cmly : MenhirSdk.Cmly_api.GRAMMAR) in
-          let module D = CmlyAdapter.Make (G) in
+          let* (module D) = mly_state.cmly in
+          let open D.G in
           log "got adapter";
-          let open G in
           let open Lex in
           let* entrypoint = D.get_entrypoint entrypoint_name in
           let mll_uri = Uri.of_string mll_uri in

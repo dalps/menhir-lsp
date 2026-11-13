@@ -8,11 +8,12 @@ let log_action s = log_src "action" s
 let log_error s = log_src "error" s
 let ( !! ) = Option.get
 
-(** This module is responsible for driving the a parser automaton encoded in the
-    CMLY format. It takes a compiled CMLY Grammar module as input and returns
-    and adapter that does computes derivation trees. The facilities provided are
-    similar to those of Menhir's Incremental API. *)
+(** This functor returns a module that extends the [MenhirSdk.Cmly_api.GRAMMAR]
+    interface with functions to drive the a parser automaton encoded in the CMLY
+    format. The facilities exposed are in the same vein of and based on Menhir's
+    Incremental API. *)
 module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
+  module G = G
   open G
 
   type 'a located = 'a Utils.Range.Located.t
@@ -30,11 +31,6 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           (fun _ -> String.equal (Nonterminal.name start_nt) name)
           { start_nt; start_prod; start_lr1 })
       Grammar.entry_points
-
-  let main entrypoint_idx =
-    let nt, p, lr1 = Grammar.entry_points.-[0] in
-    let nt = Nonterminal.name nt in
-    nt
 
   let stats =
     pr "number of lr0 states / lr1 states: %d / %d\n" Lr0.count Lr1.count;
@@ -791,4 +787,178 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         in
         ActionMap.add idx (regexp, data) acc)
       ActionMap.empty actions
+end
+
+(** The signature of modules returns by the [Make] functor. *)
+module type S = sig
+  module G : MenhirSdk.Cmly_api.GRAMMAR
+  open G
+  open Utils.Range
+
+  type entrypoint = {
+    start_nt : nonterminal;
+    start_prod : production;
+    start_lr1 : lr1;
+  }
+
+  val get_entrypoint : string -> entrypoint option
+  val print_transitions : lr1 -> unit
+  val print_reductions : lr1 -> unit
+  val pp_stack : (symbol * lr1) list Utils.L.printer
+  val print_stack : (symbol * lr1) list -> unit
+  val terminal_of_name : string -> terminal
+  val position_of_terminal : terminal -> Utils.Range.t option
+  val end_pseudotoken : terminal
+
+  exception Rejected of symbol
+  exception Conflict of (symbol * lr1) * production
+
+  type ('t, 'nt) derivation_tree =
+    | Leaf of 't
+    | Branches of 'nt * ('t, 'nt) derivation
+
+  and ('t, 'nt) derivation = ('t, 'nt) derivation_tree list
+
+  type simple_derivation_tree = (terminal, nonterminal) derivation_tree
+  type simple_derivation = (terminal, nonterminal) derivation
+  type token = Tokenizer.Token.t
+
+  type token_derivation_tree =
+    ((terminal * token) located, nonterminal located) derivation_tree
+
+  type token_derivation =
+    ((terminal * token) located, nonterminal located) derivation
+
+  type json = Utils.Json.t
+
+  val yotagged : string -> json -> json
+  val yodict : (string * json) list -> json
+  val yolist : ('a -> json) -> 'a list -> json
+  val yolr1 : lr1 -> json
+  val yosymbol : symbol -> json
+  val yoterminal : terminal -> json
+  val yononterminal : nonterminal -> json
+  val yoproduction : production -> json
+
+  val yojson_of_derivation :
+    visit_t:('t -> json) ->
+    visit_nt:('nt -> json) ->
+    (('t, 'nt) derivation -> json) * (('t, 'nt) derivation_tree -> json)
+
+  val yojson_of_simple_derivation : (terminal, nonterminal) derivation -> json
+
+  val yojson_of_simple_derivation_tree :
+    (terminal, nonterminal) derivation_tree -> json
+
+  val yojson_of_token_derivation :
+    ((terminal * Tokenizer.Token.t) Located.t, nonterminal Located.t) derivation ->
+    json
+
+  val yojson_of_token_derivation_tree :
+    ( (terminal * Tokenizer.Token.t) Located.t,
+      nonterminal Located.t )
+    derivation_tree ->
+    json
+
+  val loop :
+    entrypoint ->
+    lr1 ->
+    (symbol * lr1) list ->
+    terminal Seq.t ->
+    (terminal, nonterminal) derivation ->
+    simple_derivation_tree
+
+  val parse_terminals : entrypoint -> string list -> simple_derivation_tree
+
+  module ActionMap : module type of Map.Make (Int)
+
+  val lexer_error : string -> [> `LexerError of string ]
+
+  val read :
+    ('a * 'b, string) result Seq.t ->
+    ('a * 'b, [> `LexerError of string ]) result
+
+  val has_red_on_sharp : lr1 -> bool
+  val has_defred : lr1 -> bool
+
+  type stack = (symbol * lr1) located list
+  type lookahead = terminal * token
+
+  val loop_with_positions :
+    entrypoint ->
+    lr1 ->
+    stack ->
+    lookahead option ->
+    (lookahead, string) result Seq.t ->
+    bool ->
+    token_derivation ->
+    ( token_derivation_tree,
+      [> `EOS_conflict of (symbol * lr1) * production
+      | `LexerError of string
+      | `Rejected of symbol
+      | `ShiftReduce_conflict of (symbol * lr1) * production ]
+      * token_derivation )
+    result
+
+  type lexer_behavior = Skip | Fail | Produce of int
+
+  val lexer_behavior_map_of_yojson : json list -> lexer_behavior ActionMap.t
+
+  val make_token_supplier :
+    Tokenizer.entrypoint ->
+    Lex.Lexgen.automata array ->
+    lexer_behavior ActionMap.t ->
+    Lexing.lexbuf ->
+    unit ->
+    (terminal * token, string) result
+
+  val parse_with_positions :
+    entrypoint ->
+    Tokenizer.entrypoint ->
+    Lex.Lexgen.automata array ->
+    lexer_behavior ActionMap.t ->
+    Lexing.lexbuf ->
+    ( token_derivation_tree,
+      [> `EOS_conflict of (symbol * lr1) * production
+      | `LexerError of string
+      | `Rejected of symbol
+      | `ShiftReduce_conflict of (symbol * lr1) * production ]
+      * token_derivation )
+    result
+
+  type env = {
+    entrypoint : entrypoint;
+    state : lr1;
+    lookahead : lookahead option;
+    stack : stack;
+    derivation : token_derivation;
+    last : checkpoint;
+  }
+
+  and checkpoint =
+    | InputNeeded of env
+    | Shifting of terminal * env
+    | Reducing of production * env
+    | Accepted of token_derivation_tree * env
+    | Rejected of symbol * env
+
+  val yojson_of_stack : stack -> json
+  val yojson_of_env : env -> json
+  val yojson_of_checkpoint : checkpoint -> json
+  val should_discard : checkpoint -> bool
+  val offer : lookahead -> checkpoint -> checkpoint
+  val step : env -> bool -> checkpoint
+  val start_env : entrypoint -> env
+
+  val parse_with_checkpoints :
+    entrypoint ->
+    Tokenizer.entrypoint ->
+    Lex.Lexgen.automata array ->
+    lexer_behavior ActionMap.t ->
+    Lexing.lexbuf ->
+    checkpoint * (checkpoint -> checkpoint) * (checkpoint -> checkpoint)
+
+  val connect_lexer_entry :
+    OcamllexSyntax.Syntax.entry ->
+    (string Located.t * lexer_behavior option) ActionMap.t
 end

@@ -41,7 +41,7 @@ type state = {
   intervals : zone Ivl_map.t;
   implementation : Text_document.t option;
   sourcemap : Line_directives.source_mapping list;
-  cmly : (module MenhirSdk.Cmly_api.GRAMMAR) option;
+  cmly : (module CmlyAdapter.S) option;
 }
 
 let pp_state out state =
@@ -362,7 +362,7 @@ let load_state_from_contents (uri : uri) (file_contents : string) :
     let module G = MenhirSdk.Cmly_read.Read (struct
       let filename = filename
     end) in
-    (module G : MenhirSdk.Cmly_api.GRAMMAR)
+    (module CmlyAdapter.Make (G) : CmlyAdapter.S)
   in
   let file_name = Uri.to_path uri in
   M.Main.load_grammar_from_contents 0 file_name file_contents
