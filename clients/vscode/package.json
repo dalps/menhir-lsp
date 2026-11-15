@@ -89,12 +89,22 @@
           "group": "navigation"
         },
         {
+          "command": "menhir-lsp-client.playForward",
+          "when": "view == menhir-lsp-derivation-view",
+          "group": "navigation@3"
+        },
+        {
           "command": "menhir-lsp-client.stepForward",
+          "when": "view == menhir-lsp-derivation-view",
+          "group": "navigation@2"
+        },
+        {
+          "command": "menhir-lsp-client.stepBackward",
           "when": "view == menhir-lsp-derivation-view",
           "group": "navigation@1"
         },
         {
-          "command": "menhir-lsp-client.stepBackward",
+          "command": "menhir-lsp-client.playBackward",
           "when": "view == menhir-lsp-derivation-view",
           "group": "navigation@0"
         }
@@ -304,13 +314,25 @@
         "title": "Menhir: Step Forward",
         "enablement": "menhir-lsp-client.interpreterRunning == true",
         "command": "menhir-lsp-client.stepForward",
-        "icon": "$(arrow-right)"
+        "icon": "$(triangle-right)"
       },
       {
         "title": "Menhir: Step Back",
         "enablement": "menhir-lsp-client.interpreterRunning == true",
         "command": "menhir-lsp-client.stepBackward",
-        "icon": "$(arrow-left)"
+        "icon": "$(triangle-left)"
+      },
+      {
+        "title": "Menhir: Play Forward",
+        "enablement": "menhir-lsp-client.interpreterRunning == true",
+        "command": "menhir-lsp-client.playForward",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "title": "Menhir: Play Back",
+        "enablement": "menhir-lsp-client.interpreterRunning == true",
+        "command": "menhir-lsp-client.playBackward",
+        "icon": "$(debug-reverse-continue)"
       },
       {
         "title": "Menhir: Run Parser",

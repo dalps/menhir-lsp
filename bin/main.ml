@@ -27,6 +27,8 @@ let command_dict =
     ("startParserWithCheckpoints", `StartParserWithCheckpoints);
     ("stepForward", `StepForward);
     ("stepBackward", `StepBackward);
+    ("playForward", `PlayForward);
+    ("playBackward", `PlayBackward);
     ("disconnect", `Disconnect);
   ]
 
@@ -640,6 +642,16 @@ class lsp_server =
           with_adapter (fun (module D) ->
               let open D in
               step_back ();
+              current_checkpoint () |> yojson_of_checkpoint)
+      | `PlayForward ->
+          with_adapter (fun (module D) ->
+              let open D in
+              play_forward ();
+              current_checkpoint () |> yojson_of_checkpoint)
+      | `PlayBackward ->
+          with_adapter (fun (module D) ->
+              let open D in
+              play_back ();
               current_checkpoint () |> yojson_of_checkpoint)
       | `Disconnect ->
           with_adapter (fun (module D) ->

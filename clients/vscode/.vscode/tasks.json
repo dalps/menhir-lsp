@@ -13,7 +13,7 @@
       },
       "group": {
         "kind": "build",
-        "isDefault": true
+        "isDefault": false // make sure it stays false so you can build & install the server by pressing Ctrl+Shift+B
       }
     }
   ]

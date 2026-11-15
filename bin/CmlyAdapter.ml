@@ -539,6 +539,14 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     | Rejected of symbol * env
   (* [@@deriving visitors { name = "checkpoint_reduce"; variety = "reduce" }] *)
 
+  let env_equal : env -> env -> bool =
+   fun e1 e2 ->
+    Lr1.equal e1.state e2.state
+    && e1.lexbuf = e2.lexbuf
+    && CCEqual.option
+         (fun (t1, _) (t2, _) -> Terminal.equal t1 t2)
+         e1.lookahead e2.lookahead
+
   let yojson_of_lookahead ((t, tok) : lookahead) =
     `Assoc
       [ ("terminal", yoterminal t); ("token", Tokenizer.Token.yojson_of_t tok) ]
@@ -697,6 +705,8 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     mutable current : checkpoint;
     step_forward : checkpoint -> checkpoint;
     step_back : checkpoint -> checkpoint;
+    play_forward : checkpoint -> checkpoint;
+    play_back : checkpoint -> checkpoint;
   }
 
   let interpreter_state : interpreter_state option ref = ref None
@@ -742,10 +752,19 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           match next_token env.lexbuf with
           | lexbuf, Ok tok ->
               step { env with last = c; lexbuf; lookahead = Some tok } false
-          | _, Error msg -> LexerError (msg, env))
+          | lexbuf, Error msg -> LexerError (msg, { env with lexbuf }))
       | Shifting (_, env) -> step { env with last = c } (should_discard env)
       | Reducing (_, env) -> step { env with last = c } false
       | LexerError _ | Accepted _ | Rejected _ -> (* makes no progress *) c
+    in
+
+    (* Steps forwards until a terminal point is reached. *)
+    let rec play_forward (c : checkpoint) : checkpoint =
+      match c with
+      | LexerError _ | Accepted _ | Rejected _ ->
+          log "stopping at the top";
+          c
+      | _ -> play_forward (step_forward c)
     in
 
     (* Forgets a history step and returns it. *)
@@ -759,8 +778,24 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           env.last
     in
 
+    (* Steps all the way back to the bottom checkpoint. *)
+    let rec play_back (c : checkpoint) : checkpoint =
+      match c with
+      | InputNeeded env when env_equal env bottom ->
+          log "stopping at the bottom";
+          c
+      | _ -> play_back (step_back c)
+    in
+
     interpreter_state :=
-      Some { current = init_checkpoint; step_forward; step_back }
+      Some
+        {
+          current = init_checkpoint;
+          step_forward;
+          step_back;
+          play_forward;
+          play_back;
+        }
 
   let get_state () =
     match !interpreter_state with
@@ -778,6 +813,14 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   let step_back () =
     let i = get_state () in
     i.current <- i.step_back i.current
+
+  let play_forward () =
+    let i = get_state () in
+    i.current <- i.play_forward i.current
+
+  let play_back () =
+    let i = get_state () in
+    i.current <- i.play_back i.current
 
   let disconnect () = interpreter_state := None
 
@@ -1019,6 +1062,8 @@ module type S = sig
   val current_checkpoint : unit -> checkpoint
   val step_forward : unit -> unit
   val step_back : unit -> unit
+  val play_forward : unit -> unit
+  val play_back : unit -> unit
   val disconnect : unit -> unit
 
   val connect_lexer_entry :

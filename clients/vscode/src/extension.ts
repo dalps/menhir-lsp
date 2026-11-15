@@ -614,17 +614,18 @@ async function startParserWithCheckpointsView(
 
   const disposables: vscode.Disposable[] = [];
 
+  const aux = (cmd: string) =>
+    registerCmd(cmd, async () => {
+      const c = await execServerCmd<Checkpoint>(cmd, parserUri);
+
+      updateViews(c);
+    });
+
   disposables.push(
-    registerCmd("stepForward", async () => {
-      const c = await execServerCmd<Checkpoint>("stepForward", parserUri);
-
-      updateViews(c);
-    }),
-    registerCmd("stepBackward", async () => {
-      const c = await execServerCmd<Checkpoint>("stepBackward", parserUri);
-
-      updateViews(c);
-    }),
+    aux("stepForward"),
+    aux("stepBackward"),
+    aux("playForward"),
+    aux("playBackward"),
     registerCmd("stopInterpreter", async () => {
       setContext("interpreterRunning", false);
       await execServerCmd("disconnect", parserUri);
