@@ -90,6 +90,7 @@
         },
         {
           "command": "menhir-lsp-client.playForward",
+          "alt": "menhir-lsp-client.playToEnd",
           "when": "view == menhir-lsp-derivation-view",
           "group": "navigation@3"
         },
@@ -105,6 +106,7 @@
         },
         {
           "command": "menhir-lsp-client.playBackward",
+          "alt": "menhir-lsp-client.playToStart",
           "when": "view == menhir-lsp-derivation-view",
           "group": "navigation@0"
         }
@@ -175,6 +177,36 @@
         "command": "menhir-lsp-client.previousDummyMessage",
         "when": "editorTextFocus && editorLangId == ocaml.menhir.messages",
         "key": "alt+shift+p"
+      },
+      {
+        "command": "menhir-lsp-client.stepForward",
+        "when": "menhir-lsp-client.interpreterRunning == true",
+        "key": "alt+n"
+      },
+      {
+        "command": "menhir-lsp-client.stepBackward",
+        "when": "menhir-lsp-client.interpreterRunning == true",
+        "key": "alt+p"
+      },
+      {
+        "command": "menhir-lsp-client.playForward",
+        "when": "menhir-lsp-client.interpreterRunning == true",
+        "key": "alt+f"
+      },
+      {
+        "command": "menhir-lsp-client.playBackward",
+        "when": "menhir-lsp-client.interpreterRunning == true",
+        "key": "alt+b"
+      },
+      {
+        "command": "menhir-lsp-client.playToEnd",
+        "when": "menhir-lsp-client.interpreterRunning == true",
+        "key": "alt+shift+f"
+      },
+      {
+        "command": "menhir-lsp-client.playToStart",
+        "when": "menhir-lsp-client.interpreterRunning == true",
+        "key": "alt+shift+b"
       }
     ],
     "views": {
@@ -333,6 +365,18 @@
         "enablement": "menhir-lsp-client.interpreterRunning == true",
         "command": "menhir-lsp-client.playBackward",
         "icon": "$(debug-reverse-continue)"
+      },
+      {
+        "title": "Menhir: Jump to end",
+        "enablement": "menhir-lsp-client.interpreterRunning == true",
+        "command": "menhir-lsp-client.playToEnd",
+        "icon": "icons/play_to_end.svg"
+      },
+      {
+        "title": "Menhir: Jump to start",
+        "enablement": "menhir-lsp-client.interpreterRunning == true",
+        "command": "menhir-lsp-client.playToStart",
+        "icon": "icons/play_to_start.svg"
       },
       {
         "title": "Menhir: Run Parser",

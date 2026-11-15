@@ -547,6 +547,30 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
          (fun (t1, _) (t2, _) -> Terminal.equal t1 t2)
          e1.lookahead e2.lookahead
 
+  let check_breakpoint : Attribute.t list -> bool =
+    L.exists (Attribute.has_label "break")
+
+  let terminal_breakpoints =
+    Terminal.(tabulate (attributes >> check_breakpoint))
+
+  let nonterminal_breakpoints =
+    Nonterminal.(tabulate (attributes >> check_breakpoint))
+
+  let production_breakpoints =
+    Production.(tabulate (attributes >> check_breakpoint))
+
+  (** Test whether this checkpoint hit a breakpoint.
+
+      Breakpoints can be set (1) in front of token declarations, (2) in front
+      rules (break on any production) and (3) in front of specific productions.
+  *)
+  let has_breakpoint (c : checkpoint) =
+    match c with
+    | Shifting (t, _) -> terminal_breakpoints t
+    | Reducing (p, _) ->
+        production_breakpoints p || nonterminal_breakpoints (Production.lhs p)
+    | InputNeeded _ | LexerError _ | Accepted _ | Rejected _ -> false
+
   let yojson_of_lookahead ((t, tok) : lookahead) =
     `Assoc
       [ ("terminal", yoterminal t); ("token", Tokenizer.Token.yojson_of_t tok) ]
@@ -705,8 +729,8 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     mutable current : checkpoint;
     step_forward : checkpoint -> checkpoint;
     step_back : checkpoint -> checkpoint;
-    play_forward : checkpoint -> checkpoint;
-    play_back : checkpoint -> checkpoint;
+    play_forward : ?pause:bool -> checkpoint -> checkpoint;
+    play_back : ?pause:bool -> checkpoint -> checkpoint;
   }
 
   let interpreter_state : interpreter_state option ref = ref None
@@ -759,12 +783,15 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     in
 
     (* Steps forwards until a terminal point is reached. *)
-    let rec play_forward (c : checkpoint) : checkpoint =
-      match c with
-      | LexerError _ | Accepted _ | Rejected _ ->
-          log "stopping at the top";
+    let rec play_forward ?(pause = true) (c : checkpoint) : checkpoint =
+      match step_forward c with
+      | (LexerError _ | Accepted _ | Rejected _) as c ->
+          log "[->] stopping at the top";
           c
-      | _ -> play_forward (step_forward c)
+      | c when pause && has_breakpoint c ->
+          log "[->] stopping at breakpoint";
+          c
+      | c -> play_forward ~pause c
     in
 
     (* Forgets a history step and returns it. *)
@@ -779,12 +806,15 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     in
 
     (* Steps all the way back to the bottom checkpoint. *)
-    let rec play_back (c : checkpoint) : checkpoint =
-      match c with
-      | InputNeeded env when env_equal env bottom ->
-          log "stopping at the bottom";
+    let rec play_back ?(pause = true) (c : checkpoint) : checkpoint =
+      match step_back c with
+      | InputNeeded env as c when env_equal env bottom ->
+          log "[<-] stopping at the bottom";
           c
-      | _ -> play_back (step_back c)
+      | c when pause && has_breakpoint c ->
+          log "[<-] stopping at breakpoint";
+          c
+      | c -> play_back ~pause c
     in
 
     interpreter_state :=
@@ -814,13 +844,13 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     let i = get_state () in
     i.current <- i.step_back i.current
 
-  let play_forward () =
+  let play_forward ?pause () =
     let i = get_state () in
-    i.current <- i.play_forward i.current
+    i.current <- i.play_forward ?pause i.current
 
-  let play_back () =
+  let play_back ?pause () =
     let i = get_state () in
-    i.current <- i.play_back i.current
+    i.current <- i.play_back ?pause i.current
 
   let disconnect () = interpreter_state := None
 
@@ -1062,8 +1092,8 @@ module type S = sig
   val current_checkpoint : unit -> checkpoint
   val step_forward : unit -> unit
   val step_back : unit -> unit
-  val play_forward : unit -> unit
-  val play_back : unit -> unit
+  val play_forward : ?pause:bool -> unit -> unit
+  val play_back : ?pause:bool -> unit -> unit
   val disconnect : unit -> unit
 
   val connect_lexer_entry :

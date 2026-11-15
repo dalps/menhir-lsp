@@ -29,6 +29,8 @@ let command_dict =
     ("stepBackward", `StepBackward);
     ("playForward", `PlayForward);
     ("playBackward", `PlayBackward);
+    ("playToEnd", `PlayToEnd);
+    ("playToStart", `PlayToStart);
     ("disconnect", `Disconnect);
   ]
 
@@ -652,6 +654,16 @@ class lsp_server =
           with_adapter (fun (module D) ->
               let open D in
               play_back ();
+              current_checkpoint () |> yojson_of_checkpoint)
+      | `PlayToEnd ->
+          with_adapter (fun (module D) ->
+              let open D in
+              play_forward ~pause:false ();
+              current_checkpoint () |> yojson_of_checkpoint)
+      | `PlayToStart ->
+          with_adapter (fun (module D) ->
+              let open D in
+              play_back ~pause:false ();
               current_checkpoint () |> yojson_of_checkpoint)
       | `Disconnect ->
           with_adapter (fun (module D) ->
