@@ -5,8 +5,11 @@ open Syntax
 
 type rule = { name : string; module_path : string }
 type entrypoint = (string list, location) Lexgen.automata_entry
-type range = Lexing.position * Lexing.position
+type position = Lexing.position
+type range = position * position
 type lexer_machine = entrypoint list * Lex.Lexgen.automata array
+type token_data = { text : string; action : int }
+type token = token_data Range.Located.t
 
 let debug = false
 let log s = Utils.log_src ~debug "tokenizer" s
@@ -72,8 +75,7 @@ let stats source_file =
     arr
 
 module Token = struct
-  type data = { text : string; action : int }
-  type t = data Range.located
+  type t = token
 
   let make (lexbuf : Lexing.lexbuf) action : t =
     let text =
@@ -91,6 +93,7 @@ module Token = struct
 end
 
 let eof = 0x100
+let newline = 0xa
 
 exception EmptyToken
 
@@ -206,3 +209,170 @@ let tokenize_with_idx ~start_rule_idx lexbuf (entrypoints, auto) =
 
 let tokenize_with_entry lexbuf entrypoint automata =
   tokenize lexbuf entrypoint automata []
+
+module Persistent = struct
+  type lexbuf = {
+    lex_start_pos : int;
+    lex_curr_pos : int;
+    lex_eof_reached : bool;
+    lex_start_p : position;
+    lex_curr_p : position;
+  }
+  (** In order to support reversibility we prefer working with a persistent
+      version of the lexbuf record. We also avoind chunking the content of the
+      input text so we hold the whole content inside [lex_buffer] like the
+      buffers produced by [Lexing.from_string] *)
+
+  let zero_pos : position =
+    { pos_fname = ""; pos_lnum = 1; pos_bol = 0; pos_cnum = 0 }
+
+  let start_lexbuf : lexbuf =
+    {
+      lex_start_pos = 0;
+      lex_curr_pos = 0;
+      lex_eof_reached = false;
+      lex_start_p = zero_pos;
+      lex_curr_p = zero_pos;
+    }
+
+  module Token = struct
+    include Token
+
+    let make (buffer : Bytes.t) (lexbuf : lexbuf) action : t =
+      let text =
+        (* if lexbuf.lex_start_pos = Bytes.length buffer then "eof" *)
+        if lexbuf.lex_eof_reached then "eof"
+        else
+          let len = lexbuf.lex_curr_pos - lexbuf.lex_start_pos in
+          Bytes.sub_string buffer lexbuf.lex_start_pos len
+      in
+      let startp = lexbuf.lex_start_p in
+      let endp = lexbuf.lex_curr_p in
+      Range.locate { text; action } (Range.of_lexical_positions (startp, endp))
+  end
+
+  (** Inner loop: parses a single token and moves between states. Tail
+      recursive.
+
+      Here we emulate the behavior of code generated ocamllex in [-ml] backend,
+      with a few enhancements:
+      + Pure logic, no mutable fields or side effects thanks to persistent
+        lexbuf data type with smaller memory footprint;
+      + Newline detection and up-to-date line number and BOL field in computed
+        positions. *)
+  let rec token automata lexbuf _buf _len _curr _curr_p _last _last_p
+      (state, last_action) =
+    match automata.(state) with
+    | Lexgen.Perform (action, _) ->
+        log "perform %d" action;
+        (* lib/outputbis.ml:205 *)
+        let lexbuf =
+          { lexbuf with lex_curr_pos = _curr; lex_curr_p = _curr_p }
+        in
+        (lexbuf, state, action)
+        (* First exit *)
+    | Lexgen.Shift (rem, trans) -> (
+        (* Remember the last position and whether eof was reached in case the shift action triggers a backtrack.
+
+      When the lexer shifts [eof] just before backtracking we refrain from setting the [lex_eof_reached] to allow the outer loop to do something interesting with the [eof] character. The next run of [token] will shift [eof] again, either perform an action (action <> -1) or reject it (action = -1) and turn on [lex_eof_reached] in the result; then the outer loop can exit safely. *)
+        let last_eof = lexbuf.lex_eof_reached in
+        let _last, _last_p, last_action =
+          match rem with
+          | Lexgen.No_remember -> (_last, _last_p, last_action)
+          | Lexgen.Remember (action, _) ->
+              log "remember %d" action;
+              (_curr, _curr_p, action)
+        in
+        let next_char, _curr =
+          if _curr >= _len then (eof, _curr)
+          else (Char.code (Bytes.unsafe_get _buf _curr), _curr + 1)
+        in
+
+        let _curr_p =
+          if next_char = newline then
+            Lexing.
+              {
+                _curr_p with
+                pos_cnum = _curr;
+                pos_lnum = _curr_p.pos_lnum + 1;
+                pos_bol = _curr;
+              }
+          else Lexing.{ _curr_p with pos_cnum = _curr }
+        in
+
+        let eof_reached = next_char = eof in
+        let lexbuf = { lexbuf with lex_eof_reached = eof_reached } in
+
+        log "shift '%s' %d"
+          (if next_char = eof then "eof" else Char.(escaped (chr next_char)))
+          last_action;
+        match fst trans.(next_char) with
+        | Lexgen.Backtrack ->
+            log "backtrack";
+            (* lib/outputbis.ml:124 *)
+            let _curr = _last in
+            let _curr_p = _last_p in
+            let eof_reached = last_eof in
+            let lexbuf =
+              {
+                lexbuf with
+                lex_curr_pos = _curr;
+                lex_curr_p = _curr_p;
+                lex_eof_reached = eof_reached;
+              }
+            in
+            (lexbuf, state, last_action)
+            (* Second exit *)
+        | Lexgen.Goto state' ->
+            log "%d --> %d" state state';
+            token automata lexbuf _buf _len _curr _curr_p _last _last_p
+              (state', last_action))
+
+  (** Performs a single run of the rule [entrypoint], producing a token. If the
+      token's [action] field is [-1], the lexer failed. We refer as "outer loop"
+      any function that calls [next_token] repeatedly. *)
+  let next_token (buffer : Bytes.t) (lexbuf : lexbuf) (entrypoint : entrypoint)
+      (automata : Lexgen.automata array) =
+    let initial = fst entrypoint.auto_initial_state in
+
+    (* Update the start positions of the lexbuf to the end positions of the last token and set the initial context of the inner loop *)
+    let _curr = lexbuf.lex_curr_pos in
+    let _curr_p = lexbuf.lex_curr_p in
+    let _last = _curr in
+    let _last_p = _curr_p in
+    let _len = Bytes.length buffer in
+    let _last_action = -1 in
+
+    let lexbuf = { lexbuf with lex_start_pos = _curr; lex_start_p = _curr_p } in
+
+    (* Run the inner loop *)
+    let lexbuf, state, action =
+      token automata lexbuf buffer _len _curr _curr_p _last _last_p
+        (initial, _last_action)
+    in
+
+    (lexbuf, Token.make buffer lexbuf action)
+
+  (** Outer loop: parses tokens through multiple runs of the same rule
+      [entrypoint], collects into a list. *)
+  let rec tokenize (buffer : Bytes.t) (lexbuf : lexbuf)
+      (entrypoint : entrypoint) (automata : Lexgen.automata array)
+      (tokens : Token.t list) =
+    let lexbuf, tok = next_token buffer lexbuf entrypoint automata in
+    let tokens = tok :: tokens in
+
+    if tok.v.action < 0 then (
+      (* Exception: empty token. We are interested in this event so we still produce a token (with empty text and action of -1) which we treat specially in the UI. *)
+      log "empty token found";
+      List.rev tokens)
+    else if lexbuf.lex_eof_reached then (
+      log "%B eof reached" lexbuf.lex_eof_reached;
+      List.rev tokens)
+    else tokenize buffer lexbuf entrypoint automata tokens
+
+  let tokenize_with_idx ~start_rule_idx buffer lexbuf (entrypoints, auto) =
+    tokenize buffer lexbuf (List.nth entrypoints start_rule_idx) auto []
+
+  let tokenize_with_entry buffer lexbuf entrypoint automata =
+    tokenize buffer lexbuf entrypoint automata []
+end

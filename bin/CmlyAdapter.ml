@@ -117,7 +117,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
   type simple_derivation_tree = (terminal, nonterminal) derivation_tree
   type simple_derivation = (terminal, nonterminal) derivation
-  type token = Tokenizer.Token.t
+  type token = Tokenizer.token
 
   type token_derivation_tree =
     ((terminal * token) located, nonterminal located) derivation_tree
@@ -495,10 +495,35 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     in
     loop_with_positions entrypoint start_lr1 [] None tokens true []
 
+  open Tokenizer.Persistent
+
+  let make_persistent_token_supplier (lexer_entry : Tokenizer.entrypoint)
+      (lexer_automata : Lex.Lexgen.automata array)
+      (lexer_action_map : lexer_behavior ActionMap.t) (buffer : bytes) =
+    let rec next_token (lexbuf : Tokenizer.Persistent.lexbuf) =
+      let lexbuf', tok =
+        Tokenizer.Persistent.next_token buffer lexbuf lexer_entry lexer_automata
+      in
+      let data = tok.v in
+      match ActionMap.find_opt data.action lexer_action_map with
+      | None ->
+          ( lexbuf',
+            Error
+              (spr "empty action: don't know how to interpret the text %S"
+                 data.text) )
+      | Some terminal -> (
+          match terminal with
+          | Skip -> next_token lexbuf'
+          | Fail -> (lexbuf', Error "lexer error")
+          | Produce term -> (lexbuf', Ok (Terminal.of_int term, tok)))
+    in
+    next_token
+
   type env = {
     entrypoint : entrypoint;
     state : lr1;
     lookahead : lookahead option;
+    lexbuf : Tokenizer.Persistent.lexbuf;
     stack : stack;
     derivation : token_derivation;
     last : checkpoint;
@@ -689,9 +714,10 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   let parse_with_checkpoints (entrypoint : entrypoint)
       (lexer_entry : Tokenizer.entrypoint)
       (lexer_automata : Lex.Lexgen.automata array)
-      (lexer_action_map : lexer_behavior ActionMap.t) (lexbuf : Lexing.lexbuf) =
+      (lexer_action_map : lexer_behavior ActionMap.t) (buffer : bytes) =
     let next_token =
-      make_token_supplier lexer_entry lexer_automata lexer_action_map lexbuf
+      make_persistent_token_supplier lexer_entry lexer_automata lexer_action_map
+        buffer
     in
 
     let rec bottom : env =
@@ -701,6 +727,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         lookahead = None;
         stack = [];
         derivation = [];
+        lexbuf = start_lexbuf;
         last = InputNeeded bottom;
       }
     in
@@ -712,16 +739,12 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     let step_forward (c : checkpoint) : checkpoint =
       match c with
       | InputNeeded env -> (
-          match next_token () with
-          | Ok tok ->
-              let env =
-                (* todo: store lexbuf in env and pass it to next_token *)
-                { env with lookahead = Some tok }
-              in
-              step env false
-          | Error msg -> LexerError (msg, env))
-      | Shifting (_, env) -> step env (should_discard env)
-      | Reducing (_, env) -> step env false
+          match next_token env.lexbuf with
+          | lexbuf, Ok tok ->
+              step { env with last = c; lexbuf; lookahead = Some tok } false
+          | _, Error msg -> LexerError (msg, env))
+      | Shifting (_, env) -> step { env with last = c } (should_discard env)
+      | Reducing (_, env) -> step { env with last = c } false
       | LexerError _ | Accepted _ | Rejected _ -> (* makes no progress *) c
     in
 
@@ -829,7 +852,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
       ActionMap.empty actions
 end
 
-(** The signature of modules returns by the [Make] functor. *)
+(** The signature of modules returned by the [Make] functor. *)
 module type S = sig
   module G : MenhirSdk.Cmly_api.GRAMMAR
   open G
@@ -967,6 +990,7 @@ module type S = sig
     entrypoint : entrypoint;
     state : lr1;
     lookahead : lookahead option;
+    lexbuf : Tokenizer.Persistent.lexbuf;
     stack : stack;
     derivation : token_derivation;
     last : checkpoint;
@@ -989,7 +1013,7 @@ module type S = sig
     Tokenizer.entrypoint ->
     Lex.Lexgen.automata array ->
     lexer_behavior ActionMap.t ->
-    Lexing.lexbuf ->
+    bytes ->
     unit
 
   val current_checkpoint : unit -> checkpoint

@@ -627,9 +627,9 @@ class lsp_server =
           log "reading input from file %s" (Uri.to_path source_uri);
           In_channel.with_open_text (Uri.to_path source_uri) (fun ic ->
               Utils.Range.Located.track_file source_uri;
-              let lexbuf = Lexing.from_string (In_channel.input_all ic) in
+              let buffer = Bytes.of_string (In_channel.input_all ic) in
               parse_with_checkpoints entrypoint lexer_entry lexer_automata map
-                lexbuf;
+                buffer;
               Some (yojson_of_checkpoint (current_checkpoint ())))
       | `StepForward ->
           with_adapter (fun (module D) ->
