@@ -26,8 +26,13 @@ export type Token = WithRange & {
   action: number;
 };
 
+type TerminalWithToken = {
+  terminal: string;
+  token: Token;
+};
+
 export type DerivationTree =
-  | MaybeLocated<{ terminal: string; token: Token }>
+  | MaybeLocated<TerminalWithToken>
   | { nt: MaybeLocated<string>; children: DerivationTree[] };
 
 export type ActionMapping = // todo: don't repeat moduleUri
@@ -94,7 +99,7 @@ export type Env = {
   stack: Stack;
   state: number;
   derivation: DerivationTree[];
-  lookahead: string;
+  lookahead: Maybe<TerminalWithToken>;
 };
 
 export type WithEnv = { env: Env };

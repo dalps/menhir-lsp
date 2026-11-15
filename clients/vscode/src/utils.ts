@@ -105,3 +105,6 @@ export const md = (strings: TemplateStringsArray, ...values: any[]) =>
 export function stringOfRange(range: vscode.Range | Range): string {
   return `[${range.start.line}:${range.start.character}-${range.end.line}:${range.end.character}]`;
 }
+
+export const rgba = (r: number, g: number, b: number, a: number) =>
+  `rgba(${r},${g},${b}, ${a})`;

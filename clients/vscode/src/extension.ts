@@ -32,7 +32,7 @@ import {
   Terminal,
   Token,
 } from "./types";
-import { liftRange, rand, setupQuickPick, uriEqual } from "./utils";
+import { liftRange, rand, rgba, setupQuickPick, uriEqual } from "./utils";
 import path = require("path");
 import { CodiconId } from "./codicons";
 
@@ -291,6 +291,7 @@ export function activate(context: vscode.ExtensionContext) {
     ),
     registerCmd("startParserWithCheckpoints", (source) =>
       startParserWithCheckpointsView(
+        context,
         actionProvider,
         derivationTreeProvider,
         stackProvider,
@@ -493,6 +494,7 @@ async function startParserWithPositionsView(
 
 /** Invoked from the "regexp-token mapping" side view. */
 async function startParserWithCheckpointsView(
+  context: vscode.ExtensionContext,
   actionProvider: ActionMapProvider,
   treeProvider: DerivationTreeProvider,
   stackProvider: StackProvider,
@@ -527,6 +529,37 @@ async function startParserWithCheckpointsView(
 
   updateViews(c0);
 
+  const cursorLight = context.asAbsolutePath("icons/cursor_light.svg");
+  const cursorDark = context.asAbsolutePath("icons/cursor_dark.svg");
+  const highlightColor = rgba(0, 255, 0, 0.5);
+  let progressHighlight: vscode.TextEditorDecorationType =
+    vscode.window.createTextEditorDecorationType({
+      backgroundColor: highlightColor,
+    });
+
+  // editor.document.isDirty
+  // vscode.workspace.onDidChangeTextDocument(e => e.contentChanges.map(ch => ch))
+
+  let cursorDeco: vscode.TextEditorDecorationType =
+    vscode.window.createTextEditorDecorationType({
+      dark: {
+        before: {
+          contentIconPath: cursorDark,
+        },
+        after: {
+          contentIconPath: cursorDark,
+        },
+      },
+      light: {
+        before: {
+          contentIconPath: cursorLight,
+        },
+        after: {
+          contentIconPath: cursorLight,
+        },
+      },
+    });
+
   function updateViews(c: Checkpoint) {
     let i = 0;
 
@@ -544,7 +577,17 @@ async function startParserWithCheckpointsView(
         derivationTreeView.message += ` · State ${env.state}`;
 
         env.lookahead &&
-          (derivationTreeView.message += `, looking at ${env.lookahead}`);
+          (derivationTreeView.message += `, looking at ${env.lookahead.terminal}`);
+
+        if (editor && env.lookahead) {
+          let range = liftRange(env.lookahead.token.range);
+          editor.setDecorations(progressHighlight, [
+            {
+              range: new vscode.Range(new vscode.Position(0, 0), range.end),
+            },
+          ]);
+          editor.setDecorations(cursorDeco, [{ range }]);
+        }
 
         stackView.description = `${env.stack.length} items`;
         stackProvider.refresh(env.stack);
@@ -588,6 +631,8 @@ async function startParserWithCheckpointsView(
 
       treeProvider.refresh([]);
       stackProvider.refresh([]);
+
+      editor.setDecorations(progressHighlight, []);
 
       disposables.forEach((d) => d.dispose());
     }),
@@ -690,7 +735,7 @@ function highlightTokens(editor: vscode.TextEditor, tokens: Token[]) {
   );
 
   classes.forEach((ts) => {
-    const color = `rgba(${rand(127, 255)},${rand(127, 255)},${rand(127, 255)}, 0.5)`;
+    const color = rgba(rand(127, 255), rand(127, 255), rand(127, 255), 0.5);
 
     const deco = vscode.window.createTextEditorDecorationType({
       backgroundColor: color,

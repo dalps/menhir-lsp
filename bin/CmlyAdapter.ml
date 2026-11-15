@@ -507,11 +507,16 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
   and checkpoint =
     | InputNeeded of env
+    | LexerError of string * env
     | Shifting of terminal * env
     | Reducing of production * env
     | Accepted of token_derivation_tree * env
     | Rejected of symbol * env
   (* [@@deriving visitors { name = "checkpoint_reduce"; variety = "reduce" }] *)
+
+  let yojson_of_lookahead ((t, tok) : lookahead) =
+    `Assoc
+      [ ("terminal", yoterminal t); ("token", Tokenizer.Token.yojson_of_t tok) ]
 
   let yojson_of_stack (stack : stack) : json =
     yolist
@@ -526,13 +531,15 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         ("stack", yojson_of_stack stack);
         ("state", yolr1 state);
         ("derivation", yojson_of_token_derivation derivation);
-        ("lookahead", yojson_of_option (fun (t, _) -> yoterminal t) lookahead);
+        ("lookahead", yojson_of_option yojson_of_lookahead lookahead);
       ]
 
   let yojson_of_checkpoint (c : checkpoint) : json =
     let with_env env l = `Assoc (("env", yojson_of_env env) :: l) in
     match c with
     | InputNeeded env -> yotagged "inputNeeded" (with_env env [])
+    | LexerError (msg, env) ->
+        yotagged "lexerError" (with_env env [ ("message", `String msg) ])
     | Shifting (t, env) ->
         yotagged "shifting" (with_env env [ ("terminal", yoterminal t) ])
     | Reducing (p, env) ->
@@ -542,15 +549,10 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     | Rejected (x, env) ->
         yotagged "rejected" (with_env env [ ("symbol", yosymbol x) ])
 
-  let should_discard : checkpoint -> bool = function
-    | Shifting (_, { state = s }) -> not (has_defred s && has_red_on_sharp s)
-    | InputNeeded _ | Reducing (_, _) | Accepted _ | Rejected (_, _) -> false
+  let should_discard ({ state = s } : env) =
+    not (has_defred s && has_red_on_sharp s)
 
-  let rec offer (tok : lookahead) : checkpoint -> checkpoint = function
-    | InputNeeded env -> step { env with lookahead = Some tok } false
-    | _ -> failwith "offer expects an InputNeed checkpoint"
-
-  and step
+  let step
       ({ entrypoint; state; lookahead = tok; stack; derivation } as env : env)
       (please_discard : bool) : checkpoint =
     let open Utils.Range in
@@ -675,7 +677,9 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   let interpreter_state : interpreter_state option ref = ref None
 
   (** Computes two closures to step forward an backward on an history of
-      checkpoints.
+      checkpoints. These functions are not returned but are encapsulated in the
+      interpreter's state. The user is supposed to interact with them through
+      the imperative API below.
 
       Invariant: [step_forward (step_back c) = c] for any [c : checkpoint].
 
@@ -707,19 +711,24 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     (* Unwraps a checkpoint and sets up the environment to call [step]. Also updates the history of checkpoints. *)
     let step_forward (c : checkpoint) : checkpoint =
       match c with
-      | InputNeeded env ->
-          let env =
-            (* todo: store lexbuf in env and pass it to next_token *)
-            { env with lookahead = Some (next_token () |> R.get_exn) }
-          in
-          step env false
-      | Shifting (_, env) | Reducing (_, env) -> step env (should_discard c)
-      | Accepted _ | Rejected (_, _) -> (* makes no progress *) c
+      | InputNeeded env -> (
+          match next_token () with
+          | Ok tok ->
+              let env =
+                (* todo: store lexbuf in env and pass it to next_token *)
+                { env with lookahead = Some tok }
+              in
+              step env false
+          | Error msg -> LexerError (msg, env))
+      | Shifting (_, env) -> step env (should_discard env)
+      | Reducing (_, env) -> step env false
+      | LexerError _ | Accepted _ | Rejected _ -> (* makes no progress *) c
     in
 
     (* Forgets a history step and returns it. *)
     let step_back : checkpoint -> checkpoint = function
       | InputNeeded env
+      | LexerError (_, env)
       | Shifting (_, env)
       | Reducing (_, env)
       | Accepted (_, env)
@@ -909,9 +918,6 @@ module type S = sig
     ('a * 'b, string) result Seq.t ->
     ('a * 'b, [> `LexerError of string ]) result
 
-  val has_red_on_sharp : lr1 -> bool
-  val has_defred : lr1 -> bool
-
   type stack = (symbol * lr1) located list
   type lookahead = terminal * token
 
@@ -968,6 +974,7 @@ module type S = sig
 
   and checkpoint =
     | InputNeeded of env
+    | LexerError of string * env
     | Shifting of terminal * env
     | Reducing of production * env
     | Accepted of token_derivation_tree * env
@@ -976,9 +983,6 @@ module type S = sig
   val yojson_of_stack : stack -> json
   val yojson_of_env : env -> json
   val yojson_of_checkpoint : checkpoint -> json
-  val should_discard : checkpoint -> bool
-  val offer : lookahead -> checkpoint -> checkpoint
-  val step : env -> bool -> checkpoint
 
   val parse_with_checkpoints :
     entrypoint ->
