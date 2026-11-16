@@ -551,40 +551,29 @@ async function startParserWithCheckpointsView(
       },
     });
 
+  // Refresh the derivation and stack views and their data providers
   function updateViews(c: Checkpoint) {
-    let i = 0;
+    let { env } = c.value;
 
     derivationTreeView.description = `(${c.kind})`;
-    derivationTreeView.message = `Checkpoint #${i} · ${c.kind}`;
+    derivationTreeView.message = `Checkpoint #${env.time} · ${c.kind} · State ${env.state}`;
 
-    // Refresh the views' data providers
-    switch (c.kind) {
-      case "accepted":
-        treeProvider.refresh([c.value]);
-        break;
+    env.lookahead &&
+      (derivationTreeView.message += `, looking at ${env.lookahead.terminal}`);
 
-      default:
-        let { env } = c.value;
-        derivationTreeView.message += ` · State ${env.state}`;
-
-        env.lookahead &&
-          (derivationTreeView.message += `, looking at ${env.lookahead.terminal}`);
-
-        if (editor && env.lookahead) {
-          let range = liftRange(env.lookahead.token.range);
-          editor.setDecorations(progressHighlight, [
-            {
-              range: new vscode.Range(new vscode.Position(0, 0), range.end),
-            },
-          ]);
-          editor.setDecorations(cursorDeco, [{ range }]);
-        }
-
-        stackView.description = `${env.stack.length} items`;
-        stackProvider.refresh(env.stack);
-        treeProvider.refresh(env.derivation);
-        break;
+    if (editor && env.lookahead) {
+      let range = liftRange(env.lookahead.token.range);
+      editor.setDecorations(progressHighlight, [
+        {
+          range: new vscode.Range(new vscode.Position(0, 0), range.end),
+        },
+      ]);
+      editor.setDecorations(cursorDeco, [{ range }]);
     }
+
+    stackView.description = `${env.stack.length} items`;
+    stackProvider.refresh(env.stack);
+    treeProvider.refresh(env.derivation);
 
     // Update the derivation view message
     switch (c.kind) {
@@ -622,6 +611,12 @@ async function startParserWithCheckpointsView(
     registerCmd("stopInterpreter", async () => {
       setContext("interpreterRunning", false);
       await execServerCmd("disconnect", parserUri);
+
+      derivationTreeView.message =
+        derivationTreeView.description =
+        stackView.message =
+        stackView.description =
+          undefined;
 
       treeProvider.refresh([]);
       stackProvider.refresh([]);

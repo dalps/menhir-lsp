@@ -13,7 +13,6 @@ let make_entries_dict uri kind (entries : (string * Range.t) list) =
   let kind = match kind with `Mll -> "lexer" | `Mly -> "parser" in
   `Assoc
     [
-      ("kind", `String kind);
       ("moduleUri", uri);
       ( "entrypoints",
         `List
@@ -21,12 +20,13 @@ let make_entries_dict uri kind (entries : (string * Range.t) list) =
              (fun (name, range) ->
                `Assoc
                  [
-                   ("kind", `String kind);
                    ("name", `String name);
                    ("moduleUri", uri);
                    ("range", Range.yojson_of_t range);
+                   ("kind", `String kind);
                  ])
              entries) );
+      ("kind", `String kind);
     ]
 
 let combine_json_lists o1 o2 =

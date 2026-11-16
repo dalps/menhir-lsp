@@ -240,11 +240,11 @@
     "viewsWelcome": [
       {
         "view": "menhir-lsp-entrypoint-explorer",
-        "contents": "The lexers and parsers you have opened will show up here ready for playing.\n\nNote: only the parsers that have been compiled to the [CMLY format](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec110) will be shown.\nTo obtain the CMLY representation for a parser add the --cmly flag inside the respective dune file. See the [Menhir stanza docs](https://dune.readthedocs.io/en/stable/reference/dune/menhir.html) for detailed instructions."
+        "contents": "The lexers and parsers you have opened will show up here ready for playing.\n\nNote: only the parsers that have been compiled to the [CMLY format](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec110) will be shown. To obtain the CMLY representation for your parser add the --cmly flag inside the respective dune file. Refer to the [Menhir stanza docs](https://dune.readthedocs.io/en/stable/reference/dune/menhir.html) for detailed instructions."
       },
       {
         "view": "menhir-lsp-action-map",
-        "contents": "This view lets you associate a lexer's actions to a parser's tokens and start the interpreter. It is filled in automatically after you click on the \"Connect to lexer\" button on a parser in the Entrypoint Explorer view and have selected a lexer that will produce tokens for it.\nThe initial inferred map approximates the lexer's semantics and may be incomplete or inaccurate. It is up to you to fix any error via the edit 🖉 button so that upon recognizing each of the listed patterns the lexer should (a) emit a token of the grammar; (b) skip and read the next token; (c) fail."
+        "contents": "This view lets you associate a lexer's actions to a parser's tokens. It is filled in automatically after you click on the \"Connect With Lexer\" button on a parser in the Entrypoint Explorer view and have selected a lexer that will produce tokens for it.\nThe initial inferred map approximates the lexer's semantics and may be incomplete or inaccurate. It is up to you to fix any error via the edit pencil 🖉, so that for each of the listed patterns the tokenizer shall either: (a) emit a token of the grammar; (b) skip and read the next token; (c) fail."
       }
     ],
     "viewsContainers": {

@@ -103,6 +103,7 @@ export type Stack = StackItem[];
 export type Lexbuf = { startOfs: number; currOfs: number };
 
 export type Env = {
+  time: number;
   stack: Stack;
   state: number;
   derivation: DerivationTree[];
@@ -115,5 +116,5 @@ export type Checkpoint =
   | Variant<"inputNeeded", WithEnv>
   | Variant<"shifting", WithEnv & { terminal: string }>
   | Variant<"reducing", WithEnv & { production: Production }>
-  | Variant<"accepted", DerivationTree>
+  | Variant<"accepted", WithEnv & DerivationTree>
   | Variant<"rejected", WithEnv & { symbol: string }>;

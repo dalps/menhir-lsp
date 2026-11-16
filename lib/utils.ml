@@ -486,5 +486,24 @@ let yojson_of_result ~ok ~error (r : ('a, 'e) result) : Yojson.Safe.t =
       ("value", R.fold ~ok ~error r);
     ]
 
-let yojson_of_option f : 'a option -> Yojson.Safe.t =
-  O.map_or f ~default:`Null
+let yojson_of_option f : 'a option -> Yojson.Safe.t = O.map_or f ~default:`Null
+
+module Nat = struct
+  type t = Zero | Succ of t
+
+  let zero = Zero
+  let succ n = Succ n
+  let pred = function Zero -> Zero | Succ n -> n
+
+  let to_int : t -> int =
+    let rec aux acc = function Zero -> acc | Succ n -> aux (acc + 1) n in
+    aux 0
+
+  let of_int : int -> t =
+    let rec aux acc = function
+      | n when n < 0 -> failwith "Nat.of_int"
+      | n when n = 0 -> acc
+      | n -> aux (Succ acc) (n - 1)
+    in
+    aux Zero
+end

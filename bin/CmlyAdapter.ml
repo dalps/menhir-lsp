@@ -520,6 +520,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     next_token
 
   type env = {
+    time : Nat.t;
     entrypoint : entrypoint;
     state : lr1;
     lookahead : lookahead option;
@@ -581,10 +582,11 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
            `Assoc [ ("symbol", yosymbol x); ("state", yolr1 lr1) ]))
       stack
 
-  let yojson_of_env ({ entrypoint; state; lookahead; stack; derivation } : env)
-      : json =
+  let yojson_of_env
+      ({ time; entrypoint; state; lookahead; stack; derivation } : env) : json =
     `Assoc
       [
+        ("time", `Int (Nat.to_int time));
         ("stack", yojson_of_stack stack);
         ("state", yolr1 state);
         ("derivation", yojson_of_token_derivation derivation);
@@ -601,8 +603,9 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         yotagged "shifting" (with_env env [ ("terminal", yoterminal t) ])
     | Reducing (p, env) ->
         yotagged "reducing" (with_env env [ ("production", yoproduction p) ])
-    | Accepted (dv, _) ->
-        yotagged "accepted" (yojson_of_token_derivation_tree dv)
+    | Accepted (dv, env) ->
+        yotagged "accepted"
+          (with_env env [ ("derivation", yojson_of_token_derivation_tree dv) ])
     | Rejected (x, env) ->
         yotagged "rejected" (with_env env [ ("symbol", yosymbol x) ])
 
@@ -615,6 +618,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     let open Utils.Range in
     let module Range = Utils.Range in
     let open Utils.Range.Located in
+    let env = { env with time = Nat.succ env.time } in
     let default_reduction = Lr1.default_reduction state in
 
     if please_discard then InputNeeded env
@@ -756,6 +760,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
     let rec bottom : env =
       {
+        time = Nat.zero;
         entrypoint;
         state = entrypoint.start_lr1;
         lookahead = None;
@@ -776,7 +781,8 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           match next_token env.lexbuf with
           | lexbuf, Ok tok ->
               step { env with last = c; lexbuf; lookahead = Some tok } false
-          | lexbuf, Error msg -> LexerError (msg, { env with lexbuf }))
+          | lexbuf, Error msg ->
+              LexerError (msg, { env with time = Nat.succ env.time; lexbuf }))
       | Shifting (_, env) -> step { env with last = c } (should_discard env)
       | Reducing (_, env) -> step { env with last = c } false
       | LexerError _ | Accepted _ | Rejected _ -> (* makes no progress *) c
@@ -1060,6 +1066,7 @@ module type S = sig
     result
 
   type env = {
+    time : Nat.t;
     entrypoint : entrypoint;
     state : lr1;
     lookahead : lookahead option;
