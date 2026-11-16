@@ -1,16 +1,23 @@
 import { Range } from "vscode-languageclient";
 import { RawRange } from "./webviews/ast/types";
 
+export enum EntryKind {
+  Mll = "lexer",
+  Mly = "parser",
+}
+
 // Used to represent either lexer and parser entrypoints.
-export type Entry = WithRange &
+export type Entry = WithKind<EntryKind> &
+  WithRange &
   // carries a copy of the parent's moduleUri. todo: don't repeat moduleUri
   WithModuleUri & {
     name: string;
   };
 
-export type ModuleEntries = WithModuleUri & {
-  entrypoints: Entry[];
-};
+export type ModuleEntries = WithKind<EntryKind> &
+  WithModuleUri & {
+    entrypoints: Entry[];
+  };
 
 export enum InputSourceKind {
   ActiveEditor,

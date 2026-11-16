@@ -17,8 +17,9 @@ let command_dict =
     ("nextDummyMessage", `NextDummyMessage);
     ("previousMessage", `PreviousMessage);
     ("previousDummyMessage", `PreviousDummyMessage);
-    ("listLexerRules", `ListLexerRules);
+    ("listLexers", `ListLexers);
     ("listParsers", `ListParsers);
+    ("listEntrypoints", `ListEntrypoints);
     ("listTokens", `ListTokens);
     ("startTokenizer", `StartTokenizer);
     ("startParser", `StartParser);
@@ -31,6 +32,7 @@ let command_dict =
     ("playBackward", `PlayBackward);
     ("playToEnd", `PlayToEnd);
     ("playToStart", `PlayToStart);
+    (* ("syncDocument", `SyncDocument); used to sync content changes in the buffer kept by the interpreter *)
     ("disconnect", `Disconnect);
   ]
 
@@ -338,6 +340,32 @@ class lsp_server =
         log "Next selection: %a" (pp_option Range.pp) selection;
         showDoc (uri, selection)
       in
+      let entrypoints kind buffers getter =
+        let open L in
+        let+ uri, state = CCHashtbl.to_list buffers in
+        let entries = getter uri state in
+        make_entries_dict uri kind entries
+      in
+      let get_mll_entries () =
+        entrypoints `Mll mll_buffers (fun uri state ->
+            let open OcamllexSyntax.Syntax in
+            state.Mll.grammar.entrypoints
+            |> L.map (fun { p; v = { name } } ->
+                (name.v, Range.of_lexical_positions p)))
+      in
+      let get_mly_entries () =
+        entrypoints `Mly mly_buffers (fun uri state ->
+            O.get_or_nil
+            @@ let open O in
+               let+ (module D) = state.Mly.cmly in
+               L.filter_map
+                 (function
+                   | M.Syntax.Old { v = { pr_nt }; p }
+                   | M.Syntax.New { v = { pr_nt }; p } ->
+                       let+ _ = D.get_entrypoint pr_nt.v in
+                       (pr_nt.v, Range.of_lexical_positions p))
+                 state.grammar.pg_rules)
+      in
       match L.assoc ~eq:String.equal command command_dict with
       | `GetAst ->
           let* uri = uri_of_args args in
@@ -362,42 +390,10 @@ class lsp_server =
       | `NextDummyMessage -> focus Msg.next_dummy_message
       | `PreviousMessage -> focus Msg.previous_message
       | `PreviousDummyMessage -> focus Msg.previous_dummy_message
-      | `ListParsers ->
-          (* only show the parsers that have been compiled to cmly *)
-          let entrypoints =
-            mly_buffers |> CCHashtbl.to_list
-            |> L.filter_map (fun (uri, state) ->
-                let open O in
-                let+ (module D) = state.Mly.cmly in
-                let module G = D.G in
-                let uri = Uri.yojson_of_t uri in
-                let entries =
-                  L.filter_map
-                    (function
-                      | M.Syntax.Old { v = { pr_nt }; p }
-                      | M.Syntax.New { v = { pr_nt }; p } ->
-                          let+ _ = D.get_entrypoint pr_nt.v in
-                          (pr_nt.v, Range.of_lexical_positions p))
-                    state.grammar.pg_rules
-                in
-                make_entries_dict uri entries)
-          in
-          Some (`List entrypoints)
-      | `ListLexerRules ->
-          let entrypoints =
-            mll_buffers |> CCHashtbl.to_list
-            |> L.filter_map (fun (uri, state) ->
-                let open O in
-                let uri = Uri.yojson_of_t uri in
-                let entries =
-                  let open OcamllexSyntax.Syntax in
-                  state.Mll.grammar.entrypoints
-                  |> L.map (fun { p; v = { name } } ->
-                      (name.v, Range.of_lexical_positions p))
-                in
-                Some (make_entries_dict uri entries))
-          in
-          Some (`List entrypoints)
+      | `ListParsers -> Some (`List (get_mly_entries ()))
+      | `ListLexers -> Some (`List (get_mll_entries ()))
+      | `ListEntrypoints ->
+          Some (`List (get_mly_entries () @ get_mll_entries ()))
       | `ListTokens ->
           let* entrypoint_name, mly_uri =
             match args with
@@ -408,8 +404,7 @@ class lsp_server =
           in
           let* state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
           let* (module D) = state.cmly in
-          let module G = D.G in
-          let open G in
+          let open D.G in
           let res =
             Terminal.fold (fun t acc -> `String (Terminal.name t) :: acc) []
           in

@@ -40,7 +40,7 @@ let client: LanguageClient;
 let derivationTreeView: vscode.TreeView<DerivationTree>;
 let stackView: vscode.TreeView<StackItem>;
 let actionBindingView: vscode.TreeView<ActionMapping | Terminal>;
-let workspaceLexersView: vscode.TreeView<Entry | ModuleEntries>;
+let entrypointExplorerView: vscode.TreeView<Entry | ModuleEntries>;
 let workspaceParsersView: vscode.TreeView<Entry | ModuleEntries>;
 
 const serverName = "menhir-lsp";
@@ -147,8 +147,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   const actionProvider = new ActionMapProvider(context);
 
-  const lexerProvider = new EntrypointProvider(context, "listLexerRules");
-  const parserProvider = new EntrypointProvider(context, "listParsers");
+  const entrypointProvider = new EntrypointProvider(context);
 
   // derivationTreeProvider.onDidChangeTreeData((d) =>
   //   console.log("tree data has changed.", d),
@@ -175,17 +174,10 @@ export function activate(context: vscode.ExtensionContext) {
     treeDataProvider: actionProvider,
   });
 
-  workspaceLexersView = vscode.window.createTreeView(
-    "menhir-lsp-workspace-lexers",
+  entrypointExplorerView = vscode.window.createTreeView(
+    "menhir-lsp-entrypoint-explorer",
     {
-      treeDataProvider: lexerProvider,
-    },
-  );
-
-  workspaceParsersView = vscode.window.createTreeView(
-    "menhir-lsp-workspace-parsers",
-    {
-      treeDataProvider: parserProvider,
+      treeDataProvider: entrypointProvider,
     },
   );
 
@@ -300,9 +292,9 @@ export function activate(context: vscode.ExtensionContext) {
     ),
 
     registerCmd("refreshEntrypoints", () => {
-      lexerProvider.refresh([]);
-      parserProvider.refresh([]);
+      entrypointProvider.refresh([]);
     }),
+
     registerCmd("connectParserWithLexer", (rule, entry) => {
       connectParserView(actionProvider, rule, entry);
     }),
@@ -316,15 +308,14 @@ export function activate(context: vscode.ExtensionContext) {
     }),
   );
 
-  vscode.workspace.onDidOpenTextDocument(({ languageId }) => {
-    languageId === "ocaml.ocamllex" && lexerProvider.refresh([]);
-    languageId === "ocaml.menhir" && parserProvider.refresh([]);
-  });
+  const aux = ({ languageId }: vscode.TextDocument) => {
+    (languageId === "ocaml.ocamllex" || languageId === "ocaml.menhir") &&
+      entrypointProvider.refresh([]);
+  };
 
-  vscode.workspace.onDidChangeTextDocument(({ document: { languageId } }) => {
-    languageId === "ocaml.ocamllex" && lexerProvider.refresh([]);
-    languageId === "ocaml.menhir" && parserProvider.refresh([]);
-  });
+  vscode.workspace.onDidOpenTextDocument(aux);
+  vscode.workspace.onDidChangeTextDocument((d) => aux(d.document));
+  vscode.workspace.textDocuments.forEach(aux);
 
   //////////////////////////////////////////////////////////////////////////////
 }
@@ -368,7 +359,7 @@ async function selectParser() {
 }
 
 async function selectLexer() {
-  const lexers = await execServerCmd<ModuleEntries[]>("listLexerRules");
+  const lexers = await execServerCmd<ModuleEntries[]>("listLexers");
 
   if (lexers.length <= 0) {
     vscode.window.showErrorMessage("You need to open at least one .mll file");
@@ -531,7 +522,7 @@ async function startParserWithCheckpointsView(
 
   const cursorLight = context.asAbsolutePath("icons/cursor_light.svg");
   const cursorDark = context.asAbsolutePath("icons/cursor_dark.svg");
-  const highlightColor = rgba(0, 255, 0, 0.5);
+  const highlightColor = rgba(0, 255, 0, 0.25);
   let progressHighlight: vscode.TextEditorDecorationType =
     vscode.window.createTextEditorDecorationType({
       backgroundColor: highlightColor,
@@ -626,6 +617,8 @@ async function startParserWithCheckpointsView(
     aux("stepBackward"),
     aux("playForward"),
     aux("playBackward"),
+    aux("playToStart"),
+    aux("playToEnd"),
     registerCmd("stopInterpreter", async () => {
       setContext("interpreterRunning", false);
       await execServerCmd("disconnect", parserUri);

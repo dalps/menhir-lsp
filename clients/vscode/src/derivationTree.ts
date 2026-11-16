@@ -6,6 +6,7 @@ import {
   ActionMapping,
   DerivationTree,
   Entry,
+  EntryKind,
   LexerActionKind,
   ModuleEntries,
   StackItem,
@@ -148,21 +149,14 @@ export class FileProvider extends TreeProvider<vscode.Uri> {
 }
 
 export class EntrypointProvider extends TreeProvider<Entry | ModuleEntries> {
-  constructor(
-    context: vscode.ExtensionContext,
-    public command: string,
-  ) {
-    super(context);
-  }
-
   getTreeItem(
     element: Entry | ModuleEntries,
   ): vscode.TreeItem | Thenable<vscode.TreeItem> {
     const uri = vscode.Uri.parse(element.moduleUri);
 
-    if ("name" in element) {
+     if ("name" in element) {
       const item = new vscode.TreeItem(element.name);
-      item.contextValue = "entrypoint";
+      item.contextValue = `${element.kind}Entrypoint`;
       item.command = open(uri, element);
       item.iconPath = themeicon("symbol-method");
       return item;
@@ -181,7 +175,7 @@ export class EntrypointProvider extends TreeProvider<Entry | ModuleEntries> {
     element?: Entry | ModuleEntries | undefined,
   ): vscode.ProviderResult<(Entry | ModuleEntries)[]> {
     if (!element) {
-      return execServerCmd(this.command) as Promise<ModuleEntries[]>;
+      return execServerCmd("listEntrypoints") as Promise<ModuleEntries[]>;
     }
 
     return "name" in element ? [] : element.entrypoints;
@@ -192,7 +186,9 @@ export class StackProvider extends TreeProvider<StackItem> {
   getTreeItem(element: StackItem): vscode.TreeItem | Thenable<vscode.TreeItem> {
     const item = new TreeItem(element.value.symbol);
 
-    item.description = `State ${element.value.state}`
+    item.description = `${element.value.state}`;
+    item.tooltip = `State ${element.value.state}`;
+
     return item;
   }
 }

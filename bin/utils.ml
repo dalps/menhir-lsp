@@ -8,9 +8,12 @@ module Ivl = Ivl_map.Interval
 
 type document = Text_document.t
 
-let make_entries_dict uri (entries : (string * Range.t) list) =
+let make_entries_dict uri kind (entries : (string * Range.t) list) =
+  let uri = Uri.yojson_of_t uri in
+  let kind = match kind with `Mll -> "lexer" | `Mly -> "parser" in
   `Assoc
     [
+      ("kind", `String kind);
       ("moduleUri", uri);
       ( "entrypoints",
         `List
@@ -18,6 +21,7 @@ let make_entries_dict uri (entries : (string * Range.t) list) =
              (fun (name, range) ->
                `Assoc
                  [
+                   ("kind", `String kind);
                    ("name", `String name);
                    ("moduleUri", uri);
                    ("range", Range.yojson_of_t range);

@@ -70,7 +70,7 @@
       "view/title": [
         {
           "command": "menhir-lsp-client.refreshEntrypoints",
-          "when": "view == menhir-lsp-workspace-parsers || view == menhir-lsp-workspace-lexers",
+          "when": "view == menhir-lsp-entrypoint-explorer",
           "group": "navigation"
         },
         {
@@ -119,17 +119,17 @@
         },
         {
           "command": "menhir-lsp-client.startTokenizer",
-          "when": "view == menhir-lsp-workspace-lexers && viewItem == entrypoint",
+          "when": "view == menhir-lsp-entrypoint-explorer && viewItem == lexerEntrypoint",
           "group": "inline"
         },
         {
           "command": "menhir-lsp-client.startParser",
-          "when": "view == menhir-lsp-workspace-parsers && viewItem == entrypoint",
+          "when": "view == menhir-lsp-entrypoint-explorer && viewItem == parserEntrypoint",
           "group": "inline"
         },
         {
           "command": "menhir-lsp-client.connectParserWithLexer",
-          "when": "view == menhir-lsp-workspace-parsers && viewItem == entrypoint",
+          "when": "view == menhir-lsp-entrypoint-explorer && viewItem == parserEntrypoint",
           "group": "inline"
         }
       ],
@@ -212,49 +212,39 @@
     "views": {
       "menhir-lsp-view-container": [
         {
-          "id": "menhir-lsp-workspace-lexers",
-          "name": "Workspace Lexers",
-          "icon": "icons/icon_outline_thick.svg",
-          "contextualTitle": "Workspace Lexers"
-        },
-        {
-          "id": "menhir-lsp-workspace-parsers",
-          "name": "Workspace Parsers",
-          "icon": "icons/icon_outline_thick.svg",
-          "contextualTitle": "Workspace Parsers"
+          "id": "menhir-lsp-entrypoint-explorer",
+          "name": "Entrypoint Explorer",
+          "icon": "icons/view_icon.svg",
+          "contextualTitle": "Entrypoint Explorer"
         },
         {
           "id": "menhir-lsp-derivation-view",
           "name": "Derivation Explorer",
-          "icon": "icons/icon_outline_thick.svg",
+          "icon": "icons/view_icon.svg",
           "contextualTitle": "Derivation Explorer"
         },
         {
           "id": "menhir-lsp-stack-view",
           "name": "Stack Explorer",
-          "icon": "icons/icon_outline_thick.svg",
+          "icon": "icons/view_icon.svg",
           "contextualTitle": "Stack Explorer"
         },
         {
           "id": "menhir-lsp-action-map",
-          "name": "Action-Token Mapping",
-          "icon": "icons/icon_outline_thick.svg",
-          "contextualTitle": "Action-Token Mapping"
+          "name": "Regexp-Token Mapping",
+          "icon": "icons/view_icon.svg",
+          "contextualTitle": "Regexp-Token Mapping"
         }
       ]
     },
     "viewsWelcome": [
       {
-        "view": "menhir-lsp-workspace-lexers",
-        "contents": "The lexers available in the workspace will appear here, ready for debugging."
-      },
-      {
-        "view": "menhir-lsp-workspace-parsers",
-        "contents": "The parsers available in the workspace which have been compiled to the [CMLY format](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec110) will appear here, ready for debugging.\n\nTo ask dune to generate the CMLY representation of a parser, open the dune file next its .mly file and add the `--cmly` flag inside the Menhir stanza.\n\n[Menhir stanza docs](https://dune.readthedocs.io/en/stable/reference/dune/menhir.html)"
+        "view": "menhir-lsp-entrypoint-explorer",
+        "contents": "The lexers and parsers you have opened will show up here ready for playing.\n\nNote: only the parsers that have been compiled to the [CMLY format](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec110) will be shown.\nTo obtain the CMLY representation for a parser add the --cmly flag inside the respective dune file. See the [Menhir stanza docs](https://dune.readthedocs.io/en/stable/reference/dune/menhir.html) for detailed instructions."
       },
       {
         "view": "menhir-lsp-action-map",
-        "contents": "This view lets you associate a lexer's actions to a parser's tokens. It will be filled in after you click the \"Plug lexer\" button on a parser in the Workspace Parsers view and have selected a lexer that will produce tokens for it.\nThe initial map is inferred automatically and may be inaccurate, therefore it is your responsibility to make sure the actions have the correct semantics.\n\nThere are three kinds of behaviors you can set as the regexp's action:\n- **Produce** a token of the selected parser\n- **Skip** and read the next token\n- **Fail** (halt the lexer.)\nOnce the map suitably models the actual behavior of the OCaml code in your lexer rule, you can start interpreting sentences by pressing the \"Play\" button at the top of the view."
+        "contents": "This view lets you associate a lexer's actions to a parser's tokens and start the interpreter. It is filled in automatically after you click on the \"Connect to lexer\" button on a parser in the Entrypoint Explorer view and have selected a lexer that will produce tokens for it.\nThe initial inferred map approximates the lexer's semantics and may be incomplete or inaccurate. It is up to you to fix any error via the edit 🖉 button so that upon recognizing each of the listed patterns the lexer should (a) emit a token of the grammar; (b) skip and read the next token; (c) fail."
       }
     ],
     "viewsContainers": {
@@ -262,7 +252,7 @@
         {
           "id": "menhir-lsp-view-container",
           "title": "Menhir LSP",
-          "icon": "icons/icon_outline_thick.svg",
+          "icon": "icons/view_icon.svg",
           "contextualTitle": "Menhir LSP"
         }
       ]
