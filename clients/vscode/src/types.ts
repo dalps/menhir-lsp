@@ -115,6 +115,6 @@ export type WithEnv = { env: Env };
 export type Checkpoint =
   | Variant<"inputNeeded", WithEnv>
   | Variant<"shifting", WithEnv & { terminal: string }>
-  | Variant<"reducing", WithEnv & { production: Production }>
+  | Variant<"reducing", WithEnv & { production: Located<Production> }>
   | Variant<"accepted", WithEnv & DerivationTree>
   | Variant<"rejected", WithEnv & { symbol: string }>;

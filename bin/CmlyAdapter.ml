@@ -16,6 +16,13 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   module G = G
   open G
 
+  module Range = struct
+    include Range
+
+    let to_lsp_range (t : t) =
+      Utils.Range.of_lexical_positions (startp t, endp t)
+  end
+
   type 'a located = 'a Utils.Range.Located.t
 
   type entrypoint = {
@@ -593,6 +600,14 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         ("lookahead", yojson_of_option yojson_of_lookahead lookahead);
       ]
 
+  let locate_entity tabulate positions =
+    tabulate (fun p ->
+        let open O in
+        p |> positions |> L.head_opt >|= (Range.to_lsp_range >> Located.make p))
+
+  let locate_nonterminal = Nonterminal.(locate_entity tabulate positions)
+  let locate_production = Production.(locate_entity tabulate positions)
+
   let yojson_of_checkpoint (c : checkpoint) : json =
     let with_env env l = `Assoc (("env", yojson_of_env env) :: l) in
     match c with
@@ -602,7 +617,12 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     | Shifting (t, env) ->
         yotagged "shifting" (with_env env [ ("terminal", yoterminal t) ])
     | Reducing (p, env) ->
-        yotagged "reducing" (with_env env [ ("production", yoproduction p) ])
+        yotagged "reducing"
+          (with_env env
+             [
+               ( "production",
+                 Located.yojson_of_t yoproduction !!(locate_production p) );
+             ])
     | Accepted (dv, env) ->
         yotagged "accepted"
           (with_env env [ ("derivation", yojson_of_token_derivation_tree dv) ])

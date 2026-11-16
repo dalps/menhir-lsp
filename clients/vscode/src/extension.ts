@@ -507,6 +507,7 @@ async function startParserWithCheckpointsView(
   }
 
   let sourceUri = editor.document.uri.toString();
+  let grammarUri = vscode.Uri.parse(actionProvider.parserEntrypoint.moduleUri);
 
   const c0 = await execServerCmd<Checkpoint>(
     cmd,
@@ -583,7 +584,7 @@ async function startParserWithCheckpointsView(
         derivationTreeView.message += ` · Shifting token ${c.value.terminal}`;
         break;
       case "reducing":
-        let { lhs, rhs } = c.value.production;
+        let { lhs, rhs } = c.value.production.value;
         derivationTreeView.message += ` · Reducing production ${lhs} -> ${rhs.join(" ")}`;
       case "accepted":
         break;
@@ -592,11 +593,26 @@ async function startParserWithCheckpointsView(
     }
   }
 
+  const focusGrammar = (selection?: Range) =>
+    vscode.window.showTextDocument(grammarUri, {
+      preserveFocus: true,
+      selection: selection && liftRange(selection),
+      viewColumn: vscode.ViewColumn.Beside,
+    });
+
+  focusGrammar();
+
   const disposables: vscode.Disposable[] = [];
 
   const aux = (cmd: string) =>
     registerCmd(cmd, async () => {
       const c = await execServerCmd<Checkpoint>(cmd, parserUri);
+
+      switch (c.kind) {
+        case "reducing":
+          focusGrammar(c.value.production.range);
+          break;
+      }
 
       updateViews(c);
     });
