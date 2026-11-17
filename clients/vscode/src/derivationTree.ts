@@ -55,9 +55,6 @@ export class DerivationTreeProvider extends TreeProvider<DerivationTree> {
 }
 
 export class ActionMapProvider extends TreeProvider<ActionMapping | Terminal> {
-  public parserEntrypoint: Entry | undefined = undefined;
-  public lexerEntrypoint: Entry | undefined = undefined;
-
   getTreeItem(
     element: ActionMapping | Terminal,
   ): vscode.TreeItem | Thenable<vscode.TreeItem> {
@@ -65,8 +62,9 @@ export class ActionMapProvider extends TreeProvider<ActionMapping | Terminal> {
       const item = new vscode.TreeItem(element.name);
       const uri = vscode.Uri.parse(element.moduleUri);
 
-      item.resourceUri = uri;
+      // item.resourceUri = uri;
       item.collapsibleState = vscode.TreeItemCollapsibleState.None;
+      item.iconPath = themeicon("symbol-constant");
       item.command = open(uri, element);
       return item;
     }
@@ -80,25 +78,25 @@ export class ActionMapProvider extends TreeProvider<ActionMapping | Terminal> {
     item.command = open(uri, element.regexp);
     item.contextValue = "regexpKey";
 
-    if (!element.value) {
+    if (!element.action) {
       item.iconPath = themeicon("warning", "list.warningForeground");
       item.tooltip = "Please choose an action for this pattern.";
       item.description = "Uninterpreted.";
       return item;
     }
 
-    switch (element.value.kind) {
+    switch (element.action.kind) {
       case LexerActionKind.Fail:
         item.iconPath = themeicon("error");
-        item.tooltip = "Will halt on this pattern.";
+        item.tooltip = "The tokenizer will halt on this pattern.";
         break;
       case LexerActionKind.Skip:
         item.iconPath = themeicon("skip");
-        item.tooltip = "Will skip this pattern.";
+        item.tooltip = "The tokenizer will skip this pattern.";
         break;
       case LexerActionKind.Produce:
         item.iconPath = themeicon("milestone");
-        item.tooltip = `Will emit the token ${element.value.token!.name} on this pattern.`;
+        item.tooltip = `The tokenizer will emit the token ${element.action.value.name} on this pattern.`;
         // show the mapped token as the only child
         item.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
         break;
@@ -112,17 +110,13 @@ export class ActionMapProvider extends TreeProvider<ActionMapping | Terminal> {
   ): vscode.ProviderResult<(ActionMapping | Terminal)[]> {
     if (!element) return this.trees;
 
-    if ("value" in element && element.value?.kind === LexerActionKind.Produce) {
-      return [element.value.token!];
+    if (
+      "action" in element &&
+      element.action?.kind === LexerActionKind.Produce
+    ) {
+      return [element.action.value];
     }
   }
-
-  // refresh(newData: (ActionMapping | Terminal)[], p: Entry, l: Entry): void {
-  //   super.refresh(newData);
-
-  //   this.parserEntrypoint = p;
-  //   this.lexerEntrypoint = l;
-  // }
 }
 
 export class FileProvider extends TreeProvider<vscode.Uri> {
@@ -154,7 +148,7 @@ export class EntrypointProvider extends TreeProvider<Entry | ModuleEntries> {
   ): vscode.TreeItem | Thenable<vscode.TreeItem> {
     const uri = vscode.Uri.parse(element.moduleUri);
 
-     if ("name" in element) {
+    if ("name" in element) {
       const item = new vscode.TreeItem(element.name);
       item.contextValue = `${element.kind}Entrypoint`;
       item.command = open(uri, element);

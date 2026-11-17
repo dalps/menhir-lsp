@@ -1,5 +1,6 @@
 import { Range } from "vscode-languageclient";
 import { RawRange } from "./webviews/ast/types";
+import * as vscode from "vscode";
 
 export enum EntryKind {
   Mll = "lexer",
@@ -25,8 +26,6 @@ export enum InputSourceKind {
   TextBox,
 }
 
-export type InputSource = { value: InputSourceKind };
-
 export type Token = WithRange & {
   rawRange: RawRange;
   text: string;
@@ -44,9 +43,9 @@ export type DerivationTree =
 
 export type ActionMapping = // todo: don't repeat moduleUri
   WithModuleUri & {
-    action: number;
+    id: number;
     regexp: Located<string>;
-    value: Maybe<LexerAction>;
+    action: Maybe<LexerAction>;
   };
 
 export interface WithRange {
@@ -79,12 +78,19 @@ export type Terminal = WithModuleUri &
     id: number;
   };
 
+export type WithData<T> = { data: T };
+
+export type QuickPickItemWithData<T> = Partial<WithData<T>> &
+  vscode.QuickPickItem;
+
 export type WithKind<K> = { kind: K };
 
-export type LexerAction = WithKind<LexerActionKind> & {
-  token?: Terminal;
-};
+export type LexerAction =
+  | Tag<LexerActionKind.Skip>
+  | Tag<LexerActionKind.Fail>
+  | Variant<LexerActionKind.Produce, Terminal>;
 
+export type Tag<tag extends string> = WithKind<tag>;
 export type Variant<tag extends string, A> = WithKind<tag> & { value: A };
 
 export type Result<T, E> = Variant<"ok", T> | Variant<"error", E>;

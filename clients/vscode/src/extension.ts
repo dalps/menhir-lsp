@@ -24,17 +24,25 @@ import {
   Checkpoint,
   DerivationTree,
   Entry,
-  InputSource,
   InputSourceKind,
+  LexerAction,
+  LexerActionKind,
   ModuleEntries,
   Result,
   StackItem,
   Terminal,
   Token,
 } from "./types";
-import { liftRange, rand, rgba, setupQuickPick, uriEqual } from "./utils";
+import {
+  choose,
+  liftRange,
+  rand,
+  rgba,
+  sep,
+  setupQuickPick,
+  uriEqual,
+} from "./utils";
 import path = require("path");
-import { CodiconId } from "./codicons";
 
 let client: LanguageClient;
 let derivationTreeView: vscode.TreeView<DerivationTree>;
@@ -266,7 +274,7 @@ export function activate(context: vscode.ExtensionContext) {
     serverCmdWithActiveEditor("previousDummyMessage"),
     registerCmd("startTokenizer", startTokenizerView),
     registerCmd("startTokenizerWithEditor", () =>
-      startTokenizerView(undefined, { value: InputSourceKind.ActiveEditor }),
+      startTokenizerView(undefined, InputSourceKind.ActiveEditor),
     ),
     registerCmd("startTokenizerWithRule", (arg) =>
       startTokenizerView(arg, undefined),
@@ -274,37 +282,23 @@ export function activate(context: vscode.ExtensionContext) {
     registerCmd("startParser", (start) =>
       startParserView(derivationTreeProvider, start),
     ),
-    registerCmd("startParserWithPositions", (source) =>
-      startParserWithPositionsView(
-        actionProvider,
-        derivationTreeProvider,
-        source,
-      ),
-    ),
-    registerCmd("startParserWithCheckpoints", (source) =>
-      startParserWithCheckpointsView(
-        context,
-        actionProvider,
-        derivationTreeProvider,
-        stackProvider,
-        source,
-      ),
+
+    registerCmd(
+      "startParserWithCheckpoints",
+      (parserEntrypoint, lexerEntrypoint, source) =>
+        startParserWithCheckpointsView(
+          context,
+          actionProvider,
+          derivationTreeProvider,
+          stackProvider,
+          parserEntrypoint,
+          lexerEntrypoint,
+          source,
+        ),
     ),
 
     registerCmd("refreshEntrypoints", () => {
       entrypointProvider.refresh([]);
-    }),
-
-    registerCmd("connectParserWithLexer", (rule, entry) => {
-      connectParserView(actionProvider, rule, entry);
-    }),
-    // Note: commands invoked from tree items buttons receive the item's data as the first argument
-    registerCmd("editRegexpTokenBinding", (binding) => {
-      if (!currentParserEntrypoint) {
-        console.error("Error: a parser entrypoint must be set.");
-        return;
-      }
-      editRegexpBinding(binding, currentParserEntrypoint);
     }),
   );
 
@@ -330,17 +324,14 @@ async function selectEntrypointQuickPick(
     msg,
     modules.flatMap(({ moduleUri, entrypoints }) => {
       let uri = vscode.Uri.parse(moduleUri);
-      let sep: vscode.QuickPickItem & Entry = {
-        label: uri.fsPath,
-        resourceUri: uri,
-        kind: vscode.QuickPickItemKind.Separator,
-      };
-      let entries = entrypoints.map((rule) => ({
-        ...rule,
-        label: `\$(symbol-function) ${rule.name} · ${moduleUri.toString().split("/").at(-1)}`,
-        // description: vscode.Uri.parse(moduleUri).path,
-      }));
-      return [sep, ...entries];
+      return [
+        sep(uri.fsPath),
+        ...entrypoints.map((rule) => ({
+          label: `\$(symbol-function) ${rule.name}`,
+          description: moduleUri.split("/").at(-1),
+          data: rule,
+        })),
+      ];
     }),
   );
 }
@@ -367,32 +358,6 @@ async function selectLexer() {
   }
 
   return await selectEntrypointQuickPick("Select Lexer Entry Point", lexers);
-}
-
-/** Updates the `ActionProvider` singleton to remember a pair of (parser, lexer) entrypoints and the mapping from the lexer's regexes to the parser's tokens. */
-async function connectParserView(
-  actionProvider: ActionMapProvider,
-  startSymbol?: Entry,
-  lexerRule?: Entry,
-) {
-  startSymbol = startSymbol || (await selectParser());
-  if (!startSymbol) return;
-
-  currentParserEntrypoint = startSymbol;
-  lexerRule = lexerRule || (await selectLexer());
-
-  if (!lexerRule) return;
-
-  const bindings = await execServerCmd<ActionMapping[]>(
-    "connectParserWithLexer",
-    null,
-    lexerRule,
-    startSymbol,
-  );
-
-  actionProvider.lexerEntrypoint = lexerRule;
-  actionProvider.parserEntrypoint = startSymbol;
-  actionProvider.refresh(bindings);
 }
 
 async function startParserView(
@@ -429,76 +394,22 @@ async function startParserView(
 }
 
 /** Invoked from the "regexp-token mapping" side view. */
-async function startParserWithPositionsView(
-  actionProvider: ActionMapProvider,
-  treeProvider: DerivationTreeProvider,
-  source: InputSource = { value: InputSourceKind.ActiveEditor },
-) {
-  const cmd = "startParserWithPositions";
-
-  // source = source || (await askForSourceKind());
-  // if (!source) return;
-
-  // if (source.value !== InputSourceKind.ActiveEditor) {
-  //   vscode.window.showErrorMessage(
-  //     "Only interpreting the active editor is supported at the moment.",
-  //   );
-  //   return;
-  // }
-
-  let editor = vscode.window.activeTextEditor;
-
-  if (!editor) {
-    vscode.window.showErrorMessage("No active editor available.");
-    return;
-  }
-
-  let sourceUri = editor.document.uri.toString();
-
-  const res = await execServerCmd<
-    Result<DerivationTree, { message: string; dv: DerivationTree[] }>
-  >(
-    cmd,
-    sourceUri,
-    actionProvider.lexerEntrypoint,
-    actionProvider.parserEntrypoint,
-    actionProvider.getChildren(),
-  );
-
-  if (res.kind === "ok") {
-    treeProvider.refresh([res.value]);
-    derivationTreeView.description =
-      derivationTreeView.message =
-      derivationTreeView.badge =
-        undefined;
-    return;
-  }
-
-  derivationTreeView.badge = {
-    tooltip: `Error`,
-    value: 1,
-  };
-  derivationTreeView.description = `(Error)`;
-  derivationTreeView.message = `Error: ${res.value.message}. Showing a possibly empty forest of partial derivations.`;
-  treeProvider.refresh(res.value.dv);
-}
-
-/** Invoked from the "regexp-token mapping" side view. */
 async function startParserWithCheckpointsView(
   context: vscode.ExtensionContext,
   actionProvider: ActionMapProvider,
   treeProvider: DerivationTreeProvider,
   stackProvider: StackProvider,
-  source: InputSource = { value: InputSourceKind.ActiveEditor },
+  startSymbol?: Entry,
+  lexerRule?: Entry,
+  inputSource = InputSourceKind.ActiveEditor,
 ) {
   const cmd = "startParserWithCheckpoints";
 
-  if (!actionProvider.parserEntrypoint || !actionProvider.lexerEntrypoint) {
-    vscode.window.showErrorMessage("Parser is not connected to a lexer.");
-    return;
-  }
+  startSymbol = startSymbol || (await selectParser());
+  if (!startSymbol) return;
 
-  let parserUri = actionProvider.parserEntrypoint.moduleUri;
+  lexerRule = lexerRule || (await selectLexer());
+
   let editor = vscode.window.activeTextEditor;
 
   if (!editor) {
@@ -507,19 +418,17 @@ async function startParserWithCheckpointsView(
   }
 
   let sourceUri = editor.document.uri.toString();
-  let grammarUri = vscode.Uri.parse(actionProvider.parserEntrypoint.moduleUri);
+  let grammarUri = vscode.Uri.parse(startSymbol.moduleUri);
 
-  const c0 = await execServerCmd<Checkpoint>(
-    cmd,
-    sourceUri,
-    actionProvider.lexerEntrypoint,
-    actionProvider.parserEntrypoint,
-    actionProvider.getChildren(),
-  );
+  const res = await execServerCmd<{
+    lexerBindings: ActionMapping[];
+    start: Checkpoint;
+  }>(cmd, sourceUri, lexerRule, startSymbol);
 
   setContext("interpreterRunning", true);
 
-  updateViews(c0);
+  actionProvider.refresh(res.lexerBindings);
+  updateViews(res.start);
 
   const cursorLight = context.asAbsolutePath("icons/cursor_light.svg");
   const cursorDark = context.asAbsolutePath("icons/cursor_dark.svg");
@@ -606,7 +515,7 @@ async function startParserWithCheckpointsView(
 
   const aux = (cmd: string) =>
     registerCmd(cmd, async () => {
-      const c = await execServerCmd<Checkpoint>(cmd, parserUri);
+      const c = await execServerCmd<Checkpoint>(cmd, startSymbol.moduleUri);
 
       switch (c.kind) {
         case "reducing":
@@ -626,7 +535,7 @@ async function startParserWithCheckpointsView(
     aux("playToEnd"),
     registerCmd("stopInterpreter", async () => {
       setContext("interpreterRunning", false);
-      await execServerCmd("disconnect", parserUri);
+      await execServerCmd("disconnect", grammarUri);
 
       derivationTreeView.message =
         derivationTreeView.description =
@@ -634,6 +543,7 @@ async function startParserWithCheckpointsView(
         stackView.description =
           undefined;
 
+      actionProvider.refresh([]);
       treeProvider.refresh([]);
       stackProvider.refresh([]);
 
@@ -641,17 +551,14 @@ async function startParserWithCheckpointsView(
 
       disposables.forEach((d) => d.dispose());
     }),
+    // Note: commands invoked from tree items buttons receive the item's data as the first argument
+    registerCmd("editRegexpTokenBinding", (binding) => {
+      editRegexpBinding(binding, startSymbol);
+    }),
   );
 }
 
-// async function stepForward(actionProvider: ActionMapProvider,
-//   treeProvider: DerivationTreeProvider,
-//   stackProvider: StackProvider,
-//   source: InputSource = { value: InputSourceKind.ActiveEditor }) {
-
-//   }
-
-async function startTokenizerView(rule?: Entry, source?: InputSource) {
+async function startTokenizerView(rule?: Entry, source?: InputSourceKind) {
   let editor = vscode.window.activeTextEditor;
 
   rule = rule || (await selectLexer());
@@ -663,8 +570,8 @@ async function startTokenizerView(rule?: Entry, source?: InputSource) {
   // vscode.workspace.findFiles
   let cmd = "startTokenizer";
 
-  switch (source.value) {
-    case InputSourceKind.ActiveEditor:
+  switch (source) {
+    case InputSourceKind.ActiveEditor: // what?!?
       {
         if (!editor) {
           vscode.window.showErrorMessage("No active editor available.");
@@ -830,32 +737,32 @@ export async function gotoImplementation(
 }
 
 async function editRegexpBinding(binding: ActionMapping, entry: Entry) {
-  const tokens = (await execServerCmd("listTokens", entry)) as string[];
+  const tokens = (await execServerCmd("listTokens", entry)) as Terminal[];
 
-  const newToken = await vscode.window.showQuickPick(
-    tokens.map((s): vscode.QuickPickItem => ({ label: s })),
-    {
-      title: `Select the token to match to action ${binding.action}`,
-    },
+  const newBinding = await setupQuickPick<LexerAction>(
+    `Select the token to match to action ${binding.action}`,
+    [
+      choose("$(skip) Skip", { kind: LexerActionKind.Skip }),
+      choose("$(error) Fail", { kind: LexerActionKind.Fail }),
+      ...tokens.map((token) =>
+        choose(`$(symbol-constant) Produce ${token.name}`, {
+          kind: LexerActionKind.Produce,
+          value: { token },
+        }),
+      ),
+    ],
   );
 
-  if (!newToken) return;
+  if (!newBinding) return;
 
-  // todo: update the map on the server side
+  await execServerCmd("editBinding", entry);
 
-  return { ...binding, token: newToken.label };
+  vscode.window.showInformationMessage("Binding updated.");
 }
 
-function askForSourceKind() {
-  return setupQuickPick("Select the input source", [
-    {
-      label: "$(target) Active Editor",
-      value: InputSourceKind.ActiveEditor,
-    },
-    {
-      label: "$(file-text) Read input from a file",
-      value: InputSourceKind.File,
-    },
-    { label: "$(pencil) Enter some text", value: InputSourceKind.TextBox },
+const askForSourceKind = () =>
+  setupQuickPick<InputSourceKind>("Select the input source", [
+    choose("$(target) Active Editor", InputSourceKind.ActiveEditor),
+    choose("$(file-text) Read input from a file", InputSourceKind.File),
+    choose("$(pencil) Enter some text", InputSourceKind.TextBox),
   ]);
-}

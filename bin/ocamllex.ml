@@ -3,6 +3,7 @@ open OcamllexDocs
 open Utils
 open Syntax
 open Menhir_lsp_lib
+open Lex
 
 let pp_strloc out ({ p; v; _ } : string located) =
   pf out "`%s`%a" v Range.pp_lexing p
@@ -32,7 +33,19 @@ type state = {
   intervals : zone Ivl_map.t;
   implementation : Text_document.t option;
   sourcemap : Line_directives.source_mapping list;
+  entrypoints : Tokenizer.entrypoint list;
+  automata : Tokenizer.automata;
 }
+
+let get_automata_entrypoint state rule_name =
+  L.find_idx
+    (fun e -> String.equal e.Lexgen.auto_name rule_name)
+    state.entrypoints
+
+let get_syntax_entrypoint state rule_name =
+  L.find_idx
+    (fun (e : entry located) -> String.equal e.v.name.v rule_name)
+    state.grammar.entrypoints
 
 let pp_state out (state : state) =
   pf out "{symbols = %a}"
@@ -192,10 +205,14 @@ let load_state_from_contents (uri : uri) (contents : string) :
   let mk_diag msg range =
     Diagnostic.create ~message:(`String msg) ~range () ~source:server_name
   in
-  let+ grammar =
+  let* grammar =
     OcamllexSyntax.Main.parse_string contents
     |> map_err (fun (msg, rng) ->
         mk_diag msg (Range.of_lexical_positions rng) :: [])
+  in
+  let+ entrypoints, automata =
+    Lex.Driver.parse_string contents
+    |> map_err (fun msg -> mk_diag msg Range.first_line :: [])
   in
   let symbols = process_symbols grammar in
   let regexps =
@@ -274,7 +291,16 @@ let load_state_from_contents (uri : uri) (contents : string) :
   in
   v#visit_main () grammar;
   let implementation, sourcemap = get_source_map uri in
-  { grammar; symbols; regexps; intervals = !map_ref; implementation; sourcemap }
+  {
+    grammar;
+    symbols;
+    regexps;
+    intervals = !map_ref;
+    implementation;
+    sourcemap;
+    entrypoints;
+    automata;
+  }
 
 let hover (state : state) ~(doc : Text_document.t) ~(pos : Position.t) :
     Hover.t option =

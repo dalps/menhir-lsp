@@ -128,7 +128,7 @@
           "group": "inline"
         },
         {
-          "command": "menhir-lsp-client.connectParserWithLexer",
+          "command": "menhir-lsp-client.startParserWithCheckpoints",
           "when": "view == menhir-lsp-entrypoint-explorer && viewItem == parserEntrypoint",
           "group": "inline"
         }
@@ -147,12 +147,12 @@
         },
         {
           "when": "editorLangId == ocaml.menhir",
-          "command": "menhir-lsp-client.connectParserWithLexer",
+          "command": "menhir-lsp-client.startParser",
           "group": "navigation"
         },
         {
           "when": "editorLangId == ocaml.menhir",
-          "command": "menhir-lsp-client.startParser",
+          "command": "menhir-lsp-client.startParserWithCheckpoints",
           "group": "navigation"
         }
       ]
@@ -244,7 +244,7 @@
       },
       {
         "view": "menhir-lsp-action-map",
-        "contents": "This view lets you associate a lexer's actions to a parser's tokens. It is filled in automatically after you click on the \"Connect With Lexer\" button on a parser in the Entrypoint Explorer view and have selected a lexer that will produce tokens for it.\nThe initial inferred map approximates the lexer's semantics and may be incomplete or inaccurate. It is up to you to fix any error via the edit pencil 🖉, so that for each of the listed patterns the tokenizer shall either: (a) emit a token of the grammar; (b) skip and read the next token; (c) fail."
+        "contents": "This view is used to describes a lexer's semantics with respect to some grammar's set of token. It will be populated automatically after you start the intepreter for parser rule from the Entrypoint Explorer view and have selected a lexer rule that will produce tokens for it.\nThe initial mapping is inferred automatically and may be inaccurate or incomplete. You can tweak it while the interpeter is running to match the lexer's semantics more closely through the edit pencil 🖉 of each item. The options for each regexp are: (a) emit a token of the grammar; (b) skip and read the next token; (c) fail."
       }
     ],
     "viewsContainers": {
@@ -258,11 +258,6 @@
       ]
     },
     "commands": [
-      {
-        "title": "Menhir: Connect Parser With Lexer",
-        "command": "menhir-lsp-client.connectParserWithLexer",
-        "icon": "$(debug-connected)"
-      },
       {
         "title": "Menhir: Start Interactive Tokenizer",
         "command": "menhir-lsp-client.startTokenizer",

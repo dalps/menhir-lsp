@@ -23,9 +23,8 @@ let command_dict =
     ("listTokens", `ListTokens);
     ("startTokenizer", `StartTokenizer);
     ("startParser", `StartParser);
-    ("startParserWithPositions", `StartParserWithPositions);
-    ("connectParserWithLexer", `ConnectParserWithLexer);
     ("startParserWithCheckpoints", `StartParserWithCheckpoints);
+    (* ("updateActionMap", `ConnectParserWithLexer); *)
     ("stepForward", `StepForward);
     ("stepBackward", `StepBackward);
     ("playForward", `PlayForward);
@@ -323,6 +322,22 @@ class lsp_server =
             log "Failed to read uri as the first argument";
             None
       in
+      let interpreter_args (args : json list option) =
+        match args with
+        | Some
+            [
+              `String sourceUri;
+              `Assoc ((_, `String lexerName) :: (_, `String lexerUri) :: _);
+              `Assoc ((_, `String parserName) :: (_, `String moduleUri) :: _);
+            ] ->
+            Some
+              ( sourceUri |> Uri.of_string,
+                lexerName,
+                lexerUri |> Uri.of_string,
+                parserName,
+                moduleUri |> Uri.of_string )
+        | _ -> None
+      in
       (* Helper for handling the interpreter commands *)
       let with_adapter k =
         let* uri = uri_of_args args in
@@ -406,9 +421,14 @@ class lsp_server =
           let* (module D) = state.cmly in
           let open D.G in
           let res =
-            Terminal.fold (fun t acc -> `String (Terminal.name t) :: acc) []
+            let open Terminal in
+            fold
+              (fun t acc ->
+                yodict [ ("id", `Int (to_int t)); ("name", `String (name t)) ]
+                :: acc)
+              []
           in
-          Some (`List res)
+          Some (`List (List.rev res))
       | `StartParser ->
           let* input, entrypoint_name, mly_uri =
             match args with
@@ -431,238 +451,104 @@ class lsp_server =
           let* entrypoint = D.get_entrypoint entrypoint_name in
           let derivation = D.parse_terminals entrypoint input in
           Some (D.yojson_of_simple_derivation [ derivation ])
-      | `ConnectParserWithLexer ->
-          (* let* text_source = uri_of_args args in *)
-          let* rule_name, mll_uri, entrypoint_name, mly_uri =
-            match args with
-            | Some
-                [
-                  _;
-                  `Assoc ((_, `String lexerName) :: (_, `String lexerUri) :: _);
-                  `Assoc ((_, `String parserName) :: (_, `String moduleUri) :: _);
-                ] ->
-                Some (lexerName, lexerUri, parserName, moduleUri)
-            | _ -> None
-          in
-          let* state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
-          let* (module D) = state.Mly.cmly in
-          let open D.G in
-          let* entrypoint = D.get_entrypoint entrypoint_name in
-          let* lexer_state =
-            CCHashtbl.get mll_buffers (Uri.of_string mll_uri)
-          in
-          let* rule_idx, rule =
-            let open OcamllexSyntax.Syntax in
-            L.find_idx
-              (fun (e : entry located) -> String.equal e.v.name.v rule_name)
-              lexer_state.grammar.entrypoints
-          in
-          let map = D.connect_lexer_entry rule.v in
-          let mk_action_value ?(token : terminal Utils.Range.Located.t option)
-              kind : Json.t =
-            `Assoc
-              ([ ("kind", `String kind) ]
-              @
-              match token with
-              | Some t ->
-                  [
-                    ( "token",
-                      `Assoc
-                        [
-                          ("id", `Int (Terminal.to_int t.v));
-                          ("moduleUri", `String mly_uri);
-                          ("range", Utils.Range.yojson_of_t t.p);
-                          ("name", `String (Terminal.name t.v));
-                        ] );
-                  ]
-              | _ -> [])
-          in
-          let bindings : Json.t list =
-            let open D in
-            ActionMap.fold
-              (fun k (regexp, v) acc ->
-                `Assoc
-                  [
-                    ("moduleUri", `String mll_uri);
-                    ("action", `Int k);
-                    ( "regexp",
-                      Utils.Range.Located.yojson_of_t
-                        (fun s -> `String s)
-                        regexp );
-                    ( "value",
-                      match v with
-                      | None -> `Null
-                      | Some t -> (
-                          match t with
-                          | Skip -> mk_action_value "skip"
-                          | Fail -> mk_action_value "fail"
-                          | Produce t ->
-                              let t = Terminal.of_int t in
-                              let token =
-                                (* [Option.get] is safe if we assume [v] cannot be a pseudotoken ('error' or '#') *)
-                                Utils.Range.Located.make t
-                                  (position_of_terminal t |> Option.get)
-                              in
-                              mk_action_value ~token "token") );
-                  ]
-                :: acc)
-              map []
-          in
-          Some (`List (List.rev bindings))
-      | `StartParserWithPositions ->
-          let log s = log_src "interpreter" s in
-          let data =
-            match args with
-            | Some
-                [
-                  `String sourceUri;
-                  `Assoc ((_, `String lexerName) :: (_, `String lexerUri) :: _);
-                  `Assoc ((_, `String parserName) :: (_, `String moduleUri) :: _);
-                  `List actions;
-                ] ->
-                Some
-                  ( sourceUri,
-                    lexerName,
-                    lexerUri,
-                    parserName,
-                    moduleUri,
-                    actions )
-            | _ -> None
-          in
-          let* source_uri, rule_name, mll_uri, entrypoint_name, mly_uri, actions
-              =
-            data
-          in
-          let source_uri = Uri.of_string source_uri in
-          let* mly_state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
-          let* (module D) = mly_state.cmly in
-          let open D.G in
-          log "got adapter";
-          let open Lex in
-          let* entrypoint = D.get_entrypoint entrypoint_name in
-          let mll_uri = Uri.of_string mll_uri in
-          let* mll_state = CCHashtbl.get mll_buffers mll_uri in
-          let* lexer_entry, lexer_automata =
-            match Lex.Driver.parse_file (Uri.to_path mll_uri) with
-            | Ok (entrypoints, automata) ->
-                let+ idx, e =
-                  L.find_idx
-                    (fun e -> String.equal e.Lexgen.auto_name rule_name)
-                    entrypoints
-                in
-                (e, automata)
-            | Error _ -> None
-          in
-          log "got lexer";
-          let open D in
-          let map = lexer_behavior_map_of_yojson actions in
-          log "reading input from file %s" (Uri.to_path source_uri);
-          In_channel.with_open_text (Uri.to_path source_uri) (fun ic ->
-              Utils.Range.Located.track_file source_uri;
-              let lexbuf = Lexing.from_channel ic in
-              parse_with_positions entrypoint lexer_entry lexer_automata map
-                lexbuf
-              |> yojson_of_result ~ok:yojson_of_token_derivation_tree
-                   ~error:(fun (msg, dv) ->
-                     `Assoc
-                       [
-                         ( "message",
-                           `String
-                             (match msg with
-                             | `LexerError msg -> msg
-                             | `Rejected x ->
-                                 spr "rejected terminal %s" (Symbol.name x)
-                             | _ -> "weird error") );
-                         ("dv", yojson_of_token_derivation (L.rev dv));
-                       ])
-              |> some)
       | `StartParserWithCheckpoints ->
           let log s = log_src "small-step" s in
-          let data =
-            match args with
-            | Some
-                [
-                  `String sourceUri;
-                  `Assoc ((_, `String lexerName) :: (_, `String lexerUri) :: _);
-                  `Assoc ((_, `String parserName) :: (_, `String moduleUri) :: _);
-                  `List actions;
-                ] ->
-                Some
-                  ( sourceUri,
-                    lexerName,
-                    lexerUri,
-                    parserName,
-                    moduleUri,
-                    actions )
-            | _ -> None
+          let* source_uri, rule_name, mll_uri, entrypoint_name, mly_uri =
+            interpreter_args args
           in
-          let* source_uri, rule_name, mll_uri, entrypoint_name, mly_uri, actions
-              =
-            data
-          in
-          let source_uri = Uri.of_string source_uri in
-          let* mly_state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
+          let* mly_state = CCHashtbl.get mly_buffers mly_uri in
           let* (module D) = mly_state.cmly in
           let open D.G in
           log "got adapter";
           let open Lex in
           let* entrypoint = D.get_entrypoint entrypoint_name in
-          let mll_uri = Uri.of_string mll_uri in
           let* mll_state = CCHashtbl.get mll_buffers mll_uri in
-          let* lexer_entry, lexer_automata =
-            match Lex.Driver.parse_file (Uri.to_path mll_uri) with
-            | Ok (entrypoints, automata) ->
-                let+ idx, e =
-                  L.find_idx
-                    (fun e -> String.equal e.Lexgen.auto_name rule_name)
-                    entrypoints
-                in
-                (e, automata)
-            | Error _ -> None
+          let* _, lexer_rule = Mll.get_syntax_entrypoint mll_state rule_name in
+          let* _, lexer_entry =
+            Mll.get_automata_entrypoint mll_state rule_name
           in
           log "got lexer";
           let open D in
-          let map = lexer_behavior_map_of_yojson actions in
+          plug_lexer_entry lexer_rule.v;
+          let actions : json list =
+            let open L in
+            let open Utils in
+            let open Utils.Range in
+            let+ k, (regexp, v) = LexerActionMap.bindings () in
+            let yoaction =
+              yojson_of_option (function
+                | Skip -> yovariant "skip"
+                | Fail -> yovariant "fail"
+                | Produce t ->
+                    (* [Option.get] is safe as long as [v] is never a pseudotoken ('error' or '#') *)
+                    let t = Located.make t !!(position_of_terminal t) in
+                    yovariant
+                      ~value:
+                        ([
+                           ("id", `Int (Terminal.to_int t.v));
+                           ("moduleUri", `String (Uri.to_string mly_uri));
+                           ("range", Range.yojson_of_t t.p);
+                           ("name", `String (Terminal.name t.v));
+                         ]
+                        |> yodict)
+                      "token")
+            in
+            [
+              ("moduleUri", `String (Uri.to_string mll_uri));
+              ("id", `Int k);
+              ("regexp", Located.yojson_of_t yostring regexp);
+              ("action", yoaction v);
+            ]
+            |> yodict
+          in
           log "reading input from file %s" (Uri.to_path source_uri);
           In_channel.with_open_text (Uri.to_path source_uri) (fun ic ->
               Utils.Range.Located.track_file source_uri;
               let buffer = Bytes.of_string (In_channel.input_all ic) in
-              parse_with_checkpoints entrypoint lexer_entry lexer_automata map
+              parse_with_checkpoints entrypoint lexer_entry mll_state.automata
                 buffer;
-              Some (yojson_of_checkpoint (current_checkpoint ())))
+              Some
+                (yodict
+                   [
+                     ("lexerBindings", `List actions);
+                     ( "start",
+                       yojson_of_checkpoint (Interpreter.current_checkpoint ())
+                     );
+                   ]))
       | `StepForward ->
           with_adapter (fun (module D) ->
-              let open D in
+              let open D.Interpreter in
               step_forward ();
-              current_checkpoint () |> yojson_of_checkpoint)
+              current_checkpoint () |> D.yojson_of_checkpoint)
       | `StepBackward ->
           with_adapter (fun (module D) ->
-              let open D in
+              let open D.Interpreter in
               step_back ();
-              current_checkpoint () |> yojson_of_checkpoint)
+              current_checkpoint () |> D.yojson_of_checkpoint)
       | `PlayForward ->
           with_adapter (fun (module D) ->
-              let open D in
+              let open D.Interpreter in
               play_forward ();
-              current_checkpoint () |> yojson_of_checkpoint)
+              current_checkpoint () |> D.yojson_of_checkpoint)
       | `PlayBackward ->
           with_adapter (fun (module D) ->
-              let open D in
+              let open D.Interpreter in
               play_back ();
-              current_checkpoint () |> yojson_of_checkpoint)
+              current_checkpoint () |> D.yojson_of_checkpoint)
       | `PlayToEnd ->
           with_adapter (fun (module D) ->
-              let open D in
+              let open D.Interpreter in
               play_forward ~pause:false ();
-              current_checkpoint () |> yojson_of_checkpoint)
+              current_checkpoint () |> D.yojson_of_checkpoint)
       | `PlayToStart ->
           with_adapter (fun (module D) ->
-              let open D in
+              let open D.Interpreter in
               play_back ~pause:false ();
-              current_checkpoint () |> yojson_of_checkpoint)
+              current_checkpoint () |> D.yojson_of_checkpoint)
       | `Disconnect ->
           with_adapter (fun (module D) ->
-              D.disconnect ();
+              let open D.Interpreter in
+              disconnect ();
               `Null)
       | `StartTokenizer -> (
           let open Lex in

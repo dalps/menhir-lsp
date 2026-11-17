@@ -1,15 +1,15 @@
 open Lex
 open Menhir_lsp_lib.Utils
 
-type rule = { name : string; module_path : string }
 type entrypoint = (string list, Syntax.location) Lexgen.automata_entry
 type position = Lexing.position
 type range = position * position
-type lexer_machine = entrypoint list * Lex.Lexgen.automata array
+type automata = Lex.Lexgen.automata array
+type lexer = entrypoint list * automata
 type token_data = { text : string; action : int }
 type token = token_data Range.Located.t
 
-val parse_dfa : string -> (lexer_machine, string) result
+val parse_dfa : string -> (lexer, string) result
 
 module Token : sig
   type t = token
@@ -23,7 +23,7 @@ exception EmptyToken
 val next_token : Lexing.lexbuf -> entrypoint -> Lexgen.automata array -> Token.t
 
 val tokenize_with_idx :
-  start_rule_idx:int -> Lexing.lexbuf -> lexer_machine -> Token.t list
+  start_rule_idx:int -> Lexing.lexbuf -> lexer -> Token.t list
 
 val tokenize_with_entry :
   Lexing.lexbuf -> entrypoint -> Lexgen.automata array -> Token.t list

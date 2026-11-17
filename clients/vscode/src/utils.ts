@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { Range } from "vscode-languageclient";
-import { WithRange } from "./types";
+import { QuickPickItemWithData, WithRange } from "./types";
 import { CodiconId } from "./codicons";
 
 export const uriEqual = (u1: vscode.Uri, u2: vscode.Uri) =>
@@ -15,10 +15,10 @@ export const liftRange = (r: Range): vscode.Range => {
   );
 };
 
-export async function setupQuickPick<T = unknown>(
+export async function setupQuickPick<T>(
   title: string,
-  items: (vscode.QuickPickItem & T)[],
-): Promise<(vscode.QuickPickItem & T) | undefined> {
+  items: QuickPickItemWithData<T>[],
+): Promise<T | undefined> {
   const qp = vscode.window.createQuickPick();
   qp.title = title;
   // qp.prompt =
@@ -28,11 +28,10 @@ export async function setupQuickPick<T = unknown>(
 
   qp.show();
 
-  let selection: (vscode.QuickPickItem & T) | undefined;
+  let selection: QuickPickItemWithData<T> | undefined;
 
   qp.onDidChangeActive(
-    (item) =>
-      (selection = item.at(0) as (vscode.QuickPickItem & T) | undefined),
+    (item) => (selection = item.at(0) as QuickPickItemWithData<T> | undefined),
   );
 
   try {
@@ -48,8 +47,21 @@ export async function setupQuickPick<T = unknown>(
   }
 
   selection && console.log("Picked item: ", selection);
-  return selection satisfies vscode.QuickPickItem | undefined;
+  return selection?.data;
 }
+
+export const sep = <T>(label: string): QuickPickItemWithData<T> => ({
+  label,
+  kind: vscode.QuickPickItemKind.Separator,
+});
+
+export const choose = <T>(
+  label: string,
+  data?: T,
+): QuickPickItemWithData<T> => ({
+  label,
+  data,
+});
 
 export const rand = (min: number, max: number) => lerp(min, max, Math.random());
 

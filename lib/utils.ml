@@ -1,3 +1,5 @@
+type json = Yojson.Safe.t
+
 module F = CCFun
 
 module L = struct
@@ -107,6 +109,7 @@ module TD = struct
 end
 
 let ( >> ) = CCFun.( %> )
+let ( !! ) = Option.get
 
 (******************************************************************************
  * Logging helpers
@@ -479,14 +482,23 @@ let pp_error_location out ((startp, endp) : Lexing.position * Lexing.position) =
     if file = "" then pf out "Line %d, characters %d-%d" line char1 char2
     else pf out "File %S, line %d, characters %d-%d" file line char1 char2
 
-let yojson_of_result ~ok ~error (r : ('a, 'e) result) : Yojson.Safe.t =
-  `Assoc
-    [
-      ("kind", `String (match r with Ok _ -> "ok" | Error _ -> "error"));
-      ("value", R.fold ~ok ~error r);
-    ]
-
 let yojson_of_option f : 'a option -> Yojson.Safe.t = O.map_or f ~default:`Null
+let yodict assoc : json = `Assoc assoc
+let yostring s : json = `String s
+let yolist f l : json = `List (L.map f l)
+
+let yovariant ?value tag : json =
+  `Assoc
+    (L.cons
+       ("kind", `String tag)
+       (O.flat_map_l (fun v -> [ ("value", v) ]) value))
+
+let yotagged tag value : json = yovariant ~value tag
+
+let yojson_of_result ~ok ~error (r : ('a, 'e) result) : Yojson.Safe.t =
+  yotagged
+    (match r with Ok _ -> "ok" | Error _ -> "error")
+    (R.fold ~ok ~error r)
 
 module Nat = struct
   type t = Zero | Succ of t

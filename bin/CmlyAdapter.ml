@@ -6,7 +6,6 @@ open O
 
 let log_action s = log_src "action" s
 let log_error s = log_src "error" s
-let ( !! ) = Option.get
 
 (** This functor returns a module that extends the [MenhirSdk.Cmly_api.GRAMMAR]
     interface with functions to drive the a parser automaton encoded in the CMLY
@@ -132,18 +131,11 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   type token_derivation =
     ((terminal * token) located, nonterminal located) derivation
 
-  type json = Yojson.Safe.t
-
   module T = Terminal
   module NT = Nonterminal
   module P = Production
   module X = Symbol
 
-  let yotagged tag value : json =
-    `Assoc [ ("kind", `String tag); ("value", value) ]
-
-  let yodict assoc : json = `Assoc assoc
-  let yolist f l : json = `List (L.map f l)
   let yolr1 x : json = `Int (Lr1.to_int x)
   let yosymbol x : json = `String (X.name x)
   let yoterminal t : json = `String (T.name t)
@@ -437,9 +429,11 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         Error (`Rejected (T t)) |> attach_derivation
 
   (* Modeling the things a semantic action of a lexer rule can do. *)
-  type lexer_behavior = Skip | Fail | Produce of int
+  type lexer_behavior = Skip | Fail | Produce of terminal
+  type early_action_map = (string Located.t * lexer_behavior option) ActionMap.t
+  type total_action_map = lexer_behavior ActionMap.t
 
-  let lexer_behavior_map_of_yojson : json list -> lexer_behavior ActionMap.t =
+  let action_map_of_yojson : json list -> total_action_map =
     L.fold_left
       (fun acc obj ->
         match obj with
@@ -460,71 +454,59 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
                 ActionMap.add k Fail acc
             | "token", ("token", `Assoc (("id", `Int t) :: _)) :: _ ->
                 log "to Produce %d" t;
-                ActionMap.add k (Produce t) acc
+                ActionMap.add k (Produce (Terminal.of_int t)) acc
             | _ ->
                 log "bad payload";
                 acc)
         | _ -> acc)
       ActionMap.empty
 
+  module LexerActionMap = struct
+    let map_ref : early_action_map ref = ref ActionMap.empty
+    let get () = !map_ref
+    let set m = map_ref := m
+    let bindings () = ActionMap.bindings (get ())
+
+    let edit k (v : lexer_behavior) =
+      set (ActionMap.update k (O.map (fun (r, _) -> (r, Some v))) (get ()))
+
+    let reset () = set ActionMap.empty
+    let query i = ActionMap.find_opt i (get ()) |> O.map snd |> O.flatten
+  end
+
   let make_token_supplier (lexer_entry : Tokenizer.entrypoint)
-      (lexer_automata : Lex.Lexgen.automata array)
-      (lexer_action_map : lexer_behavior ActionMap.t) (lexbuf : Lexing.lexbuf) =
+      (lexer_automata : Tokenizer.automata) (lexbuf : Lexing.lexbuf) =
     let rec next_token () =
       let tok : token =
         Tokenizer.next_token lexbuf lexer_entry lexer_automata
       in
       let data = tok.v in
       let open O in
-      match ActionMap.find_opt data.action lexer_action_map with
+      match LexerActionMap.query data.action with
       | None ->
           Error (spr "unbound action: don't know how to interpret %s" data.text)
       | Some terminal -> (
           match terminal with
           | Skip -> next_token ()
           | Fail -> Error "lexer error"
-          | Produce term -> Ok (Terminal.of_int term, tok))
+          | Produce term -> Ok (term, tok))
     in
     next_token
 
   let parse_with_positions (entrypoint : entrypoint)
-      (lexer_entry : Tokenizer.entrypoint)
-      (lexer_automata : Lex.Lexgen.automata array)
-      (lexer_action_map : lexer_behavior ActionMap.t) (lexbuf : Lexing.lexbuf) :
-      (token_derivation_tree, _) result =
+      (lexer_entry : Tokenizer.entrypoint) (lexer_automata : Tokenizer.automata)
+      (lexbuf : Lexing.lexbuf) : (token_derivation_tree, _) result =
     let { start_nt; start_lr1; _ } = entrypoint in
-    let next_token =
-      make_token_supplier lexer_entry lexer_automata lexer_action_map lexbuf
-    in
+    let next_token = make_token_supplier lexer_entry lexer_automata lexbuf in
     let tokens =
       (* Seq.(memoize (of_dispenser (next_token >> O.of_result))); *)
       Seq.(of_dispenser (next_token >> O.some))
     in
     loop_with_positions entrypoint start_lr1 [] None tokens true []
 
-  open Tokenizer.Persistent
-
-  let make_persistent_token_supplier (lexer_entry : Tokenizer.entrypoint)
-      (lexer_automata : Lex.Lexgen.automata array)
-      (lexer_action_map : lexer_behavior ActionMap.t) (buffer : bytes) =
-    let rec next_token (lexbuf : Tokenizer.Persistent.lexbuf) =
-      let lexbuf', tok =
-        Tokenizer.Persistent.next_token buffer lexbuf lexer_entry lexer_automata
-      in
-      let data = tok.v in
-      match ActionMap.find_opt data.action lexer_action_map with
-      | None ->
-          ( lexbuf',
-            Error
-              (spr "empty action: don't know how to interpret the text %S"
-                 data.text) )
-      | Some terminal -> (
-          match terminal with
-          | Skip -> next_token lexbuf'
-          | Fail -> (lexbuf', Error "lexer error")
-          | Produce term -> (lexbuf', Ok (Terminal.of_int term, tok)))
-    in
-    next_token
+  (* ########################################################################
+   * Small-step Interpreter
+   * ######################################################################## *)
 
   type env = {
     time : Nat.t;
@@ -679,6 +661,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
               state = state';
               stack = push stack (Located.map (fun _ -> (T t, state')) token);
               lookahead = Some tok;
+              (* would it be sensible setting the lookahead to None after shifting? (tried, interpreter explodes). The success of the !! call earlies depends on whether there is a default reduction. *)
               derivation =
                 push derivation (Leaf (Located.map (fun _ -> (t, token)) token));
             }
@@ -749,15 +732,69 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           log_error "rejected token %s" (Terminal.name t);
           Rejected (T t, env)
 
-  type interpreter_state = {
-    mutable current : checkpoint;
-    step_forward : checkpoint -> checkpoint;
-    step_back : checkpoint -> checkpoint;
-    play_forward : ?pause:bool -> checkpoint -> checkpoint;
-    play_back : ?pause:bool -> checkpoint -> checkpoint;
-  }
+  module Interpreter = struct
+    type state = {
+      mutable current : checkpoint;
+      step_forward : checkpoint -> checkpoint;
+      step_back : checkpoint -> checkpoint;
+      play_forward : ?pause:bool -> checkpoint -> checkpoint;
+      play_back : ?pause:bool -> checkpoint -> checkpoint;
+    }
 
-  let interpreter_state : interpreter_state option ref = ref None
+    let state_ref : state option ref = ref None
+
+    let get_state () =
+      match !state_ref with
+      | None -> failwith "Interpreter not connected"
+      | Some i -> i
+
+    let current_checkpoint () =
+      let i = get_state () in
+      i.current
+
+    let step_forward () =
+      let i = get_state () in
+      i.current <- i.step_forward i.current
+
+    let step_back () =
+      let i = get_state () in
+      i.current <- i.step_back i.current
+
+    let play_forward ?pause () =
+      let i = get_state () in
+      i.current <- i.play_forward ?pause i.current
+
+    let play_back ?pause () =
+      let i = get_state () in
+      i.current <- i.play_back ?pause i.current
+
+    let disconnect () =
+      LexerActionMap.reset ();
+      state_ref := None
+  end
+
+  open Tokenizer.Persistent
+
+  let make_persistent_token_supplier (lexer_entry : Tokenizer.entrypoint)
+      (lexer_automata : Tokenizer.automata) (buffer : bytes) =
+    let rec next_token (lexbuf : Tokenizer.Persistent.lexbuf) =
+      let lexbuf', tok =
+        Tokenizer.Persistent.next_token buffer lexbuf lexer_entry lexer_automata
+      in
+      let data = tok.v in
+      match LexerActionMap.query data.action with
+      | None ->
+          ( lexbuf',
+            Error
+              (spr "empty action: don't know how to interpret the text %S"
+                 data.text) )
+      | Some terminal -> (
+          match terminal with
+          | Skip -> next_token lexbuf'
+          | Fail -> (lexbuf', Error "lexer error")
+          | Produce term -> (lexbuf', Ok (term, tok)))
+    in
+    next_token
 
   (** Computes two closures to step forward an backward on an history of
       checkpoints. These functions are not returned but are encapsulated in the
@@ -770,12 +807,10 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
       [Accepted] or [Rejected], because [step_forward] makes no progress on
       them. *)
   let parse_with_checkpoints (entrypoint : entrypoint)
-      (lexer_entry : Tokenizer.entrypoint)
-      (lexer_automata : Lex.Lexgen.automata array)
-      (lexer_action_map : lexer_behavior ActionMap.t) (buffer : bytes) =
+      (lexer_entry : Tokenizer.entrypoint) (lexer_automata : Tokenizer.automata)
+      (buffer : bytes) =
     let next_token =
-      make_persistent_token_supplier lexer_entry lexer_automata lexer_action_map
-        buffer
+      make_persistent_token_supplier lexer_entry lexer_automata buffer
     in
 
     let rec bottom : env =
@@ -843,7 +878,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
       | c -> play_back ~pause c
     in
 
-    interpreter_state :=
+    Interpreter.state_ref :=
       Some
         {
           current = init_checkpoint;
@@ -853,102 +888,77 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           play_back;
         }
 
-  let get_state () =
-    match !interpreter_state with
-    | None -> failwith "Interpreter not connected"
-    | Some i -> i
-
-  let current_checkpoint () =
-    let i = get_state () in
-    i.current
-
-  let step_forward () =
-    let i = get_state () in
-    i.current <- i.step_forward i.current
-
-  let step_back () =
-    let i = get_state () in
-    i.current <- i.step_back i.current
-
-  let play_forward ?pause () =
-    let i = get_state () in
-    i.current <- i.play_forward ?pause i.current
-
-  let play_back ?pause () =
-    let i = get_state () in
-    i.current <- i.play_back ?pause i.current
-
-  let disconnect () = interpreter_state := None
-
   (** Creates a mapping between this [G]'s tokens and the actions of the given
       lexer's rule by searching for token occurrences within the rule's actions.
-  *)
-  let connect_lexer_entry (entry : OcamllexSyntax.Syntax.entry) :
-      (_ * lexer_behavior option) ActionMap.t =
-    let actions =
+
+      This implementation assumes that the indeces of the actions produced by
+      the tokenizer respect the declaration order of the entry's cases. *)
+  let plug_lexer_entry (entry : OcamllexSyntax.Syntax.entry) =
+    let clauses =
       let open OcamllexSyntax.Located in
       L.map
         (fun { v = regexp, text; _ } ->
           (* Call menhirformat to stringify the regexp *)
           let fmt = new MF.Ocamllex.formatter MF.Utils.Config.default_config in
-          let regexp_text =
+          let pretty_regexp =
             fmt#visit_regular_expression_syntax () regexp.v
             |> spr "%a" (PPrint.ToFormatter.pretty 1. 9999)
           in
           Utils.Range.Located.
-            (of_lexpos regexp_text regexp.p, of_lexpos text.v text.p))
+            (of_lexpos pretty_regexp regexp.p, of_lexpos text.v text.p))
         entry.clauses
     in
     let log s = log_src "connect_lexer" s in
-    L.foldi
-      (* todo: [idx] may not correspond to the actual index of the action in the table of actions generated by ocamllex. Please double check. *)
-      (fun (acc : _ ActionMap.t) (idx : int)
-           ((regexp, text) : string Located.t * string Located.t) ->
-        (* Logic: parse the action text and see if it contains any constructor whose name matches a token known by [G] or calls [Lexing.new_line] or resembles code that raises an exception. We're really oversimplifying stuff here and the following static code analysis may be cursed. *)
-        let data =
-          try
-            log "parsing action #%d with text %S" idx text.v;
-            let ocaml_ast =
-              Ppxlib.Parse.implementation (Lexing.from_string text.v)
-            in
-
-            let vars =
-              Menhir_lsp_lib.OcamlSymbols.get_fvars ocaml_ast
-              |> L.map (fun (v : string Ppxlib.Loc.t) -> v.txt)
-            in
-            let does_fail =
-              L.exists (fun txt -> txt = "raise" || txt = "failwith") vars
-            in
-            let does_skip = L.mem entry.name.v vars in
-            let constructors =
-              Menhir_lsp_lib.OcamlSymbols.get_tags ocaml_ast
-              |> L.map Ppxlib.Loc.txt
-            in
-            log "constructors found: %a"
-              (L.pp (fun out t -> pf out "%s" t))
-              constructors;
-            let does_token =
-              Terminal.fold
-                (fun term acc' ->
-                  if L.exists (String.equal (Terminal.name term)) constructors
-                  then Some term
-                  else acc')
-                None
-            in
-            match (does_fail, does_skip, does_token) with
-            | true, _, _ -> Some Fail
-            | _, true, _ -> Some Skip
-            | _, _, Some v -> Some (Produce (Terminal.to_int v))
-            | _ ->
-                (* uninterpreted action, the user should set its behaviour through the UI. *)
-                None
-          with _ ->
-            log "failed to parse action #%d" idx;
-            (* We could be more lenient and skip it to read the next token instead of diverging here. *)
+    let analyze idx (text : string Located.t) =
+      try
+        log "parsing action #%d with text %S" idx text.v;
+        let ocaml_ast =
+          Ppxlib.Parse.implementation (Lexing.from_string text.v)
+        in
+        let vars =
+          Menhir_lsp_lib.OcamlSymbols.get_fvars ocaml_ast
+          |> L.map (fun (v : string Ppxlib.Loc.t) -> v.txt)
+        in
+        let does_fail =
+          L.exists (fun txt -> txt = "raise" || txt = "failwith") vars
+        in
+        let does_skip = L.mem entry.name.v vars in
+        let constructors =
+          Menhir_lsp_lib.OcamlSymbols.get_tags ocaml_ast |> L.map Ppxlib.Loc.txt
+        in
+        log "constructors found: %a"
+          (L.pp (fun out t -> pf out "%s" t))
+          constructors;
+        let does_produce =
+          Terminal.fold
+            (fun term acc' ->
+              if L.exists (String.equal (Terminal.name term)) constructors then
+                Some term
+              else acc')
             None
         in
-        ActionMap.add idx (regexp, data) acc)
-      ActionMap.empty actions
+        match (does_fail, does_skip, does_produce) with
+        | true, _, _ -> Some Fail
+        | _, true, _ -> Some Skip
+        | _, _, Some v -> Some (Produce v)
+        | _ ->
+            log_error
+              "could not decipher behavior of action #%d, please set it \
+               manually"
+              idx;
+            None
+      with _ ->
+        log_error "failed to parse action #%d" idx;
+        None
+    in
+    let m : early_action_map =
+      L.foldi
+        (fun (acc : _ ActionMap.t) (idx : int)
+             ((regexp, text) : string Located.t * string Located.t) ->
+          ActionMap.add idx (regexp, analyze idx text) acc)
+        ActionMap.empty clauses
+    in
+    LexerActionMap.set m
 end
 
 (** The signature of modules returned by the [Make] functor. *)
@@ -991,11 +1001,6 @@ module type S = sig
   type token_derivation =
     ((terminal * token) located, nonterminal located) derivation
 
-  type json = Utils.Json.t
-
-  val yotagged : string -> json -> json
-  val yodict : (string * json) list -> json
-  val yolist : ('a -> json) -> 'a list -> json
   val yolr1 : lr1 -> json
   val yosymbol : symbol -> json
   val yoterminal : terminal -> json
@@ -1031,9 +1036,6 @@ module type S = sig
     simple_derivation_tree
 
   val parse_terminals : entrypoint -> string list -> simple_derivation_tree
-
-  module ActionMap : module type of Map.Make (Int)
-
   val lexer_error : string -> [> `LexerError of string ]
 
   val read :
@@ -1059,31 +1061,7 @@ module type S = sig
       * token_derivation )
     result
 
-  type lexer_behavior = Skip | Fail | Produce of int
-
-  val lexer_behavior_map_of_yojson : json list -> lexer_behavior ActionMap.t
-
-  val make_token_supplier :
-    Tokenizer.entrypoint ->
-    Lex.Lexgen.automata array ->
-    lexer_behavior ActionMap.t ->
-    Lexing.lexbuf ->
-    unit ->
-    (terminal * token, string) result
-
-  val parse_with_positions :
-    entrypoint ->
-    Tokenizer.entrypoint ->
-    Lex.Lexgen.automata array ->
-    lexer_behavior ActionMap.t ->
-    Lexing.lexbuf ->
-    ( token_derivation_tree,
-      [> `EOS_conflict of (symbol * lr1) * production
-      | `LexerError of string
-      | `Rejected of symbol
-      | `ShiftReduce_conflict of (symbol * lr1) * production ]
-      * token_derivation )
-    result
+  type lexer_behavior = Skip | Fail | Produce of terminal
 
   type env = {
     time : Nat.t;
@@ -1108,22 +1086,24 @@ module type S = sig
   val yojson_of_env : env -> json
   val yojson_of_checkpoint : checkpoint -> json
 
+  module LexerActionMap : sig
+    val bindings : unit -> (int * (string located * lexer_behavior option)) list
+    val edit : int -> lexer_behavior -> unit
+    val reset : unit -> unit
+    val query : int -> lexer_behavior option
+  end
+
+  module Interpreter : sig
+    val current_checkpoint : unit -> checkpoint
+    val step_forward : unit -> unit
+    val step_back : unit -> unit
+    val play_forward : ?pause:bool -> unit -> unit
+    val play_back : ?pause:bool -> unit -> unit
+    val disconnect : unit -> unit
+  end
+
   val parse_with_checkpoints :
-    entrypoint ->
-    Tokenizer.entrypoint ->
-    Lex.Lexgen.automata array ->
-    lexer_behavior ActionMap.t ->
-    bytes ->
-    unit
+    entrypoint -> Tokenizer.entrypoint -> Tokenizer.automata -> bytes -> unit
 
-  val current_checkpoint : unit -> checkpoint
-  val step_forward : unit -> unit
-  val step_back : unit -> unit
-  val play_forward : ?pause:bool -> unit -> unit
-  val play_back : ?pause:bool -> unit -> unit
-  val disconnect : unit -> unit
-
-  val connect_lexer_entry :
-    OcamllexSyntax.Syntax.entry ->
-    (string Located.t * lexer_behavior option) ActionMap.t
+  val plug_lexer_entry : OcamllexSyntax.Syntax.entry -> unit
 end

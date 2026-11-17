@@ -3,11 +3,11 @@ open Menhir_lsp_lib
 open Utils
 open Syntax
 
-type rule = { name : string; module_path : string }
-type entrypoint = (string list, location) Lexgen.automata_entry
 type position = Lexing.position
 type range = position * position
-type lexer_machine = entrypoint list * Lex.Lexgen.automata array
+type entrypoint = (string list, location) Lexgen.automata_entry
+type automata = Lex.Lexgen.automata array
+type lexer = entrypoint list * automata
 type token_data = { text : string; action : int }
 type token = token_data Range.Located.t
 
