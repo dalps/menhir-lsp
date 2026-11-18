@@ -470,12 +470,6 @@ async function startParserWithCheckpointsView(
   function updateViews(c: Checkpoint) {
     let { env } = c.value;
 
-    derivationTreeView.description = `(${c.kind})`;
-    derivationTreeView.message = `Checkpoint #${env.time} · ${c.kind} · State ${env.state}`;
-
-    env.lookahead &&
-      (derivationTreeView.message += `, looking at ${env.lookahead.terminal}`);
-
     if (editor && env.lookahead) {
       let range = liftRange(env.lookahead.token.range);
       editor.setDecorations(progressHighlight, [
@@ -490,19 +484,53 @@ async function startParserWithCheckpointsView(
     stackProvider.refresh(env.stack);
     treeProvider.refresh(env.derivation);
 
-    // Update the derivation view message
+    // Update the derivation view's description
     switch (c.kind) {
       case "inputNeeded":
+        derivationTreeView.description = `Input needed`;
+        break;
+      case "lexerError":
+        derivationTreeView.description = `Lexer error`;
+        break;
+      case "shifting":
+        derivationTreeView.description = `Shifting`;
+        break;
+      case "reducing":
+        derivationTreeView.description = `Reducing`;
+        break;
+      case "accepted":
+        derivationTreeView.description = `Accepted`;
+        break;
+      case "rejected":
+        derivationTreeView.description = `Rejected`;
+        break;
+    }
+
+    // Update the derivation view's message
+    derivationTreeView.message = `Checkpoint #${env.time} · State ${env.state}`;
+
+    env.lookahead &&
+      (derivationTreeView.message += `, looking at ${env.lookahead.terminal}`);
+
+    switch (c.kind) {
+      case "inputNeeded":
+        derivationTreeView.message += ` · Input needed`;
+        break;
+      case "lexerError":
+        derivationTreeView.message += ` · Lexer error: ${c.value.message}`;
         break;
       case "shifting":
         derivationTreeView.message += ` · Shifting token ${c.value.terminal}`;
         break;
       case "reducing":
         let { lhs, rhs } = c.value.production.value;
-        derivationTreeView.message += ` · Reducing production ${lhs} -> ${rhs.join(" ")}`;
+        derivationTreeView.message += ` · Reducing production ${lhs} → ${rhs.join(" ")}`;
+        break;
       case "accepted":
+        derivationTreeView.message += ` · Accepted (reduced start production)`;
         break;
       case "rejected":
+        derivationTreeView.message += ` · Rejected`;
         break;
     }
   }

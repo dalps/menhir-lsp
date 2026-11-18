@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { Range } from "vscode-languageclient";
+import { Position, Range } from "vscode-languageclient";
 import { QuickPickItemWithData, WithRange } from "./types";
 import { CodiconId } from "./codicons";
 
@@ -114,9 +114,11 @@ export const md = (strings: TemplateStringsArray, ...values: any[]) =>
     true,
   );
 
-export function stringOfRange(range: vscode.Range | Range): string {
-  return `[${range.start.line}:${range.start.character}-${range.end.line}:${range.end.character}]`;
-}
+export const stringOfPosition = (p: vscode.Position | Position) =>
+  `${p.line + 1}:${p.character + 1}`;
+
+export const stringOfRange = (r: vscode.Range | Range) =>
+  `[${stringOfPosition(r.start)}-${stringOfPosition(r.end)}]`;
 
 export const rgba = (r: number, g: number, b: number, a: number) =>
   `rgba(${r},${g},${b}, ${a})`;

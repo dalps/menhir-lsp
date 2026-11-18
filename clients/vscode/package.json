@@ -39,6 +39,22 @@
         "description": "The background color of the source code contained in the highlighted AST node."
       }
     ],
+    "icons": {
+      "play-to-start": {
+        "description": "Play/Run to start",
+        "default": {
+          "fontPath": "icons/myiconfont.ttf",
+          "fontCharacter": "\\c350"
+        }
+      },
+      "play-to-end": {
+        "description": "Play/Run to end",
+        "default": {
+          "fontPath": "icons/myiconfont.ttf",
+          "fontCharacter": "\\c351"
+        }
+      }
+    },
     "languages": [
       {
         "id": "ocaml.menhir",
@@ -71,11 +87,6 @@
         {
           "command": "menhir-lsp-client.refreshEntrypoints",
           "when": "view == menhir-lsp-entrypoint-explorer",
-          "group": "navigation"
-        },
-        {
-          "command": "menhir-lsp-client.startParserWithPositions",
-          "when": "view == menhir-lsp-action-map",
           "group": "navigation"
         },
         {
@@ -244,7 +255,7 @@
       },
       {
         "view": "menhir-lsp-action-map",
-        "contents": "This view shows a model of the lexer semantics with respect to a grammar's token set. It will be populated automatically after you start the intepreter for a parser entripoint from the Entrypoint Explorer view and have selected a lexer rule that will produce tokens for it.\nThe initial mapping is automatically inferred and may be inaccurate or incomplete. You can tweak it while the interpeter is running to better match the lexer's semantics through the edit pencil 🖉 of each item. The options for each regexp are: (a) emit a token of the grammar; (b) skip and read the next token; (c) fail."
+        "contents": "This view shows a model of a lexer's semantics with respect to a grammar's token set. It will get populated automatically after you start the intepreter for a grammar rule from the Entrypoint Explorer and have selected a lexer rule that will produce tokens.\nThe initial mapping is inferred heuristically and thus may be inaccurate or incomplete. You can tweak it while the interpeter is running to better suit the lexer's semantics through the edit pencil 🖉 of each item. Each pattern can: (a) produce a token of the grammar; (b) be skipped to read the next one; (c) fail and halt the interpreter."
       }
     ],
     "viewsContainers": {
@@ -355,13 +366,13 @@
         "title": "Menhir: Jump to end",
         "enablement": "menhir-lsp-client.interpreterRunning == true",
         "command": "menhir-lsp-client.playToEnd",
-        "icon": "icons/play_to_end.svg"
+        "icon": "$(play-to-end)"
       },
       {
         "title": "Menhir: Jump to start",
         "enablement": "menhir-lsp-client.interpreterRunning == true",
         "command": "menhir-lsp-client.playToStart",
-        "icon": "icons/play_to_start.svg"
+        "icon": "$(play-to-start)"
       },
       {
         "title": "Menhir: Run Parser",

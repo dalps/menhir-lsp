@@ -120,6 +120,7 @@ export type WithEnv = { env: Env };
 
 export type Checkpoint =
   | Variant<"inputNeeded", WithEnv>
+  | Variant<"lexerError", WithEnv & { message: string }>
   | Variant<"shifting", WithEnv & { terminal: string }>
   | Variant<"reducing", WithEnv & { production: Located<Production> }>
   | Variant<"accepted", WithEnv & DerivationTree>
