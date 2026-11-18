@@ -24,7 +24,7 @@ let command_dict =
     ("startTokenizer", `StartTokenizer);
     ("startParser", `StartParser);
     ("startParserWithCheckpoints", `StartParserWithCheckpoints);
-    (* ("updateActionMap", `ConnectParserWithLexer); *)
+    ("updateLexerBinding", `UpdateLexerBinding);
     ("stepForward", `StepForward);
     ("stepBackward", `StepBackward);
     ("playForward", `PlayForward);
@@ -343,8 +343,8 @@ class lsp_server =
         let* uri = uri_of_args args in
         let* state = CCHashtbl.get mly_buffers uri in
         let+ adapter = state.cmly in
-        log "✔ got of %a adapter" pp_uri uri;
-        k adapter
+        log "✔ got adapter of %a" pp_uri uri;
+        k uri adapter
       in
       (* Helper for handling .messages commands *)
       let focus f =
@@ -381,6 +381,13 @@ class lsp_server =
                        (pr_nt.v, Range.of_lexical_positions p))
                  state.grammar.pg_rules)
       in
+      let entry_args (args : json list option) =
+        match args with
+        | Some (`Assoc ((_, `String name) :: (_, `String moduleUri) :: _) :: _)
+          ->
+            Some (name, Uri.of_string moduleUri)
+        | _ -> None
+      in
       match L.assoc ~eq:String.equal command command_dict with
       | `GetAst ->
           let* uri = uri_of_args args in
@@ -410,47 +417,63 @@ class lsp_server =
       | `ListEntrypoints ->
           Some (`List (get_mly_entries () @ get_mll_entries ()))
       | `ListTokens ->
-          let* entrypoint_name, mly_uri =
-            match args with
-            | Some [ `Assoc ((_, `String name) :: (_, `String moduleUri) :: _) ]
-              ->
-                Some (name, moduleUri)
-            | _ -> None
-          in
-          let* state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
-          let* (module D) = state.cmly in
-          let open D.G in
-          let res =
-            let open Terminal in
-            fold
-              (fun t acc ->
-                yodict [ ("id", `Int (to_int t)); ("name", `String (name t)) ]
-                :: acc)
-              []
-          in
-          Some (`List (List.rev res))
+          with_adapter (fun mly_uri (module D) ->
+              let open D in
+              let res =
+                G.Terminal.fold
+                  (fun t acc ->
+                    O.map_or ~default:acc (L.cons' acc) (yoterminal' ~mly_uri t))
+                  []
+              in
+              `List (List.rev res))
       | `StartParser ->
-          let* input, entrypoint_name, mly_uri =
+          let* entrypoint_name, mly_uri = entry_args args in
+          let* input =
             match args with
-            | Some
-                [
-                  _;
-                  input;
-                  `Assoc ((_, `String name) :: (_, `String moduleUri) :: _);
-                ] ->
-                Some
-                  ( Yojson.Safe.Util.(to_list input |> L.map to_string),
-                    name,
-                    moduleUri )
+            | Some [ _; input ] ->
+                Some Yojson.Safe.Util.(to_list input |> L.map to_string)
             | _ -> None
           in
-          let* state = CCHashtbl.get mly_buffers (Uri.of_string mly_uri) in
+          let* state = CCHashtbl.get mly_buffers mly_uri in
           let* cmly = state.cmly in
           let* (module D) = state.Mly.cmly in
           let module G = D.G in
           let* entrypoint = D.get_entrypoint entrypoint_name in
           let derivation = D.parse_terminals entrypoint input in
           Some (D.yojson_of_simple_derivation [ derivation ])
+      | `UpdateLexerBinding ->
+          let* mly_uri, mll_uri, id, v =
+            match args with
+            | Some [ `String mly_uri; `String mll_uri; `Int id; v ] ->
+                Some (Uri.of_string mly_uri, Uri.of_string mll_uri, id, v)
+            | _ -> None
+          in
+          let* mly_state = CCHashtbl.get mly_buffers mly_uri in
+          let* (module D) = mly_state.cmly in
+          let open D in
+          let open D.G in
+          log "got adapter";
+          let open Lex in
+          let* lexer_behavior =
+            match v with
+            | `Assoc (("kind", `String k) :: rest) -> (
+                match k with
+                | "skip" -> Some Skip
+                | "fail" -> Some Fail
+                | "token" -> (
+                    match rest with
+                    | ("value", `Assoc obj) :: _ -> (
+                        let* id = L.assoc_opt ~eq:String.equal "id" obj in
+                        match id with
+                        | `Int id -> Some (Produce (Terminal.of_int id))
+                        | _ -> None)
+                    | _ -> None)
+                | _ -> None)
+            | _ -> None
+          in
+          log "parsed behavior";
+          LexerActionMap.edit id lexer_behavior;
+          Some (`List (LexerActionMap.to_yojsons ~mly_uri ~mll_uri))
       | `StartParserWithCheckpoints ->
           let log s = log_src "small-step" s in
           let* source_uri, rule_name, mll_uri, entrypoint_name, mly_uri =
@@ -470,37 +493,6 @@ class lsp_server =
           log "got lexer";
           let open D in
           plug_lexer_entry lexer_rule.v;
-          let actions : json list =
-            let open L in
-            let open Utils in
-            let open Utils.Range in
-            let+ k, (regexp, v) = LexerActionMap.bindings () in
-            let yoaction =
-              yojson_of_option (function
-                | Skip -> yovariant "skip"
-                | Fail -> yovariant "fail"
-                | Produce t ->
-                    (* [Option.get] is safe as long as [v] is never a pseudotoken ('error' or '#') *)
-                    let t = Located.make t !!(position_of_terminal t) in
-                    yovariant
-                      ~value:
-                        ([
-                           ("id", `Int (Terminal.to_int t.v));
-                           ("moduleUri", `String (Uri.to_string mly_uri));
-                           ("range", Range.yojson_of_t t.p);
-                           ("name", `String (Terminal.name t.v));
-                         ]
-                        |> yodict)
-                      "token")
-            in
-            [
-              ("moduleUri", `String (Uri.to_string mll_uri));
-              ("id", `Int k);
-              ("regexp", Located.yojson_of_t yostring regexp);
-              ("action", yoaction v);
-            ]
-            |> yodict
-          in
           log "reading input from file %s" (Uri.to_path source_uri);
           In_channel.with_open_text (Uri.to_path source_uri) (fun ic ->
               Utils.Range.Located.track_file source_uri;
@@ -510,43 +502,44 @@ class lsp_server =
               Some
                 (yodict
                    [
-                     ("lexerBindings", `List actions);
+                     ( "lexerBindings",
+                       `List (LexerActionMap.to_yojsons ~mly_uri ~mll_uri) );
                      ( "start",
                        yojson_of_checkpoint (Interpreter.current_checkpoint ())
                      );
                    ]))
       | `StepForward ->
-          with_adapter (fun (module D) ->
+          with_adapter (fun _ (module D) ->
               let open D.Interpreter in
               step_forward ();
               current_checkpoint () |> D.yojson_of_checkpoint)
       | `StepBackward ->
-          with_adapter (fun (module D) ->
+          with_adapter (fun _ (module D) ->
               let open D.Interpreter in
               step_back ();
               current_checkpoint () |> D.yojson_of_checkpoint)
       | `PlayForward ->
-          with_adapter (fun (module D) ->
+          with_adapter (fun _ (module D) ->
               let open D.Interpreter in
               play_forward ();
               current_checkpoint () |> D.yojson_of_checkpoint)
       | `PlayBackward ->
-          with_adapter (fun (module D) ->
+          with_adapter (fun _ (module D) ->
               let open D.Interpreter in
               play_back ();
               current_checkpoint () |> D.yojson_of_checkpoint)
       | `PlayToEnd ->
-          with_adapter (fun (module D) ->
+          with_adapter (fun _ (module D) ->
               let open D.Interpreter in
               play_forward ~pause:false ();
               current_checkpoint () |> D.yojson_of_checkpoint)
       | `PlayToStart ->
-          with_adapter (fun (module D) ->
+          with_adapter (fun _ (module D) ->
               let open D.Interpreter in
               play_back ~pause:false ();
               current_checkpoint () |> D.yojson_of_checkpoint)
       | `Disconnect ->
-          with_adapter (fun (module D) ->
+          with_adapter (fun _ (module D) ->
               let open D.Interpreter in
               disconnect ();
               `Null)

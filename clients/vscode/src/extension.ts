@@ -379,9 +379,8 @@ async function startParserView(
 
   const derivations = await execServerCmd<DerivationTree[]>(
     cmd,
-    null,
-    tokens,
     startSymbol,
+    tokens,
   );
 
   const d0 = derivations.at(0);
@@ -417,13 +416,19 @@ async function startParserWithCheckpointsView(
     return;
   }
 
-  let sourceUri = editor.document.uri.toString();
+  let sourceUri = editor.document.uri;
+
+  if (sourceUri.scheme !== "file") {
+    vscode.window.showErrorMessage("Input source must be a file.");
+    return;
+  }
+
   let grammarUri = vscode.Uri.parse(startSymbol.moduleUri);
 
   const res = await execServerCmd<{
     lexerBindings: ActionMapping[];
     start: Checkpoint;
-  }>(cmd, sourceUri, lexerRule, startSymbol);
+  }>(cmd, sourceUri.toString(), lexerRule, startSymbol);
 
   setContext("interpreterRunning", true);
 
@@ -535,7 +540,7 @@ async function startParserWithCheckpointsView(
     aux("playToEnd"),
     registerCmd("stopInterpreter", async () => {
       setContext("interpreterRunning", false);
-      await execServerCmd("disconnect", grammarUri);
+      await execServerCmd("disconnect", startSymbol.moduleUri);
 
       derivationTreeView.message =
         derivationTreeView.description =
@@ -553,7 +558,7 @@ async function startParserWithCheckpointsView(
     }),
     // Note: commands invoked from tree items buttons receive the item's data as the first argument
     registerCmd("editRegexpTokenBinding", (binding) => {
-      editRegexpBinding(binding, startSymbol);
+      editRegexpBinding(actionProvider, binding, startSymbol);
     }),
   );
 }
@@ -736,18 +741,25 @@ export async function gotoImplementation(
   );
 }
 
-async function editRegexpBinding(binding: ActionMapping, entry: Entry) {
-  const tokens = (await execServerCmd("listTokens", entry)) as Terminal[];
+async function editRegexpBinding(
+  actionProvider: ActionMapProvider,
+  oldBinding: ActionMapping,
+  entry: Entry,
+) {
+  const tokens = (await execServerCmd(
+    "listTokens",
+    entry.moduleUri,
+  )) as Terminal[];
 
   const newBinding = await setupQuickPick<LexerAction>(
-    `Select the token to match to action ${binding.action}`,
+    `Select the action to perform for the pattern ${oldBinding.regexp.value}`,
     [
       choose("$(skip) Skip", { kind: LexerActionKind.Skip }),
       choose("$(error) Fail", { kind: LexerActionKind.Fail }),
       ...tokens.map((token) =>
         choose(`$(symbol-constant) Produce ${token.name}`, {
           kind: LexerActionKind.Produce,
-          value: { token },
+          value: token,
         }),
       ),
     ],
@@ -755,9 +767,16 @@ async function editRegexpBinding(binding: ActionMapping, entry: Entry) {
 
   if (!newBinding) return;
 
-  await execServerCmd("editBinding", entry);
+  let bindings = await execServerCmd<ActionMapping[]>(
+    "updateLexerBinding",
+    entry.moduleUri, // mly_uri
+    oldBinding.moduleUri, // mll_uri
+    oldBinding.id,
+    newBinding,
+  );
 
   vscode.window.showInformationMessage("Binding updated.");
+  actionProvider.refresh(bindings);
 }
 
 const askForSourceKind = () =>

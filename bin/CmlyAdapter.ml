@@ -139,6 +139,18 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   let yolr1 x : json = `Int (Lr1.to_int x)
   let yosymbol x : json = `String (X.name x)
   let yoterminal t : json = `String (T.name t)
+
+  let yoterminal' ~mly_uri t : json option =
+    let open O in
+    let+ pos = position_of_terminal t in
+    [
+      ("id", `Int (T.to_int t));
+      ("moduleUri", `String (Uri.to_string mly_uri));
+      ("range", Utils.Range.yojson_of_t pos);
+      ("name", `String (T.name t));
+    ]
+    |> yodict
+
   let yononterminal t : json = `String (NT.name t)
 
   let yoproduction (p : production) : json =
@@ -428,8 +440,10 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         log_error "rejected token %s" (Terminal.name t);
         Error (`Rejected (T t)) |> attach_derivation
 
-  (* Modeling the things a semantic action of a lexer rule can do. *)
+  (** This type models the things a semantic action of a lexer rule can do. *)
   type lexer_behavior = Skip | Fail | Produce of terminal
+  (* | Call of Tokenizer.entrypoint * lexer_behavior *)
+
   type early_action_map = (string Located.t * lexer_behavior option) ActionMap.t
   type total_action_map = lexer_behavior ActionMap.t
 
@@ -472,6 +486,27 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
     let reset () = set ActionMap.empty
     let query i = ActionMap.find_opt i (get ()) |> O.map snd |> O.flatten
+
+    let to_yojsons ~mly_uri ~mll_uri : json list =
+      let open L in
+      let open Utils in
+      let open Utils.Range in
+      let+ k, (regexp, v) = bindings () in
+      let yoaction =
+        yojson_of_option (function
+          | Skip -> yovariant "skip"
+          | Fail -> yovariant "fail"
+          | Produce t ->
+              (* [Option.get] is safe because we never produce the pseudotokens 'error' or '#'. *)
+              yovariant ~value:!!(yoterminal' ~mly_uri t) "token")
+      in
+      [
+        ("moduleUri", `String (Uri.to_string mll_uri));
+        ("id", `Int k);
+        ("regexp", Located.yojson_of_t yostring regexp);
+        ("action", yoaction v);
+      ]
+      |> yodict
   end
 
   let make_token_supplier (lexer_entry : Tokenizer.entrypoint)
@@ -1004,6 +1039,7 @@ module type S = sig
   val yolr1 : lr1 -> json
   val yosymbol : symbol -> json
   val yoterminal : terminal -> json
+  val yoterminal' : mly_uri:uri -> terminal -> json option
   val yononterminal : nonterminal -> json
   val yoproduction : production -> json
 
@@ -1091,6 +1127,7 @@ module type S = sig
     val edit : int -> lexer_behavior -> unit
     val reset : unit -> unit
     val query : int -> lexer_behavior option
+    val to_yojsons : mly_uri:uri -> mll_uri:uri -> json list
   end
 
   module Interpreter : sig
