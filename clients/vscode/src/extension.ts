@@ -36,6 +36,7 @@ import {
 import {
   choose,
   liftRange,
+  md,
   rand,
   rgba,
   sep,
@@ -282,7 +283,6 @@ export function activate(context: vscode.ExtensionContext) {
     registerCmd("startParser", (start) =>
       startParserView(derivationTreeProvider, start),
     ),
-
     registerCmd(
       "startParserWithCheckpoints",
       (parserEntrypoint, lexerEntrypoint, source) =>
@@ -408,6 +408,7 @@ async function startParserWithCheckpointsView(
   if (!startSymbol) return;
 
   lexerRule = lexerRule || (await selectLexer());
+  if (!lexerRule) return;
 
   let editor = vscode.window.activeTextEditor;
 
@@ -430,6 +431,11 @@ async function startParserWithCheckpointsView(
     start: Checkpoint;
   }>(cmd, sourceUri.toString(), lexerRule, startSymbol);
 
+  if (!res) {
+    vscode.window.showErrorMessage("Server failed to start the interpreter.");
+    return;
+  }
+
   setContext("interpreterRunning", true);
 
   actionProvider.refresh(res.lexerBindings);
@@ -448,21 +454,11 @@ async function startParserWithCheckpointsView(
 
   let cursorDeco: vscode.TextEditorDecorationType =
     vscode.window.createTextEditorDecorationType({
-      dark: {
-        before: {
-          contentIconPath: cursorDark,
-        },
-        after: {
-          contentIconPath: cursorDark,
-        },
+      before: {
+        contentText: "🠷",
       },
-      light: {
-        before: {
-          contentIconPath: cursorLight,
-        },
-        after: {
-          contentIconPath: cursorLight,
-        },
+      after: {
+        contentText: "🠷",
       },
     });
 
@@ -477,7 +473,9 @@ async function startParserWithCheckpointsView(
           range: new vscode.Range(new vscode.Position(0, 0), range.end),
         },
       ]);
-      editor.setDecorations(cursorDeco, [{ range }]);
+      editor.setDecorations(cursorDeco, [
+        { range, hoverMessage: md`Token ${{ $: env.lookahead.terminal }}` },
+      ]);
     }
 
     stackView.description = `${env.stack.length} items`;
@@ -524,7 +522,7 @@ async function startParserWithCheckpointsView(
         break;
       case "reducing":
         let { lhs, rhs } = c.value.production.value;
-        derivationTreeView.message += ` · Reducing production ${lhs} → ${rhs.join(" ")}`;
+        derivationTreeView.message += ` · Reducing production ${lhs} → ${rhs.map((x) => x.name).join(" ")}`;
         break;
       case "accepted":
         derivationTreeView.message += ` · Accepted (reduced start production)`;
@@ -542,9 +540,9 @@ async function startParserWithCheckpointsView(
       viewColumn: vscode.ViewColumn.Beside,
     });
 
-  focusGrammar();
-
   const disposables: vscode.Disposable[] = [];
+
+  const grammarEditor = await focusGrammar();
 
   const aux = (cmd: string) =>
     registerCmd(cmd, async () => {
@@ -581,6 +579,7 @@ async function startParserWithCheckpointsView(
       stackProvider.refresh([]);
 
       editor.setDecorations(progressHighlight, []);
+      editor.setDecorations(cursorDeco, []);
 
       disposables.forEach((d) => d.dispose());
     }),

@@ -178,7 +178,17 @@ export class EntrypointProvider extends TreeProvider<Entry | ModuleEntries> {
 
 export class StackProvider extends TreeProvider<StackItem> {
   getTreeItem(element: StackItem): vscode.TreeItem | Thenable<vscode.TreeItem> {
-    const item = new TreeItem(element.value.symbol);
+    const item = new TreeItem(element.value.symbol.name);
+
+    switch (element.value.symbol.kind) {
+      case "t":
+        item.iconPath = themeicon("symbol-constant");
+        break;
+
+      case "nt":
+        item.iconPath = themeicon("symbol-method");
+        break;
+    }
 
     item.description = `${element.value.state}`;
     item.tooltip = `State ${element.value.state}`;

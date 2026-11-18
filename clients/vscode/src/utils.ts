@@ -20,20 +20,17 @@ export async function setupQuickPick<T>(
   items: QuickPickItemWithData<T>[],
 ): Promise<T | undefined> {
   const qp = vscode.window.createQuickPick();
+  let selection: QuickPickItemWithData<T> | undefined;
+
   qp.title = title;
-  // qp.prompt =
-  //   "Select the entry point to use among the lexers opened so far.";
-  // qp.items = lexers;
+
   qp.items = items;
 
   qp.show();
 
-  let selection: QuickPickItemWithData<T> | undefined;
+  qp.onDidChangeActive((item) => (selection = item.at(0)));
 
-  qp.onDidChangeActive(
-    (item) => (selection = item.at(0) as QuickPickItemWithData<T> | undefined),
-  );
-
+  // Wait for a selection or dismissal
   try {
     await new Promise(
       (resolve, reject) => (
@@ -46,7 +43,8 @@ export async function setupQuickPick<T>(
     selection = undefined;
   }
 
-  selection && console.log("Picked item: ", selection);
+  qp.dispose();
+
   return selection?.data;
 }
 

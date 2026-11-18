@@ -90,14 +90,9 @@
           "group": "navigation"
         },
         {
-          "command": "menhir-lsp-client.startParserWithCheckpoints",
-          "when": "view == menhir-lsp-action-map",
-          "group": "navigation"
-        },
-        {
           "command": "menhir-lsp-client.stopInterpreter",
-          "when": "view == menhir-lsp-action-map",
-          "group": "navigation"
+          "when": "view == menhir-lsp-derivation-view",
+          "group": "navigation@4"
         },
         {
           "command": "menhir-lsp-client.playForward",
@@ -134,12 +129,8 @@
           "group": "inline"
         },
         {
-          "command": "menhir-lsp-client.startParser",
-          "when": "view == menhir-lsp-entrypoint-explorer && viewItem == parserEntrypoint",
-          "group": "inline"
-        },
-        {
           "command": "menhir-lsp-client.startParserWithCheckpoints",
+          "alt": "menhir-lsp-client.startParser",
           "when": "view == menhir-lsp-entrypoint-explorer && viewItem == parserEntrypoint",
           "group": "inline"
         }
@@ -148,23 +139,6 @@
         {
           "when": "editorTextFocus && (editorLangId == ocaml.menhir || editorLangId == ocaml.ocamllex)",
           "command": "menhir-lsp-client.gotoImplementation"
-        }
-      ],
-      "editor/title": [
-        {
-          "when": "(editorLangId == ocaml.menhir || editorLangId == ocaml.ocamllex)",
-          "command": "menhir-lsp-client.gotoImplementation",
-          "group": "navigation"
-        },
-        {
-          "when": "editorLangId == ocaml.menhir",
-          "command": "menhir-lsp-client.startParser",
-          "group": "navigation"
-        },
-        {
-          "when": "editorLangId == ocaml.menhir",
-          "command": "menhir-lsp-client.startParserWithCheckpoints",
-          "group": "navigation"
         }
       ]
     },
@@ -251,11 +225,11 @@
     "viewsWelcome": [
       {
         "view": "menhir-lsp-entrypoint-explorer",
-        "contents": "The lexers and parsers you have opened will show up here ready for playing.\n\nNote: only the parsers that have been compiled to the [CMLY format](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec110) will be shown. To obtain the CMLY representation for your parser add the --cmly flag inside the respective dune file. Refer to the [Menhir stanza docs](https://dune.readthedocs.io/en/stable/reference/dune/menhir.html) for detailed instructions."
+        "contents": "The lexers and parsers you have opened will show up here ready for playing.\n\nNote: only the parsers that have been compiled to the [CMLY format](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec110) will be shown. To obtain the CMLY representation for your parser add the --cmly flag inside the [menhir stanza](https://dune.readthedocs.io/en/stable/reference/dune/menhir.html) of its respective dune file."
       },
       {
         "view": "menhir-lsp-action-map",
-        "contents": "This view shows a model of a lexer's semantics with respect to a grammar's token set. It will get populated automatically after you start the intepreter for a grammar rule from the Entrypoint Explorer and have selected a lexer rule that will produce tokens.\nThe initial mapping is inferred heuristically and thus may be inaccurate or incomplete. You can tweak it while the interpeter is running to better suit the lexer's semantics through the edit pencil 🖉 of each item. Each pattern can: (a) produce a token of the grammar; (b) be skipped to read the next one; (c) fail and halt the interpreter."
+        "contents": "This view shows a model of a lexer's semantics with respect to a grammar's token set. It will get populated automatically after you start the intepreter for a grammar rule from the Entrypoint Explorer and have selected a lexer rule that will produce tokens for it.\nThe inferred mapping may be inaccurate or incomplete. You can tweak it while running the interpeter to best suit the lexer's semantics via the 🖉 icons so that each pattern does one the following: (a) produce a token of the grammar; (b) skip the consumed text; (c) fail and halt the interpreter."
       }
     ],
     "viewsContainers": {

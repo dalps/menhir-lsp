@@ -487,11 +487,11 @@ let yodict assoc : json = `Assoc assoc
 let yostring s : json = `String s
 let yolist f l : json = `List (L.map f l)
 
-let yovariant ?value tag : json =
+let yovariant ?(value_key = "value") ?value tag : json =
   `Assoc
     (L.cons
        ("kind", `String tag)
-       (O.flat_map_l (fun v -> [ ("value", v) ]) value))
+       (O.flat_map_l (fun v -> [ (value_key, v) ]) value))
 
 let yotagged tag value : json = yovariant ~value tag
 

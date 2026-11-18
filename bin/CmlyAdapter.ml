@@ -137,7 +137,12 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   module X = Symbol
 
   let yolr1 x : json = `Int (Lr1.to_int x)
-  let yosymbol x : json = `String (X.name x)
+
+  let yosymbol x : json =
+    yovariant ~value_key:"name"
+      ~value:(`String (X.name x))
+      (match x with T _ -> "t" | N _ -> "nt")
+
   let yoterminal t : json = `String (T.name t)
 
   let yoterminal' ~mly_uri t : json option =

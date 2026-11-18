@@ -95,12 +95,12 @@ export type Variant<tag extends string, A> = WithKind<tag> & { value: A };
 
 export type Result<T, E> = Variant<"ok", T> | Variant<"error", E>;
 
-export type Production = { lhs: string; rhs: string[] };
+export type Production = { lhs: string; rhs: Symbol[] };
 
 export type Symbol = WithKind<"t" | "nt"> & { name: string };
 
 export type StackItem = Located<{
-  symbol: string;
+  symbol: Symbol;
   state: number;
 }>;
 
