@@ -14,6 +14,10 @@ let log_error s = log_src "error" s
 module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   module G = G
   open G
+  module T = Terminal
+  module NT = Nonterminal
+  module P = Production
+  module X = Symbol
 
   module Range = struct
     include Range
@@ -88,14 +92,25 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   let lift_range r =
     Utils.Range.of_lexical_positions (Range.startp r, Range.endp r)
 
+  (** Get the the location a nonterminal's declaration. Returns [None] on the
+      symbolic start symbols (e.g. [main']). *)
+  let range_of_nonterminal =
+    NT.tabulate (fun nt ->
+        let open O in
+        let ps = NT.positions nt |> L.map lift_range in
+        log "positions of nonterminal %a: %a" Print.nonterminal nt
+          (pp_list Utils.Range.pp) ps;
+        L.head_opt ps)
+
   (** Get the the location a terminal's declaration. Returns [None] on the
-      pseudotokens [error] and [#]. *)
-  let position_of_terminal =
+      pseudotokens [error] and [#]. For some reason the [Terminal] interface
+      does not offer a positions utility so we have to look somewhere else. *)
+  let range_of_terminal =
     let toks = Surface.Syntax.tokens Surface.before_inlining in
-    Terminal.tabulate (fun t ->
+    T.tabulate (fun t ->
         L.find_map
           (fun (name, data) ->
-            if Terminal.name t = name then
+            if T.name t = name then
               Some (Surface.Token.position data |> lift_range)
             else None)
           toks)
@@ -131,11 +146,6 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   type token_derivation =
     ((terminal * token) located, nonterminal located) derivation
 
-  module T = Terminal
-  module NT = Nonterminal
-  module P = Production
-  module X = Symbol
-
   let yolr1 x : json = `Int (Lr1.to_int x)
 
   let yosymbol x : json =
@@ -147,7 +157,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
   let yoterminal' ~mly_uri t : json option =
     let open O in
-    let+ pos = position_of_terminal t in
+    let+ pos = range_of_terminal t in
     [
       ("id", `Int (T.to_int t));
       ("moduleUri", `String (Uri.to_string mly_uri));
@@ -1012,6 +1022,10 @@ module type S = sig
   module G : MenhirSdk.Cmly_api.GRAMMAR
   open G
   open Utils.Range
+  module T = Terminal
+  module NT = Nonterminal
+  module P = Production
+  module X = Symbol
 
   type entrypoint = {
     start_nt : nonterminal;
@@ -1025,7 +1039,8 @@ module type S = sig
   val pp_stack : (symbol * lr1) list Utils.L.printer
   val print_stack : (symbol * lr1) list -> unit
   val terminal_of_name : string -> terminal
-  val position_of_terminal : terminal -> Utils.Range.t option
+  val range_of_nonterminal : nonterminal -> Utils.Range.t option
+  val range_of_terminal : terminal -> Utils.Range.t option
   val end_pseudotoken : terminal
 
   exception Rejected of symbol

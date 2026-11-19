@@ -824,6 +824,33 @@ let code_actions (state : state) ~uri ~(range : Range.t) : CodeActionResult.t =
     state.tokens
   |> some
 
+let code_lens ~uri (state : state) : CodeLens.t list option =
+  let open O in
+  let+ (module D) = state.cmly in
+  let open D in
+  let yoentry name =
+    `Assoc [ ("name", `String name); ("moduleUri", Uri.yojson_of_t uri) ]
+  in
+  let aux range title command arguments =
+    CodeLens.create ~range
+      ~command:(Command.create ~command ~arguments ~title ())
+      ()
+  in
+  let open L in
+  let* (Old { v = { pr_nt }; p } | New { v = { pr_nt }; p }) =
+    state.grammar.pg_rules
+  in
+  let range = Range.of_lexical_positions pr_nt.p in
+  if D.get_entrypoint pr_nt.v |> O.is_some then
+    [
+      aux range "$(debug-alt)  Run on text file"
+        "menhir-lsp-client.startParserWithCheckpoints"
+        [ yoentry pr_nt.v ];
+      aux range "$(play)  Run on token sentence" "menhir-lsp-client.startParser"
+        [ yoentry pr_nt.v ];
+    ]
+  else []
+
 let selection_range ({ grammar; _ } as _state : state)
     ~(positions : Position.t list) ~(notify_back : notify_back) :
     SelectionRange.t list =

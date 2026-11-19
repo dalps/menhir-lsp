@@ -72,7 +72,8 @@ class lsp_server =
       let+ { languageId; version; content = text; _ } = self#find_doc uri in
       TD.create ~position_encoding:positionEncoding ~text ~version ~languageId
         uri
-    (** Turns Linol's [find_doc] result into a more useful [Text_document.t] *)
+    (** Wrapper around Linol's [super#find_doc] that converts the returned
+        [doc_state] type into a more useful [Text_document.t]. *)
 
     method private _word_at_position :
         notify_back:Linol_lwt.Jsonrpc2.notify_back ->
@@ -116,6 +117,9 @@ class lsp_server =
           triggerCharacters = Some [ "%"; "$"; "." ];
           workDoneProgress = None;
         }
+
+    method! config_code_lens_options =
+      Some { resolveProvider = None; workDoneProgress = None }
 
     method! on_req_completion =
       fun ~notify_back ~id:_ ~uri ~pos ~ctx:_ ~workDoneToken:_
@@ -707,6 +711,12 @@ class lsp_server =
             let* doc = self#get_text_document uri in
             Mll.code_actions ~doc ~range ~notify_back state)
         |> O.flatten |> Lwt.return
+
+    method! on_req_code_lens =
+      fun ~notify_back ~id ~uri ~workDoneToken ~partialResultToken doc_state ->
+        self#_dispatch uri ~notify_back ~mly_handler:(Mly.code_lens ~uri)
+          ~mll_handler:(fun state -> None)
+        |> O.flatten |> O.get_or_nil |> Lwt.return
 
     method private _on_req_selection_range ~notify_back ~r :
         SelectionRange.t list Lwt.t =
