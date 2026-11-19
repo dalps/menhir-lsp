@@ -108,12 +108,19 @@ export type Stack = StackItem[];
 
 export type Lexbuf = { startOfs: number; currOfs: number };
 
+export type Item = {
+  index: number;
+  production: Production;
+};
+
 export type Env = {
   time: number;
   stack: Stack;
   state: number;
   derivation: DerivationTree[];
   lookahead: Maybe<TerminalWithToken>;
+  items: Item[];
+  incoming: Maybe<Symbol>;
 };
 
 export type WithEnv = { env: Env };

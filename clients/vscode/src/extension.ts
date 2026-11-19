@@ -16,25 +16,28 @@ import {
   ActionMapProvider,
   DerivationTreeProvider,
   EntrypointProvider,
+  Lr0ItemProvider,
   StackProvider,
 } from "./derivationTree";
 import { activateStatusBar } from "./status";
+import { TreeProvider } from "./TreeProvider";
 import {
   ActionMapping,
   Checkpoint,
   DerivationTree,
   Entry,
   InputSourceKind,
+  Item,
   LexerAction,
   LexerActionKind,
   ModuleEntries,
-  Result,
   StackItem,
   Terminal,
   Token,
 } from "./types";
 import {
   choose,
+  CURSOR_ICON,
   liftRange,
   md,
   rand,
@@ -48,9 +51,14 @@ import path = require("path");
 let client: LanguageClient;
 let derivationTreeView: vscode.TreeView<DerivationTree>;
 let stackView: vscode.TreeView<StackItem>;
+let lr0ItemsView: vscode.TreeView<Item>;
 let actionBindingView: vscode.TreeView<ActionMapping | Terminal>;
 let entrypointExplorerView: vscode.TreeView<Entry | ModuleEntries>;
-let workspaceParsersView: vscode.TreeView<Entry | ModuleEntries>;
+let lr0ItemsProvider: TreeProvider<Item>;
+let derivationTreeProvider: DerivationTreeProvider;
+let stackProvider: StackProvider;
+let actionProvider: ActionMapProvider;
+let entrypointProvider: EntrypointProvider;
 
 const serverName = "menhir-lsp";
 const clientName = "menhir-lsp-client";
@@ -151,21 +159,13 @@ export function activate(context: vscode.ExtensionContext) {
     terminal.sendText(opamInstallCmd);
   });
 
-  const derivationTreeProvider = new DerivationTreeProvider(context);
-  const stackProvider = new StackProvider(context);
+  derivationTreeProvider = new DerivationTreeProvider(context);
+  stackProvider = new StackProvider(context);
 
-  const actionProvider = new ActionMapProvider(context);
+  actionProvider = new ActionMapProvider(context);
 
-  const entrypointProvider = new EntrypointProvider(context);
-
-  // derivationTreeProvider.onDidChangeTreeData((d) =>
-  //   console.log("tree data has changed.", d),
-  // );
-
-  // vscode.window.registerTreeDataProvider(
-  //   "menhir-lsp-derivation-view",
-  //   derivationTreeProvider,
-  // );
+  entrypointProvider = new EntrypointProvider(context);
+  lr0ItemsProvider = new Lr0ItemProvider(context);
 
   //#region Views
   derivationTreeView = vscode.window.createTreeView(
@@ -183,6 +183,10 @@ export function activate(context: vscode.ExtensionContext) {
     treeDataProvider: actionProvider,
   });
 
+  lr0ItemsView = vscode.window.createTreeView("menhir-lr0-items-view", {
+    treeDataProvider: lr0ItemsProvider,
+  });
+
   entrypointExplorerView = vscode.window.createTreeView(
     "menhir-lsp-entrypoint-explorer",
     {
@@ -190,48 +194,42 @@ export function activate(context: vscode.ExtensionContext) {
     },
   );
 
-  vscode.commands.registerCommand(
-    "menhir-lsp-client.showOutput",
-    outputChannel.show,
-  );
+  context.subscriptions.push(
+    registerCmd("showOutput", outputChannel.show),
 
-  vscode.commands.registerCommand(
-    "menhir-lsp-client.restartServer",
-    async () => {
+    registerCmd("restartServer", async () => {
       if (client.isRunning()) await client.stop();
 
       client.start();
-    },
-  );
+    }),
 
-  vscode.commands.registerCommand(
-    "menhir-lsp-client.promptAlias",
-    async (
-      term: string,
-      range: Range,
-      rawUri: DocumentUri,
-      occurrences: Range[],
-    ) => {
-      let input = await vscode.window.showInputBox({
-        prompt: "Enter the unquoted alias",
-        title: "Replace all terminal occurrences with alias",
-        placeHolder: "e.g. +",
-      });
+    registerCmd(
+      "promptAlias",
+      async (
+        term: string,
+        range: Range,
+        rawUri: DocumentUri,
+        occurrences: Range[],
+      ) => {
+        let input = await vscode.window.showInputBox({
+          prompt: "Enter the unquoted alias",
+          title: "Replace all terminal occurrences with alias",
+          placeHolder: "e.g. +",
+        });
 
-      if (!input) return;
+        if (!input) return;
 
-      let uri = vscode.Uri.parse(rawUri);
-      let w = new vscode.WorkspaceEdit();
+        let uri = vscode.Uri.parse(rawUri);
+        let w = new vscode.WorkspaceEdit();
 
-      w.replace(uri, liftRange(range), `${term} "${input}"`);
-      occurrences.forEach((r) => w.replace(uri, liftRange(r), `"${input}"`));
+        w.replace(uri, liftRange(range), `${term} "${input}"`);
+        occurrences.forEach((r) => w.replace(uri, liftRange(r), `"${input}"`));
 
-      vscode.workspace.applyEdit(w);
-    },
-  );
+        vscode.workspace.applyEdit(w);
+      },
+    ),
 
-  context.subscriptions.push(
-    vscode.commands.registerCommand(commandName("gotoImplementation"), () => {
+    registerCmd("gotoImplementation", () => {
       const editor = vscode.window.activeTextEditor;
 
       if (!editor) return;
@@ -239,11 +237,11 @@ export function activate(context: vscode.ExtensionContext) {
       gotoImplementation(editor.document.uri, editor.selection.active);
     }),
 
-    vscode.commands.registerCommand(commandName("astView"), () => {
+    registerCmd("astView", () => {
       ASTPanel.createOrShow(context.extensionUri);
     }),
 
-    vscode.commands.registerCommand(commandName("revealAstNode"), () => {
+    registerCmd("revealAstNode", () => {
       ASTPanel.revealNodeUnderCursor(context.extensionUri);
     }),
   );
@@ -260,10 +258,8 @@ export function activate(context: vscode.ExtensionContext) {
     },
   });
 
-  // vscode.window.showInformationMessage("Starting Menhir Client...");
-
   //////////////////////////////////////////////////////////////////////////////
-  // .messages file features
+  // More commands
   //
 
   activateStatusBar(context);
@@ -288,15 +284,11 @@ export function activate(context: vscode.ExtensionContext) {
       (parserEntrypoint, lexerEntrypoint, source) =>
         startParserWithCheckpointsView(
           context,
-          actionProvider,
-          derivationTreeProvider,
-          stackProvider,
           parserEntrypoint,
           lexerEntrypoint,
           source,
         ),
     ),
-
     registerCmd("refreshEntrypoints", () => {
       entrypointProvider.refresh([]);
     }),
@@ -313,8 +305,6 @@ export function activate(context: vscode.ExtensionContext) {
 
   //////////////////////////////////////////////////////////////////////////////
 }
-
-let currentParserEntrypoint: Entry | undefined = undefined;
 
 async function selectEntrypointQuickPick(
   msg: string,
@@ -395,9 +385,6 @@ async function startParserView(
 /** Invoked from the "regexp-token mapping" side view. */
 async function startParserWithCheckpointsView(
   context: vscode.ExtensionContext,
-  actionProvider: ActionMapProvider,
-  treeProvider: DerivationTreeProvider,
-  stackProvider: StackProvider,
   startSymbol?: Entry,
   lexerRule?: Entry,
   inputSource = InputSourceKind.ActiveEditor,
@@ -441,8 +428,6 @@ async function startParserWithCheckpointsView(
   actionProvider.refresh(res.lexerBindings);
   updateViews(res.start);
 
-  const cursorLight = context.asAbsolutePath("icons/cursor_light.svg");
-  const cursorDark = context.asAbsolutePath("icons/cursor_dark.svg");
   const highlightColor = rgba(0, 255, 0, 0.25);
   let progressHighlight: vscode.TextEditorDecorationType =
     vscode.window.createTextEditorDecorationType({
@@ -455,10 +440,10 @@ async function startParserWithCheckpointsView(
   let cursorDeco: vscode.TextEditorDecorationType =
     vscode.window.createTextEditorDecorationType({
       before: {
-        contentText: "🠷",
+        contentText: CURSOR_ICON,
       },
       after: {
-        contentText: "🠷",
+        contentText: CURSOR_ICON,
       },
     });
 
@@ -478,9 +463,15 @@ async function startParserWithCheckpointsView(
       ]);
     }
 
+    if (env.incoming) {
+      lr0ItemsView.message = `Incoming symbol of state ${env.state}: ${env.incoming.name}`;
+    }
+
     stackView.description = `${env.stack.length} items`;
     stackProvider.refresh(env.stack);
-    treeProvider.refresh(env.derivation);
+    derivationTreeProvider.refresh(env.derivation);
+
+    lr0ItemsProvider.refresh(env.items);
 
     // Update the derivation view's description
     switch (c.kind) {
@@ -575,11 +566,17 @@ async function startParserWithCheckpointsView(
           undefined;
 
       actionProvider.refresh([]);
-      treeProvider.refresh([]);
+      derivationTreeProvider.refresh([]);
       stackProvider.refresh([]);
+      lr0ItemsProvider.refresh([]);
 
       editor.setDecorations(progressHighlight, []);
       editor.setDecorations(cursorDeco, []);
+
+      // vscode.commands.executeCommand(
+      //   "workbench.action.closeActiveEditor",
+      //   grammarEditor,
+      // );
 
       disposables.forEach((d) => d.dispose());
     }),
@@ -716,18 +713,10 @@ function highlightTokens(editor: vscode.TextEditor, tokens: Token[]) {
                   }
                 : {},
         },
-        hoverMessage: new vscode.MarkdownString(
+        hoverMessage:
           t.action === -1
-            ? `Unhandled character \`"${t.text}"\``
-            : `\`\`\`
-"${t.text}"
-\`\`\`
-
----
-
-$(target) Go to action ${t.action}`,
-          true,
-        ),
+            ? md`Unhandled character "${{ $: t.text }}"`
+            : md`${{ $$: t.text }}\n\n---\n\n$(target) Go to action ${t.action}`,
       })),
     );
   });
@@ -743,11 +732,7 @@ export function deactivate(): Thenable<void> | undefined {
 export async function getAst(uri: vscode.Uri) {
   console.log(`Requesting AST of document: ${uri}`);
 
-  return await client.sendRequest(
-    "workspace/executeCommand",
-    { command: "getAst", arguments: [uri.toString()] } as ExecuteCommandParams,
-    CancellationToken.None,
-  );
+  return await execServerCmd("getAst", uri.toString());
 }
 
 export async function gotoImplementation(
@@ -758,14 +743,7 @@ export async function gotoImplementation(
     `Requesting implementation of document: ${uri} at position ${pos}`,
   );
 
-  return await client.sendRequest(
-    "workspace/executeCommand",
-    {
-      command: "gotoImplementation",
-      arguments: [uri.toString(), pos], // Position is serialized automatically
-    } as ExecuteCommandParams,
-    CancellationToken.None,
-  );
+  return await execServerCmd("gotoImplementation", uri.toString(), pos);
 }
 
 async function editRegexpBinding(
@@ -802,7 +780,7 @@ async function editRegexpBinding(
     newBinding,
   );
 
-  vscode.window.showInformationMessage("Binding updated.");
+  // vscode.window.showInformationMessage("Binding updated.");
   actionProvider.refresh(bindings);
 }
 

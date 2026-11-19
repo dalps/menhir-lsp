@@ -6,14 +6,20 @@ import {
   ActionMapping,
   DerivationTree,
   Entry,
-  EntryKind,
+  Item,
   LexerActionKind,
   ModuleEntries,
   StackItem,
   Terminal,
-  WithRange,
+  WithRange
 } from "./types";
-import { md, openCommand as open, stringOfRange, themeicon } from "./utils";
+import {
+  md,
+  openCommand as open,
+  stringOfItem,
+  stringOfRange,
+  themeicon
+} from "./utils";
 
 const isNonterminal = (tree: DerivationTree) => "nt" in tree;
 
@@ -194,5 +200,11 @@ export class StackProvider extends TreeProvider<StackItem> {
     item.tooltip = `State ${element.value.state}`;
 
     return item;
+  }
+}
+
+export class Lr0ItemProvider extends TreeProvider<Item> {
+  getTreeItem(element: Item): vscode.TreeItem | Thenable<vscode.TreeItem> {
+    return new TreeItem(stringOfItem(element));
   }
 }

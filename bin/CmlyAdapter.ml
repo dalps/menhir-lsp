@@ -165,6 +165,9 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         ("rhs", yolist (fun (x, _, _) -> yosymbol x) (P.rhs p |> Array.to_list));
       ]
 
+  let yoitem ((p, i) : item) : json =
+    `Assoc [ ("index", `Int i); ("production", yoproduction p) ]
+
   let yojson_of_derivation ~visit_t ~visit_nt =
     let v =
       object
@@ -498,7 +501,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
       let open Utils.Range in
       let+ k, (regexp, v) = bindings () in
       let yoaction =
-        yojson_of_option (function
+        yooption (function
           | Skip -> yovariant "skip"
           | Fail -> yovariant "fail"
           | Produce t ->
@@ -613,13 +616,16 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
   let yojson_of_env
       ({ time; entrypoint; state; lookahead; stack; derivation } : env) : json =
+    let lr0 = Lr1.lr0 state in
     `Assoc
       [
         ("time", `Int (Nat.to_int time));
         ("stack", yojson_of_stack stack);
         ("state", yolr1 state);
         ("derivation", yojson_of_token_derivation derivation);
-        ("lookahead", yojson_of_option yojson_of_lookahead lookahead);
+        ("lookahead", yooption yojson_of_lookahead lookahead);
+        ("items", lr0 |> Lr0.items |> yolist yoitem);
+        ("incoming", lr0 |> Lr0.incoming |> yooption yosymbol);
       ]
 
   let locate_entity tabulate positions =

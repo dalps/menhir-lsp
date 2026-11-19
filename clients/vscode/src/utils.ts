@@ -1,7 +1,9 @@
 import * as vscode from "vscode";
 import { Position, Range } from "vscode-languageclient";
-import { QuickPickItemWithData, WithRange } from "./types";
+import { Item, Production, QuickPickItemWithData, WithRange } from "./types";
 import { CodiconId } from "./codicons";
+
+export const CURSOR_ICON = "🠷";
 
 export const uriEqual = (u1: vscode.Uri, u2: vscode.Uri) =>
   u1.scheme === u2.scheme && u1.path === u2.path;
@@ -107,7 +109,9 @@ export const md = (strings: TemplateStringsArray, ...values: any[]) =>
   new vscode.MarkdownString(
     String.raw(
       { raw: strings },
-      ...values.map((v) => (v.$ ? `\`${v.$}\`` : v)),
+      ...values.map((v) =>
+        v.$ ? `\`${v.$}\`` : v.$$ ? `\n\`\`\`\n${v.$$}\n\`\`\`\n` : v,
+      ),
     ),
     true,
   );
@@ -120,3 +124,15 @@ export const stringOfRange = (r: vscode.Range | Range) =>
 
 export const rgba = (r: number, g: number, b: number, a: number) =>
   `rgba(${r},${g},${b}, ${a})`;
+
+export const stringOfProduction = ({ lhs, rhs }: Production) =>
+  `${lhs} → ${rhs.map((x) => x.name).join(" ")}`;
+
+export const stringOfItem = ({ production: { lhs, rhs }, index: i }: Item) =>
+  `${lhs} → ${rhs
+    .map((x) => x.name)
+    .slice(0, i)
+    .join(" ")} ${CURSOR_ICON} ${rhs
+    .map((x) => x.name)
+    .slice(i)
+    .join(" ")}`;

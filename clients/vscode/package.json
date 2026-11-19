@@ -215,6 +215,12 @@
           "contextualTitle": "Stack Explorer"
         },
         {
+          "id": "menhir-lr0-items-view",
+          "name": "Lr0 Items Explorer",
+          "icon": "icons/view_icon.svg",
+          "contextualTitle": "Lr0 Items Explorer"
+        },
+        {
           "id": "menhir-lsp-action-map",
           "name": "Regexp-Token Mapping",
           "icon": "icons/view_icon.svg",
