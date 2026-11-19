@@ -8,7 +8,7 @@ module Ivl = Ivl_map.Interval
 
 type document = Text_document.t
 
-let make_entries_dict uri kind (entries : (string * Range.t) list) =
+let make_entries_dict kind uri (entries : (string * Range.t) list) : json =
   let uri = Uri.yojson_of_t uri in
   let kind = match kind with `Mll -> "lexer" | `Mly -> "parser" in
   `Assoc
@@ -86,6 +86,7 @@ let compile_completions ?(range : Range.t option) ~(kind : CompletionItemKind.t)
 
 let _build_dir = ref None
 
+(* todo: handle multi-folder workspaces *)
 let get_build_dir () =
   let f () =
     let default_msg = "Failure: dune describe." in

@@ -358,11 +358,15 @@ let load_state_from_contents (uri : uri) (file_contents : string) :
   let implementation, sourcemap = get_source_map uri in
   let cmly =
     let open O in
-    let+ filename = get_cmly_file uri |> O.of_result in
-    let module G = MenhirSdk.Cmly_read.Read (struct
-      let filename = filename
-    end) in
-    (module CmlyAdapter.Make (G) : CmlyAdapter.S)
+    let* filename = get_cmly_file uri |> O.of_result in
+    try
+      let module G = MenhirSdk.Cmly_read.Read (struct
+        let filename = filename
+      end) in
+      Some (module CmlyAdapter.Make (G) : CmlyAdapter.S)
+    with MenhirSdk.Cmly_read.Error msg ->
+      log_error "Error reading cmly file of %a: %s" pp_uri uri msg;
+      None
   in
   let file_name = Uri.to_path uri in
   M.Main.load_grammar_from_contents 0 file_name file_contents

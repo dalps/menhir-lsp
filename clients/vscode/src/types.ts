@@ -21,7 +21,7 @@ export type ModuleEntries = WithKind<EntryKind> &
   };
 
 export enum InputSourceKind {
-  ActiveEditor,
+  ActiveEditor = 1, // Start from 1 so any value can't be falsy
   File,
   TextBox,
 }

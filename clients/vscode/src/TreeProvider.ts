@@ -33,4 +33,8 @@ export abstract class TreeProvider<T> implements vscode.TreeDataProvider<T> {
     this.trees = newData;
     this._onDidChangeTreeData.fire();
   }
+
+  flush() {
+    this.refresh([]);
+  }
 }

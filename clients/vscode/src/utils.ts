@@ -77,6 +77,7 @@ export function lerp(min: number, max: number, t: number) {
   return min * (1 - t) + max * t;
 }
 
+/** Set this as the command field of a TreeItem for focusing a region of a file by clicking on the item. */
 export function openCommand(
   uri: vscode.Uri,
   element?: WithRange,

@@ -355,31 +355,36 @@ class lsp_server =
         log "Next selection: %a" (pp_option Range.pp) selection;
         showDoc (uri, selection)
       in
-      let entrypoints kind buffers getter =
-        let open L in
-        let+ uri, state = CCHashtbl.to_list buffers in
-        let entries = getter uri state in
-        make_entries_dict uri kind entries
+      let entrypoints kind buffers getter : json list =
+        CCHashtbl.to_list buffers
+        |> L.filter_map (fun (uri, state) ->
+            let open O in
+            log "Reading entrypoints of %a" pp_uri uri;
+            getter uri state >|= make_entries_dict kind uri)
       in
+      (* Always returns some entrypoint *)
       let get_mll_entries () =
         entrypoints `Mll mll_buffers (fun uri state ->
             let open OcamllexSyntax.Syntax in
             state.Mll.grammar.entrypoints
             |> L.map (fun { p; v = { name } } ->
-                (name.v, Range.of_lexical_positions p)))
+                (name.v, Range.of_lexical_positions p))
+            |> O.some)
       in
+      (* May fail for many reasons: dune locked the build dir, an error reading the CMLY file, etc. *)
       let get_mly_entries () =
         entrypoints `Mly mly_buffers (fun uri state ->
-            O.get_or_nil
-            @@ let open O in
-               let+ (module D) = state.Mly.cmly in
-               L.filter_map
-                 (function
-                   | M.Syntax.Old { v = { pr_nt }; p }
-                   | M.Syntax.New { v = { pr_nt }; p } ->
-                       let+ _ = D.get_entrypoint pr_nt.v in
-                       (pr_nt.v, Range.of_lexical_positions p))
-                 state.grammar.pg_rules)
+            let open O in
+            let+ (module D) = state.Mly.cmly in
+            log "✔ got adapter of %a" pp_uri uri;
+            L.filter_map
+              (function
+                | M.Syntax.Old { v = { pr_nt }; p }
+                | M.Syntax.New { v = { pr_nt }; p } ->
+                    let+ _ = D.get_entrypoint pr_nt.v in
+                    log "✔ found %s" pr_nt.v;
+                    (pr_nt.v, Range.of_lexical_positions p))
+              state.grammar.pg_rules)
       in
       let entry_args (args : json list option) =
         match args with

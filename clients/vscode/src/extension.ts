@@ -44,7 +44,7 @@ import {
   rgba,
   sep,
   setupQuickPick,
-  uriEqual,
+  uriEqual
 } from "./utils";
 import path = require("path");
 
@@ -300,8 +300,9 @@ export function activate(context: vscode.ExtensionContext) {
   };
 
   vscode.workspace.onDidOpenTextDocument(aux);
+  vscode.workspace.onDidCloseTextDocument(aux);
   vscode.workspace.onDidChangeTextDocument((d) => aux(d.document));
-  vscode.workspace.textDocuments.forEach(aux);
+  entrypointProvider.refresh([]);
 
   //////////////////////////////////////////////////////////////////////////////
 }
@@ -336,7 +337,10 @@ async function selectParser() {
     return;
   }
 
-  return await selectEntrypointQuickPick("Select Parser Entry Point", modules);
+  return await selectEntrypointQuickPick(
+    "Select a start symbol of the grammar",
+    modules,
+  );
 }
 
 async function selectLexer() {
@@ -347,7 +351,10 @@ async function selectLexer() {
     return;
   }
 
-  return await selectEntrypointQuickPick("Select Lexer Entry Point", lexers);
+  return await selectEntrypointQuickPick(
+    "Select a lexer rule to scan the input",
+    lexers,
+  );
 }
 
 async function startParserView(
@@ -387,7 +394,7 @@ async function startParserWithCheckpointsView(
   context: vscode.ExtensionContext,
   startSymbol?: Entry,
   lexerRule?: Entry,
-  inputSource = InputSourceKind.ActiveEditor,
+  inputSource?: InputSourceKind,
 ) {
   const cmd = "startParserWithCheckpoints";
 
@@ -397,10 +404,33 @@ async function startParserWithCheckpointsView(
   lexerRule = lexerRule || (await selectLexer());
   if (!lexerRule) return;
 
-  let editor = vscode.window.activeTextEditor;
+  inputSource =
+    inputSource ||
+    (await setupQuickPick<InputSourceKind>(
+      "Select the input source",
+      inputSourcePicks.slice(0, 2), // Exclude text box option, we need an editor
+    ));
+  if (inputSource === undefined) return; // Caution: don't use !, ActiveEditor = 0 is falsy
+
+  let editor: vscode.TextEditor | undefined;
+
+  switch (inputSource) {
+    case InputSourceKind.ActiveEditor:
+      editor = vscode.window.activeTextEditor;
+      break;
+
+    case InputSourceKind.File:
+      const uri = (await vscode.window.showOpenDialog())?.at(0);
+      if (!uri) return;
+
+      editor = await vscode.window.showTextDocument(uri, { preview: false });
+
+      vscode.window.showTextDocument(uri);
+      break;
+  }
 
   if (!editor) {
-    vscode.window.showErrorMessage("No active editor available.");
+    vscode.window.showErrorMessage("No editor available.");
     return;
   }
 
@@ -419,7 +449,7 @@ async function startParserWithCheckpointsView(
   }>(cmd, sourceUri.toString(), lexerRule, startSymbol);
 
   if (!res) {
-    vscode.window.showErrorMessage("Server failed to start the interpreter.");
+    vscode.window.showErrorMessage("Server failed to launch the interpreter.");
     return;
   }
 
@@ -464,7 +494,7 @@ async function startParserWithCheckpointsView(
     }
 
     if (env.incoming) {
-      lr0ItemsView.message = `Incoming symbol of state ${env.state}: ${env.incoming.name}`;
+      lr0ItemsView.message = `Showing LR(0) items of state: ${env.state} · Incoming symbol: ${env.incoming.name}`;
     }
 
     stackView.description = `${env.stack.length} items`;
@@ -526,6 +556,7 @@ async function startParserWithCheckpointsView(
 
   const focusGrammar = (selection?: Range) =>
     vscode.window.showTextDocument(grammarUri, {
+      preview: false,
       preserveFocus: true,
       selection: selection && liftRange(selection),
       viewColumn: vscode.ViewColumn.Beside,
@@ -563,20 +594,18 @@ async function startParserWithCheckpointsView(
         derivationTreeView.description =
         stackView.message =
         stackView.description =
+        lr0ItemsView.message =
           undefined;
 
-      actionProvider.refresh([]);
-      derivationTreeProvider.refresh([]);
-      stackProvider.refresh([]);
-      lr0ItemsProvider.refresh([]);
+      actionProvider.flush();
+      derivationTreeProvider.flush();
+      stackProvider.flush();
+      lr0ItemsProvider.flush();
 
       editor.setDecorations(progressHighlight, []);
       editor.setDecorations(cursorDeco, []);
 
-      // vscode.commands.executeCommand(
-      //   "workbench.action.closeActiveEditor",
-      //   grammarEditor,
-      // );
+      grammarEditor.hide(); // risky but there's really no effective alternative
 
       disposables.forEach((d) => d.dispose());
     }),
@@ -587,26 +616,39 @@ async function startParserWithCheckpointsView(
   );
 }
 
-async function startTokenizerView(rule?: Entry, source?: InputSourceKind) {
-  let editor = vscode.window.activeTextEditor;
+const inputSourcePicks = [
+  choose("$(target) Use active editor", InputSourceKind.ActiveEditor),
+  choose("$(file-text) Read input from a file", InputSourceKind.File),
+  choose("$(pencil) Enter some text", InputSourceKind.TextBox),
+];
+
+async function startTokenizerView(rule?: Entry, sourceKind?: InputSourceKind) {
+  let editor: vscode.TextEditor | undefined;
 
   rule = rule || (await selectLexer());
   if (!rule) return;
 
-  source = source || (await askForSourceKind());
-  if (!source) return;
+  sourceKind =
+    sourceKind ||
+    (await setupQuickPick<InputSourceKind>(
+      "Select the input source",
+      inputSourcePicks,
+    ));
+  if (!sourceKind) return;
 
   // vscode.workspace.findFiles
   let cmd = "startTokenizer";
 
-  switch (source) {
-    case InputSourceKind.ActiveEditor: // what?!?
+  switch (sourceKind) {
+    case InputSourceKind.ActiveEditor:
       {
+        editor = vscode.window.activeTextEditor;
         if (!editor) {
           vscode.window.showErrorMessage("No active editor available.");
           return;
         }
-        const updateUI = async () => {
+
+        const updateUI = async (editor: vscode.TextEditor) => {
           const tokens: Token[] = await execServerCmd(
             cmd,
             editor.document.uri.toString(),
@@ -621,10 +663,10 @@ async function startTokenizerView(rule?: Entry, source?: InputSourceKind) {
           console.log(e.reason);
           if (!uriEqual(e.document.uri, editor.document.uri)) return;
 
-          updateUI();
+          updateUI(editor);
         });
 
-        updateUI();
+        updateUI(editor);
       }
       break;
     case InputSourceKind.File:
@@ -646,9 +688,6 @@ async function startTokenizerView(rule?: Entry, source?: InputSourceKind) {
         });
         execServerCmd(cmd, null, content, rule);
       }
-      break;
-
-    default:
       break;
   }
 }
@@ -783,10 +822,3 @@ async function editRegexpBinding(
   // vscode.window.showInformationMessage("Binding updated.");
   actionProvider.refresh(bindings);
 }
-
-const askForSourceKind = () =>
-  setupQuickPick<InputSourceKind>("Select the input source", [
-    choose("$(target) Active Editor", InputSourceKind.ActiveEditor),
-    choose("$(file-text) Read input from a file", InputSourceKind.File),
-    choose("$(pencil) Enter some text", InputSourceKind.TextBox),
-  ]);
