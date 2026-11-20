@@ -38,8 +38,10 @@ Result,
 } from "./types";
 import {
   choose,
+closeEditor,
   CURSOR_ICON,
 focusView,
+inputSourcePicks,
   liftRange,
   md,
   rand,
@@ -620,7 +622,7 @@ async function startParserWithCheckpointsView(
       editor.setDecorations(progressHighlight, []);
       editor.setDecorations(cursorDeco, []);
 
-      grammarEditor.hide(); // risky but there's really no effective alternative
+      closeEditor(grammarEditor);
 
       disposables.forEach((d) => d.dispose());
     }),

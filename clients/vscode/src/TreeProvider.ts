@@ -20,7 +20,6 @@ export abstract class TreeProvider<T> implements vscode.TreeDataProvider<T> {
    */
   abstract getTreeItem(element: T): vscode.TreeItem | Thenable<vscode.TreeItem>;
 
-  // abstract isTerminal(element: T): boolean;
   /**
    * The first call is always with `undefined` to get the root.
    * Also note that subtrees are computed on-demand (as debugging shows).
@@ -30,6 +29,7 @@ export abstract class TreeProvider<T> implements vscode.TreeDataProvider<T> {
   }
 
   refresh(newData: T[]) {
+    this.trees?.splice(0);
     this.trees = newData;
     this._onDidChangeTreeData.fire();
   }

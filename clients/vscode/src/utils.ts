@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { Position, Range } from "vscode-languageclient";
 import {
+  InputSourceKind,
   Item,
   Production,
   QuickPickItemWithData,
@@ -102,6 +103,27 @@ export function openCommand(
   };
 }
 
+/** Credit to widlow: https://stackoverflow.com/a/75192905/12274930 */
+export const closeEditor = async (editor: vscode.TextEditor) => {
+  const uri = editor.document.uri;
+
+  const tabs: vscode.Tab[] = vscode.window.tabGroups.all.flatMap((g) => g.tabs);
+
+  const t = tabs.find(
+    (t) =>
+      t.input instanceof vscode.TabInputText &&
+      t.group.viewColumn === editor.viewColumn &&
+      uriEqual(t.input.uri, uri),
+  );
+
+  if (!t) {
+    console.log("Tab not found!");
+    return false;
+  }
+
+  return vscode.window.tabGroups.close(t);
+};
+
 export const themeicon = (id: CodiconId, colorId?: string | undefined) =>
   new vscode.ThemeIcon(
     id,
@@ -146,3 +168,9 @@ export const stringOfItem = ({ production: { lhs, rhs }, index: i }: Item) =>
 
 export const focusView = (id: ViewId) =>
   vscode.commands.executeCommand(`${id}.focus`);
+
+export const inputSourcePicks = [
+  choose("$(target) Use active editor", InputSourceKind.ActiveEditor),
+  choose("$(file-text) Read input from a file", InputSourceKind.File),
+  choose("$(pencil) Enter some text", InputSourceKind.TextBox),
+];
