@@ -439,17 +439,17 @@ class lsp_server =
           let* entrypoint_name, mly_uri = entry_args args in
           let* input =
             match args with
-            | Some [ _; input ] ->
-                Some Yojson.Safe.Util.(to_list input |> L.map to_string)
+            | Some [ _; `List input ] -> (
+                try Some (L.map Yojson.Safe.Util.to_string input)
+                with _ -> None)
             | _ -> None
           in
           let* state = CCHashtbl.get mly_buffers mly_uri in
-          let* cmly = state.cmly in
-          let* (module D) = state.Mly.cmly in
-          let module G = D.G in
-          let* entrypoint = D.get_entrypoint entrypoint_name in
-          let derivation = D.parse_terminals entrypoint input in
-          Some (D.yojson_of_simple_derivation [ derivation ])
+          let* (module D) = state.cmly in
+          let open D in
+          let+ entrypoint = get_entrypoint entrypoint_name in
+          parse_sentence entrypoint input
+          |> yoresult ~ok:yojson_of_simple_derivation_tree ~error:yostring
       | `UpdateLexerBinding ->
           let* mly_uri, mll_uri, id, v =
             match args with

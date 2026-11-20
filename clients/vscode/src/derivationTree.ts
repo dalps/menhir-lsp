@@ -11,14 +11,14 @@ import {
   ModuleEntries,
   StackItem,
   Terminal,
-  WithRange
+  WithRange,
 } from "./types";
 import {
   md,
   openCommand as open,
   stringOfItem,
   stringOfRange,
-  themeicon
+  themeicon,
 } from "./utils";
 
 const isNonterminal = (tree: DerivationTree) => "nt" in tree;
@@ -27,14 +27,18 @@ export class DerivationTreeProvider extends TreeProvider<DerivationTree> {
   getTreeItem(element: DerivationTree): TreeItem | Thenable<TreeItem> {
     const isT = !isNonterminal(element);
 
-    const data = isT ? element : element.nt;
+    const data = isT ? element.t : element.nt;
     const { moduleUri, range } = data;
-    const item = new TreeItem(isT ? element.value.terminal : element.nt.value);
+    const item = new TreeItem(
+      isT ? element.t.value.terminal : element.nt.value,
+    );  
 
     item.iconPath = themeicon(isT ? "symbol-constant" : "symbol-method");
     let hint = "\n\n---\n\n*Click to highlight in active editor*";
     item.tooltip = isT
-      ? md`Terminal ${element.value.terminal} · Text ${{ $: element.value.token.text }}${hint}`
+      ? element.t.value.token
+        ? md`Terminal ${element.t.value.terminal} · Text ${{ $: element.t.value.token.text }}${hint}`
+        : md`Terminal ${element.t.value.terminal}`
       : md`Nonterminal ${element.nt.value}${hint}`;
 
     item.collapsibleState = isT

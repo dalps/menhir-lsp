@@ -184,7 +184,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         inherit [_] deriv_reduce as super
         method zero = `List []
         method plus = Utils.combine_json_lists
-        method! visit_Leaf () = visit_t
+        method! visit_Leaf () t = `Assoc [ ("t", visit_t t) ]
 
         method! visit_Branches () nt dv =
           `Assoc
@@ -194,7 +194,11 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     (v#visit_derivation (), v#visit_derivation_tree ())
 
   let yojson_of_simple_derivation, yojson_of_simple_derivation_tree =
-    yojson_of_derivation ~visit_t:yoterminal ~visit_nt:yononterminal
+    (* This weird serialization is so that we can share the same TreeProvider implementation for both simple and token derivation trees. *)
+    let wrap ?(k = "value") f x = `Assoc [ (k, f x) ] in
+    yojson_of_derivation
+      ~visit_t:(wrap @@ wrap ~k:"terminal" yoterminal)
+      ~visit_nt:(wrap yononterminal)
 
   let yojson_of_token_derivation, yojson_of_token_derivation_tree =
     yojson_of_derivation
@@ -207,9 +211,10 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
                ]))
       ~visit_nt:(Located.yojson_of_t yononterminal)
 
-  let rec loop ({ start_nt; start_lr1; _ } as entrypoint) state
-      (stack : (symbol * lr1) list) tokens derivation : simple_derivation_tree =
-    (* We require the stream be persistent as opposed to ephemeral. *)
+  let rec loop_sentence ({ start_nt; start_lr1; _ } as entrypoint) state
+      (stack : (symbol * lr1) list) tokens derivation :
+      (simple_derivation_tree, string) result =
+    (* [tokens] should be a persistent stream to let us peek without consuming. *)
     let t, tokens' = Seq.uncons tokens |> Option.get in
 
     log "## State %d, looking at %s" (Lr1.to_int state) (Terminal.name t);
@@ -233,7 +238,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         (* If there is a matching shift transition for the lookahead token, run that, otherwise look for a matching reduction. *)
         log_action "shifting %s to state %d" (G.Terminal.name t)
           (G.Lr1.to_int state');
-        loop entrypoint state'
+        loop_sentence entrypoint state'
           (push stack (T t, state'))
           tokens' (push derivation (Leaf t))
     | None, Some p -> (
@@ -263,38 +268,36 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
         | None when Production.kind p = `START ->
             log_action "reducing start production %a" Print.production p;
             log_action "accepting";
-            Branches (lhs, derivation)
+            Ok (Branches (lhs, derivation))
         | None ->
-            log_error "rejected nonterminal %s" (Nonterminal.name lhs);
-            raise (Rejected (N lhs))
+            (* Error (`Rejected (N lhs)) *)
+            Error (spr "rejected nonterminal %s" (Nonterminal.name lhs))
         | Some state' ->
             log_action "reducing production %a to state %d" Print.production p
               (G.Lr1.to_int state');
-            loop entrypoint state'
+            loop_sentence entrypoint state'
               (push stack' (N lhs, state'))
               tokens
               (push derivation' (Branches (lhs, L.rev reductees))))
     | Some s', Some p when Terminal.equal t end_pseudotoken ->
-        log
-          "[End Of Stream Conflict] between shifting token %s to state %d and \
-           reducing production %a"
-          (Terminal.name t) (Lr1.to_int s') Print.production p;
-        raise (Conflict ((T t, s'), p))
+        Error
+          (spr
+             "[End Of Stream Conflict] between shifting token %s to state %d \
+              and reducing production %a"
+             (Terminal.name t) (Lr1.to_int s') Print.production p)
     | Some s', Some p ->
-        log
-          "[Shift/Reduce Conflict] between shifting token %s to state %d and \
-           reducing production %a"
-          (Terminal.name t) (Lr1.to_int s') Print.production p;
-        raise (Conflict ((T t, s'), p))
-    | None, None ->
-        log_error "rejected token %s" (Terminal.name t);
-        raise (Rejected (T t))
+        Error
+          (spr
+             "[Shift/Reduce Conflict] between shifting token %s to state %d \
+              and reducing production %a"
+             (Terminal.name t) (Lr1.to_int s') Print.production p)
+    | None, None -> Error (spr "rejected token %s" (Terminal.name t))
 
-  let parse_terminals (entrypoint : entrypoint) (input : string list) =
+  let parse_sentence (entrypoint : entrypoint) (input : string list) =
     let { start_nt; start_lr1 } = entrypoint in
     let tokens = input |> L.map terminal_of_name |> L.to_seq in
     let tokens = Seq.(append tokens (repeat end_pseudotoken)) in
-    loop entrypoint start_lr1 [] tokens []
+    loop_sentence entrypoint start_lr1 [] tokens []
 
   module ActionMap = struct
     include Map.Make (Int)
@@ -327,6 +330,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
   type stack = (symbol * lr1) located list
   type lookahead = terminal * token
 
+  (** Unused but keeping it around for future reference. *)
   let rec loop_with_positions ({ start_nt; start_lr1; _ } as entrypoint) state
       (stack : stack) (tok : lookahead option)
       (tokens : (lookahead, string) result Seq.t) (please_discard : bool)
@@ -546,6 +550,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     in
     next_token
 
+  (** Unused but keeping it around for future reference. *)
   let parse_with_positions (entrypoint : entrypoint)
       (lexer_entry : Tokenizer.entrypoint) (lexer_automata : Tokenizer.automata)
       (lexbuf : Lexing.lexbuf) : (token_derivation_tree, _) result =
@@ -1089,40 +1094,11 @@ module type S = sig
     derivation_tree ->
     json
 
-  val loop :
-    entrypoint ->
-    lr1 ->
-    (symbol * lr1) list ->
-    terminal Seq.t ->
-    (terminal, nonterminal) derivation ->
-    simple_derivation_tree
-
-  val parse_terminals : entrypoint -> string list -> simple_derivation_tree
-  val lexer_error : string -> [> `LexerError of string ]
-
-  val read :
-    ('a * 'b, string) result Seq.t ->
-    ('a * 'b, [> `LexerError of string ]) result
+  val parse_sentence :
+    entrypoint -> string list -> (simple_derivation_tree, string) result
 
   type stack = (symbol * lr1) located list
   type lookahead = terminal * token
-
-  val loop_with_positions :
-    entrypoint ->
-    lr1 ->
-    stack ->
-    lookahead option ->
-    (lookahead, string) result Seq.t ->
-    bool ->
-    token_derivation ->
-    ( token_derivation_tree,
-      [> `EOS_conflict of (symbol * lr1) * production
-      | `LexerError of string
-      | `Rejected of symbol
-      | `ShiftReduce_conflict of (symbol * lr1) * production ]
-      * token_derivation )
-    result
-
   type lexer_behavior = Skip | Fail | Produce of terminal
 
   type env = {

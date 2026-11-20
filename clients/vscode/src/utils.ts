@@ -1,6 +1,12 @@
 import * as vscode from "vscode";
 import { Position, Range } from "vscode-languageclient";
-import { Item, Production, QuickPickItemWithData, WithRange } from "./types";
+import {
+  Item,
+  Production,
+  QuickPickItemWithData,
+  ViewId,
+  WithRange,
+} from "./types";
 import { CodiconId } from "./codicons";
 
 export const CURSOR_ICON = "🠷";
@@ -137,3 +143,6 @@ export const stringOfItem = ({ production: { lhs, rhs }, index: i }: Item) =>
     .map((x) => x.name)
     .slice(i)
     .join(" ")}`;
+
+export const focusView = (id: ViewId) =>
+  vscode.commands.executeCommand(`${id}.focus`);

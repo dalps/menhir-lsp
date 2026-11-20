@@ -129,6 +129,16 @@ let set_notify_back nb = notify_back_ref := Some nb
 let guard flag f s = if flag then f s
 let guard' flag f s = if%lwt flag then f s
 
+let show_message ~notify_back ?(type_ = MessageType.Info) fmt =
+  Format.kasprintf
+    (fun message ->
+      notify_back#send_notification
+        (Lsp.Server_notification.ShowMessage { message; type_ }))
+    fmt
+
+let show_error ~notify_back fmt = show_message ~notify_back ~type_:Error fmt
+let show_warning ~notify_back fmt = show_message ~notify_back ~type_:Warning fmt
+
 (** [log] prints to the first available output channel. It will use caller's
     [notify_back] argument if provided, falling back to the optional value
     stored in the global variable [notify_back_ref] and ultimately falling back
@@ -380,10 +390,11 @@ module Range = struct
     let show pp_v (loc : 'a t) = spr "%a" (pp pp_v) loc
     let print pp_v (loc : 'a t) = pr "%a" (pp pp_v) loc
 
-    let yojson_of_t y_of_a ({ v; p } : 'a t) : Yojson.Safe.t =
+    let yojson_of_t ?(v_key = "value") y_of_a ({ v; p } : 'a t) : Yojson.Safe.t
+=
       `Assoc
         [
-          ("value", y_of_a v);
+          (v_key, y_of_a v);
           ("range", yojson_of_t p);
           ("moduleUri", O.map_or ~default:`Null Uri.yojson_of_t !file_uri);
         ]
@@ -499,6 +510,8 @@ let yojson_of_result ~ok ~error (r : ('a, 'e) result) : json =
   yotagged
     (match r with Ok _ -> "ok" | Error _ -> "error")
     (R.fold ~ok ~error r)
+
+let yoresult = yojson_of_result
 
 module Nat = struct
   type t = Zero | Succ of t

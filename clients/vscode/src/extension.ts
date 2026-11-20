@@ -31,6 +31,7 @@ import {
   LexerAction,
   LexerActionKind,
   ModuleEntries,
+Result,
   StackItem,
   Terminal,
   Token,
@@ -38,13 +39,14 @@ import {
 import {
   choose,
   CURSOR_ICON,
+focusView,
   liftRange,
   md,
   rand,
   rgba,
   sep,
   setupQuickPick,
-  uriEqual
+  uriEqual,
 } from "./utils";
 import path = require("path");
 
@@ -276,9 +278,7 @@ export function activate(context: vscode.ExtensionContext) {
     registerCmd("startTokenizerWithRule", (arg) =>
       startTokenizerView(arg, undefined),
     ),
-    registerCmd("startParser", (start) =>
-      startParserView(derivationTreeProvider, start),
-    ),
+    registerCmd("startParser", startParserView),
     registerCmd(
       "startParserWithCheckpoints",
       (parserEntrypoint, lexerEntrypoint, source) =>
@@ -357,36 +357,49 @@ async function selectLexer() {
   );
 }
 
-async function startParserView(
-  treeProvider: DerivationTreeProvider,
-  startSymbol?: Entry,
-) {
+async function startParserView(startSymbol?: Entry) {
   startSymbol = startSymbol || (await selectParser());
   if (!startSymbol) return;
+
+  const tokensNames = (
+    await execServerCmd<Terminal[]>("listTokens", startSymbol.moduleUri)
+  ).map((t) => t.name);
 
   const cmd = "startParser";
 
   const input = await vscode.window.showInputBox({
-    placeHolder: "Enter a space-separated list of tokens here",
-  });
+    placeHolder: "Enter a space-separated list of tokens (case insensitive)",
+    validateInput(value) {
+      const inputTokens = value.toUpperCase().split(/\s+/);
 
+      let bad = inputTokens.find((v) => !tokensNames.includes(v));
+
+      return (
+        bad && {
+          message: `${bad}: unkown token.`,
+          severity: vscode.InputBoxValidationSeverity.Error,
+        }
+      );
+    },
+  });
   if (!input) return;
 
-  const tokens = input.split(/\s+/);
+  const tokens = input.toUpperCase().split(/\s+/);
 
-  const derivations = await execServerCmd<DerivationTree[]>(
+  const res = await execServerCmd<Result<DerivationTree, string>>(
     cmd,
     startSymbol,
     tokens,
   );
 
-  const d0 = derivations.at(0);
-  if (!d0) {
-    console.log("No derivations");
+  if (res.kind === "error") {
+    vscode.window.showErrorMessage(`Error: ${res.value}`);
     return;
   }
 
-  treeProvider.refresh([d0]);
+  derivationTreeProvider.refresh([res.value]);
+
+  focusView("menhir-lsp-derivation-view");
 }
 
 /** Invoked from the "regexp-token mapping" side view. */
@@ -410,7 +423,7 @@ async function startParserWithCheckpointsView(
       "Select the input source",
       inputSourcePicks.slice(0, 2), // Exclude text box option, we need an editor
     ));
-  if (inputSource === undefined) return; // Caution: don't use !, ActiveEditor = 0 is falsy
+  if (!inputSource) return;
 
   let editor: vscode.TextEditor | undefined;
 
@@ -424,8 +437,6 @@ async function startParserWithCheckpointsView(
       if (!uri) return;
 
       editor = await vscode.window.showTextDocument(uri, { preview: false });
-
-      vscode.window.showTextDocument(uri);
       break;
   }
 
@@ -565,6 +576,10 @@ async function startParserWithCheckpointsView(
   const disposables: vscode.Disposable[] = [];
 
   const grammarEditor = await focusGrammar();
+
+  focusView("menhir-lsp-derivation-view");
+  focusView("menhir-lsp-stack-view");
+  focusView("menhir-lr0-items-view");
 
   const aux = (cmd: string) =>
     registerCmd(cmd, async () => {
@@ -790,10 +805,7 @@ async function editRegexpBinding(
   oldBinding: ActionMapping,
   entry: Entry,
 ) {
-  const tokens = (await execServerCmd(
-    "listTokens",
-    entry.moduleUri,
-  )) as Terminal[];
+  const tokens = await execServerCmd<Terminal[]>("listTokens", entry.moduleUri);
 
   const newBinding = await setupQuickPick<LexerAction>(
     `Select the action to perform for the pattern ${oldBinding.regexp.value}`,

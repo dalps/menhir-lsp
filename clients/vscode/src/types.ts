@@ -2,6 +2,14 @@ import { Range } from "vscode-languageclient";
 import { RawRange } from "./webviews/ast/types";
 import * as vscode from "vscode";
 
+// package.json jq script: .contributes.views."menhir-lsp-view-container"[].id
+export type ViewId =
+  | "menhir-lsp-entrypoint-explorer"
+  | "menhir-lsp-derivation-view"
+  | "menhir-lsp-stack-view"
+  | "menhir-lr0-items-view"
+  | "menhir-lsp-action-map";
+
 export enum EntryKind {
   Mll = "lexer",
   Mly = "parser",
@@ -34,11 +42,11 @@ export type Token = WithRange & {
 
 type TerminalWithToken = {
   terminal: string;
-  token: Token;
+  token?: Token;
 };
 
 export type DerivationTree =
-  | MaybeLocated<TerminalWithToken>
+  | { t: MaybeLocated<TerminalWithToken> }
   | { nt: MaybeLocated<string>; children: DerivationTree[] };
 
 export type ActionMapping = // todo: don't repeat moduleUri
@@ -61,6 +69,8 @@ export type Located<T> = WithRange & {
 };
 
 export type Maybe<T> = T | null;
+
+export type MaybeWithLocations<T> = Partial<WithRange & WithModuleUri> & T;
 
 export type MaybeLocated<T> = Partial<WithRange & WithModuleUri> & {
   value: T;
@@ -118,7 +128,7 @@ export type Env = {
   stack: Stack;
   state: number;
   derivation: DerivationTree[];
-  lookahead: Maybe<TerminalWithToken>;
+  lookahead: Maybe<Required<TerminalWithToken>>;
   items: Item[];
   incoming: Maybe<Symbol>;
 };
