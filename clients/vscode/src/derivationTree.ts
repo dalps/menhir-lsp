@@ -31,15 +31,16 @@ export class DerivationTreeProvider extends TreeProvider<DerivationTree> {
     const { moduleUri, range } = data;
     const item = new TreeItem(
       isT ? element.t.value.terminal : element.nt.value,
-    );  
+    );
+
+    let hint = "\n\n---\n\n*Click to highlight text in active editor*";
 
     item.iconPath = themeicon(isT ? "symbol-constant" : "symbol-method");
-    let hint = "\n\n---\n\n*Click to highlight in active editor*";
     item.tooltip = isT
       ? element.t.value.token
-        ? md`Terminal ${element.t.value.terminal} · Text ${{ $: element.t.value.token.text }}${hint}`
+        ? md`Terminal ${element.t.value.terminal} · Text ${{ code: element.t.value.token.text }}`
         : md`Terminal ${element.t.value.terminal}`
-      : md`Nonterminal ${element.nt.value}${hint}`;
+      : md`Nonterminal ${element.nt.value}`;
 
     item.collapsibleState = isT
       ? TreeItemCollapsibleState.None
@@ -47,6 +48,7 @@ export class DerivationTreeProvider extends TreeProvider<DerivationTree> {
 
     if (moduleUri && range) {
       item.description = stringOfRange(range);
+      item.tooltip.appendMarkdown(hint);
       item.command = open(Uri.parse(moduleUri), data as WithRange);
     }
 

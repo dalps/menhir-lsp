@@ -21,6 +21,7 @@ let command_dict =
     ("listParsers", `ListParsers);
     ("listEntrypoints", `ListEntrypoints);
     ("listTokens", `ListTokens);
+    ("listActions", `ListActions);
     ("startTokenizer", `StartTokenizer);
     ("startParser", `StartParser);
     ("startParserWithCheckpoints", `StartParserWithCheckpoints);
@@ -552,57 +553,42 @@ class lsp_server =
               let open D.Interpreter in
               disconnect ();
               `Null)
-      | `StartTokenizer -> (
-          let open Lex in
+      | `ListActions ->
           let open Tokenizer in
-          let* text_source = uri_of_args args in
-          let* rule_name, mll_uri =
+          let* rule_name, mll_uri = entry_args args in
+          let* state = CCHashtbl.get mll_buffers mll_uri in
+          let* _, start_rule = Mll.get_automata_entrypoint state rule_name in
+          let locations =
+            let open L in
+            let+ _, _, loc = start_rule.auto_actions in
+            let Lex.Syntax.{ start_line; start_col; end_line; end_col } = loc in
+            Range.create
+              ~start:(Position.create ~character:start_col ~line:start_line)
+              ~end_:(Position.create ~character:end_col ~line:end_line)
+            |> Range.yojson_of_t
+          in
+          Some (`List locations)
+      | `StartTokenizer -> (
+          let open Tokenizer in
+          let* rule_name, mll_uri = entry_args args in
+          let* source_uri =
             match args with
-            | Some
-                [
-                  _;
-                  _;
-                  `Assoc ((_, `String name) :: (_, `String moduleUri) :: _);
-                  (* Don't use a fixed-length pattern for the dictionary (there's QuickPickItem fields too) *)
-                ] ->
-                Some (name, Uri.of_string moduleUri)
+            | Some (_ :: `String input :: _) -> Some (Uri.of_string input)
             | _ -> None
           in
-          let mll_path = Uri.to_path mll_uri in
-          let notify_error fmt =
-            Format.kasprintf
-              (fun message ->
-                notify_back#send_notification
-                  (ShowMessage { message; type_ = Error }))
-              fmt
-          in
-          match Lex.Driver.parse_file mll_path with
-          | Ok ((entrypoints, _) as lexer) -> (
-              let* start_rule_idx, _ =
-                match
-                  L.find_idx
-                    (fun e -> String.equal e.Lexgen.auto_name rule_name)
-                    entrypoints
-                with
-                | None ->
-                    notify_error "`%s` is not a rule of %s." rule_name mll_path;
-                    None
-                | res -> res
-              in
-              try
-                In_channel.with_open_text (Uri.to_path text_source) (fun ic ->
-                    let lexbuf = Lexing.from_channel ic in
-                    let tokens =
-                      tokenize_with_idx ~start_rule_idx lexbuf lexer
-                    in
-                    `List (L.map Token.yojson_of_t tokens) |> some)
-              with _ ->
-                notify_error "Could not open text source %s"
-                  (Uri.to_path text_source);
-                None)
-          | Error message ->
-              notify_error "Error parsing %s: %s" mll_path message;
-              None)
+          let source_path = Uri.to_path source_uri in
+          let* state = CCHashtbl.get mll_buffers mll_uri in
+          let* _, start_rule = Mll.get_automata_entrypoint state rule_name in
+          try
+            In_channel.with_open_text source_path (fun ic ->
+                let lexbuf = Lexing.from_channel ic in
+                let tokens =
+                  tokenize_with_entry lexbuf start_rule state.automata
+                in
+                `List (L.map Token.yojson_of_t tokens) |> some)
+          with _ ->
+            show_error ~notify_back "Failed to open text file %s" source_path;
+            None)
       | exception _ -> None
 
     method private _on_req_folding_range ~(notify_back : notify_back)

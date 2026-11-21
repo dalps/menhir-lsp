@@ -139,7 +139,11 @@ export const md = (strings: TemplateStringsArray, ...values: any[]) =>
     String.raw(
       { raw: strings },
       ...values.map((v) =>
-        v.$ ? `\`${v.$}\`` : v.$$ ? `\n\`\`\`\n${v.$$}\n\`\`\`\n` : v,
+        v.code
+          ? `\`${v.code}\``
+          : v.block
+            ? `\n\`\`\`\n${v.block}\n\`\`\`\n`
+            : v,
       ),
     ),
     true,
@@ -174,3 +178,5 @@ export const inputSourcePicks = [
   choose("$(file-text) Read input from a file", InputSourceKind.File),
   choose("$(pencil) Enter some text", InputSourceKind.TextBox),
 ];
+
+export const decorationType = vscode.window.createTextEditorDecorationType;

@@ -31,17 +31,18 @@ import {
   LexerAction,
   LexerActionKind,
   ModuleEntries,
-Result,
+  Result,
   StackItem,
   Terminal,
   Token,
 } from "./types";
 import {
   choose,
-closeEditor,
+  closeEditor,
   CURSOR_ICON,
-focusView,
-inputSourcePicks,
+  decorationType,
+  focusView,
+  inputSourcePicks,
   liftRange,
   md,
   rand,
@@ -472,23 +473,21 @@ async function startParserWithCheckpointsView(
   updateViews(res.start);
 
   const highlightColor = rgba(0, 255, 0, 0.25);
-  let progressHighlight: vscode.TextEditorDecorationType =
-    vscode.window.createTextEditorDecorationType({
-      backgroundColor: highlightColor,
-    });
+  let progressHighlight: vscode.TextEditorDecorationType = decorationType({
+    backgroundColor: highlightColor,
+  });
 
   // editor.document.isDirty
   // vscode.workspace.onDidChangeTextDocument(e => e.contentChanges.map(ch => ch))
 
-  let cursorDeco: vscode.TextEditorDecorationType =
-    vscode.window.createTextEditorDecorationType({
-      before: {
-        contentText: CURSOR_ICON,
-      },
-      after: {
-        contentText: CURSOR_ICON,
-      },
-    });
+  let cursorDeco: vscode.TextEditorDecorationType = decorationType({
+    before: {
+      contentText: CURSOR_ICON,
+    },
+    after: {
+      contentText: CURSOR_ICON,
+    },
+  });
 
   // Refresh the derivation and stack views and their data providers
   function updateViews(c: Checkpoint) {
@@ -633,12 +632,6 @@ async function startParserWithCheckpointsView(
   );
 }
 
-const inputSourcePicks = [
-  choose("$(target) Use active editor", InputSourceKind.ActiveEditor),
-  choose("$(file-text) Read input from a file", InputSourceKind.File),
-  choose("$(pencil) Enter some text", InputSourceKind.TextBox),
-];
-
 async function startTokenizerView(rule?: Entry, sourceKind?: InputSourceKind) {
   let editor: vscode.TextEditor | undefined;
 
@@ -658,125 +651,119 @@ async function startTokenizerView(rule?: Entry, sourceKind?: InputSourceKind) {
 
   switch (sourceKind) {
     case InputSourceKind.ActiveEditor:
-      {
-        editor = vscode.window.activeTextEditor;
-        if (!editor) {
-          vscode.window.showErrorMessage("No active editor available.");
-          return;
-        }
-
-        const updateUI = async (editor: vscode.TextEditor) => {
-          const tokens: Token[] = await execServerCmd(
-            cmd,
-            editor.document.uri.toString(),
-            null,
-            rule,
-          );
-
-          highlightTokens(editor, tokens);
-        };
-
-        vscode.workspace.onDidChangeTextDocument(async (e) => {
-          console.log(e.reason);
-          if (!uriEqual(e.document.uri, editor.document.uri)) return;
-
-          updateUI(editor);
-        });
-
-        updateUI(editor);
-      }
+      editor = vscode.window.activeTextEditor;
       break;
     case InputSourceKind.File:
-      {
-        const uri = (await vscode.window.showOpenDialog())?.at(0);
+      const uri = (await vscode.window.showOpenDialog())?.at(0);
+      if (!uri) return;
 
-        if (!uri) return;
-        // const content = readFileSync(uri.fsPath, { encoding: "utf8" });
-        const tokens = await execServerCmd(cmd, uri.toString(), null, rule);
-
-        console.log(tokens);
-      }
+      editor = await vscode.window.showTextDocument(uri, { preview: false });
       break;
 
     case InputSourceKind.TextBox:
-      {
-        const content = await vscode.window.showInputBox({
-          placeHolder: "Enter or paste some text here",
-        });
-        execServerCmd(cmd, null, content, rule);
-      }
+      const content = await vscode.window.showInputBox({
+        placeHolder: "Enter some text to be scanned",
+      });
+
+      // todo: create a throwaway editor on which to display the token UI
+      // or just remove this option altogether and simply work with existing files
+      editor = await vscode.commands.executeCommand(
+        "workbench.action.files.newUntitledFile",
+        content,
+      );
       break;
   }
-}
 
-let decos: vscode.TextEditorDecorationType[] = [];
+  if (!editor) {
+    vscode.window.showErrorMessage("No active editor available.");
+    return;
+  }
 
-function highlightTokens(editor: vscode.TextEditor, tokens: Token[]) {
-  // Clear the old decorations
-  decos.forEach((d) => editor.setDecorations(d, []));
-  decos = [];
+  const actions = await execServerCmd<Range[]>("listActions", rule);
 
-  // Bad: vscode merges distinct ranges of the same decoration type
-  // editor.setDecorations(
-  //   deco,
-  //   tokens.map((t) => liftRange(t.range)),
-  // );
-
-  // Classify the tokens by the action that produced them and associate
-  const classes: Map<number, Token[]> = new Map();
-
-  tokens.forEach((t) =>
-    classes.has(t.action)
-      ? classes.get(t.action)!.push(t)
-      : classes.set(t.action, [t]),
-  );
-
-  classes.forEach((ts) => {
-    const color = rgba(rand(127, 255), rand(127, 255), rand(127, 255), 0.5);
-
-    const deco = vscode.window.createTextEditorDecorationType({
+  const regularTokenDecorations = actions.map(() => {
+    const color = rgba(rand(127, 225), rand(127, 225), rand(127, 225), 0.5);
+    return decorationType({
       backgroundColor: color,
-      // outlineColor: color,
-      // outlineStyle: "solid",
-      // outlineWidth: "2px",
       borderSpacing: "10px",
-      borderRadius: "5px",
+      borderRadius: "2px",
       borderColor: color,
       borderWidth: "2px",
       border: "solid",
-
       rangeBehavior: vscode.DecorationRangeBehavior.ClosedClosed,
     });
-
-    decos.push(deco);
-
-    editor.setDecorations(
-      deco,
-      ts.map((t) => ({
-        range: liftRange(t.range),
-        renderOptions: {
-          dark: {
-            after: { color: "#888" },
-          },
-          after:
-            t.text === "eof"
-              ? { contentText: t.text, color: "#ccc", fontStyle: "italic" }
-              : t.action === -1
-                ? {
-                    contentText: "error",
-                    color: "red",
-                    fontStyle: "bold",
-                  }
-                : {},
-        },
-        hoverMessage:
-          t.action === -1
-            ? md`Unhandled character "${{ $: t.text }}"`
-            : md`${{ $$: t.text }}\n\n---\n\n$(target) Go to action ${t.action}`,
-      })),
-    );
   });
+
+  const decorations = [
+    decorationType(emptyActionDecoreation),
+    ...regularTokenDecorations,
+  ];
+
+  const clearUI = () => {
+    regularTokenDecorations.forEach((d) => d.dispose());
+  };
+
+  const updateUI = async () => {
+    const tokens = await execServerCmd<Token[]>(
+      cmd,
+      rule,
+      editor.document.uri.toString(),
+    );
+
+    for (let i = -1; i < actions.length; i++) {
+      editor.setDecorations(
+        decorations[i + 1],
+        tokens
+          .filter((t) => t.action === i)
+          .map((t): vscode.DecorationOptions => {
+            t.text = t.text.replace(/\n/, "\\n");
+            const text = /\s+/.test(t.text) ? "<whitespace>" : t.text;
+            return {
+              range: liftRange(t.range),
+              hoverMessage:
+                t.action === -1
+                  ? md`
+$(warning) Empty token
+                    `
+                  : md`${{ block: text }}\n\n---\n\n$(milestone) Go to [action ${t.action}](${rule.moduleUri}#${actions[i].start.line})`,
+            };
+          }),
+      );
+    }
+  };
+
+  const changeSubscription = vscode.workspace.onDidChangeTextDocument(
+    (e) => uriEqual(e.document.uri, editor.document.uri) && updateUI(),
+  );
+
+  vscode.window.onDidChangeActiveTextEditor(() => {
+    changeSubscription.dispose();
+    clearUI();
+  });
+
+  updateUI();
 }
+
+const emptyActionDecoreation: vscode.DecorationRenderOptions = {
+  after: {
+    contentText: "⮿",
+    color: "var(--vscode-errorForeground)",
+    fontStyle: "bold",
+  },
+};
+const eofActionDecoration: vscode.DecorationRenderOptions = {
+  after: {
+    contentText: "eof",
+    color: "var(--vscode-disabledForeground)",
+    fontStyle: "italic",
+  },
+};
+const newlineActionDecoration: vscode.DecorationRenderOptions = {
+  after: {
+    contentText: "⮠",
+    ...eofActionDecoration.after,
+  },
+};
 
 export function deactivate(): Thenable<void> | undefined {
   if (!client) {
