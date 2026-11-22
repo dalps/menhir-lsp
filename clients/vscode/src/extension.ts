@@ -37,12 +37,12 @@ import {
   Token,
 } from "./types";
 import {
+  askForInputSource,
   choose,
   closeEditor,
   CURSOR_ICON,
   decorationType,
   focusView,
-  inputSourcePicks,
   liftRange,
   md,
   rand,
@@ -410,7 +410,7 @@ async function startParserWithCheckpointsView(
   context: vscode.ExtensionContext,
   startSymbol?: Entry,
   lexerRule?: Entry,
-  inputSource?: InputSourceKind,
+  sourceKind?: InputSourceKind,
 ) {
   const cmd = "startParserWithCheckpoints";
 
@@ -420,47 +420,28 @@ async function startParserWithCheckpointsView(
   lexerRule = lexerRule || (await selectLexer());
   if (!lexerRule) return;
 
-  inputSource =
-    inputSource ||
-    (await setupQuickPick<InputSourceKind>(
-      "Select the input source",
-      inputSourcePicks.slice(0, 2), // Exclude text box option, we need an editor
-    ));
-  if (!inputSource) return;
+  let source = await askForInputSource(sourceKind, "Enter some text to parse");
 
-  let editor: vscode.TextEditor | undefined;
-
-  switch (inputSource) {
-    case InputSourceKind.ActiveEditor:
-      editor = vscode.window.activeTextEditor;
-      break;
-
-    case InputSourceKind.File:
-      const uri = (await vscode.window.showOpenDialog())?.at(0);
-      if (!uri) return;
-
-      editor = await vscode.window.showTextDocument(uri, { preview: false });
-      break;
-  }
-
-  if (!editor) {
+  if (!source) {
     vscode.window.showErrorMessage("No editor available.");
     return;
   }
 
+  let { editor } = source;
+
   let sourceUri = editor.document.uri;
-
-  if (sourceUri.scheme !== "file") {
-    vscode.window.showErrorMessage("Input source must be a file.");
-    return;
-  }
-
   let grammarUri = vscode.Uri.parse(startSymbol.moduleUri);
 
   const res = await execServerCmd<{
     lexerBindings: ActionMapping[];
     start: Checkpoint;
-  }>(cmd, sourceUri.toString(), lexerRule, startSymbol);
+  }>(
+    cmd,
+    editor.document.getText(),
+    sourceUri.toString(),
+    lexerRule,
+    startSymbol,
+  );
 
   if (!res) {
     vscode.window.showErrorMessage("Server failed to launch the interpreter.");
@@ -633,57 +614,22 @@ async function startParserWithCheckpointsView(
 }
 
 async function startTokenizerView(rule?: Entry, sourceKind?: InputSourceKind) {
-  let editor: vscode.TextEditor | undefined;
-
   rule = rule || (await selectLexer());
   if (!rule) return;
 
-  sourceKind =
-    sourceKind ||
-    (await setupQuickPick<InputSourceKind>(
-      "Select the input source",
-      inputSourcePicks,
-    ));
-  if (!sourceKind) return;
+  let cmd = "startTokenizer";
 
-  let cmd = "startTokenizerWithFile";
+  let source = await askForInputSource(
+    sourceKind,
+    "Enter some text to be scanned",
+  );
 
-  switch (sourceKind) {
-    case InputSourceKind.ActiveEditor:
-      editor = vscode.window.activeTextEditor;
-      break;
-    case InputSourceKind.File:
-      const uri = (await vscode.window.showOpenDialog())?.at(0);
-      if (!uri) return;
-
-      editor = await vscode.window.showTextDocument(uri, { preview: false });
-
-      break;
-
-    case InputSourceKind.TextBox:
-      const content = await vscode.window.showInputBox({
-        placeHolder: "Enter some text to be scanned",
-      });
-
-      if (!content || content === "") return;
-
-      const document = await vscode.workspace.openTextDocument({
-        language: "plaintext",
-        content,
-      });
-
-      editor = await vscode.window.showTextDocument(document);
-
-      cmd = "startTokenizerWithText";
-      break;
-  }
-
-  if (!editor) {
-    vscode.window.showErrorMessage("No active editor available.");
+  if (!source) {
+    vscode.window.showErrorMessage("No editor available.");
     return;
   }
 
-  const docUri = editor.document.uri.toString();
+  let { editor } = source;
 
   const actions = await execServerCmd<Range[]>("listActions", rule);
 
@@ -710,11 +656,7 @@ async function startTokenizerView(rule?: Entry, sourceKind?: InputSourceKind) {
   };
 
   const updateUI = async () => {
-    const input =
-      sourceKind === InputSourceKind.TextBox
-        ? editor.document.getText()
-        : docUri;
-
+    const input = editor.document.getText();
     const tokens = await execServerCmd<Token[]>(cmd, rule, input);
 
     for (let i = -1; i < actions.length; i++) {

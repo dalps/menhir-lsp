@@ -391,7 +391,7 @@ module Range = struct
     let print pp_v (loc : 'a t) = pr "%a" (pp pp_v) loc
 
     let yojson_of_t ?(v_key = "value") y_of_a ({ v; p } : 'a t) : Yojson.Safe.t
-=
+        =
       `Assoc
         [
           (v_key, y_of_a v);

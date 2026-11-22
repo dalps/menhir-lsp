@@ -1,14 +1,14 @@
 import * as vscode from "vscode";
 import { Position, Range } from "vscode-languageclient";
+import { CodiconId } from "./codicons";
 import {
   InputSourceKind,
   Item,
   Production,
   QuickPickItemWithData,
   ViewId,
-  WithRange,
+  WithRange
 } from "./types";
-import { CodiconId } from "./codicons";
 
 export const CURSOR_ICON = "🠷";
 
@@ -180,3 +180,49 @@ export const inputSourcePicks = [
 ];
 
 export const decorationType = vscode.window.createTextEditorDecorationType;
+
+export async function askForInputSource(
+  sourceKind?: InputSourceKind,
+  textBoxPlaceholder = "Enter some text",
+): Promise<
+  { sourceKind: InputSourceKind; editor: vscode.TextEditor } | undefined
+> {
+  let editor: vscode.TextEditor | undefined;
+
+  sourceKind =
+    sourceKind ||
+    (await setupQuickPick<InputSourceKind>(
+      "Select the input source",
+      inputSourcePicks,
+    ));
+  if (!sourceKind) return;
+
+  switch (sourceKind) {
+    case InputSourceKind.ActiveEditor:
+      editor = vscode.window.activeTextEditor;
+      break;
+    case InputSourceKind.File:
+      const uri = (await vscode.window.showOpenDialog())?.at(0);
+      if (!uri) return;
+
+      editor = await vscode.window.showTextDocument(uri, { preview: false });
+      break;
+
+    case InputSourceKind.TextBox:
+      const content = await vscode.window.showInputBox({
+        placeHolder: textBoxPlaceholder,
+      });
+      if (!content || content === "") return;
+
+      const document = await vscode.workspace.openTextDocument({
+        language: "plaintext",
+        content,
+      });
+
+      editor = await vscode.window.showTextDocument(document);
+      break;
+  } 
+  if (!editor) return;
+
+  return { sourceKind, editor };
+}

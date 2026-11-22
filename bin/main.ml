@@ -22,8 +22,7 @@ let command_dict =
     ("listEntrypoints", `ListEntrypoints);
     ("listTokens", `ListTokens);
     ("listActions", `ListActions);
-    ("startTokenizerWithFile", `StartTokenizerWithFile);
-    ("startTokenizerWithText", `StartTokenizerWithText);
+    ("startTokenizer", `StartTokenizer);
     ("startParser", `StartParser);
     ("startParserWithCheckpoints", `StartParserWithCheckpoints);
     ("updateLexerBinding", `UpdateLexerBinding);
@@ -332,12 +331,14 @@ class lsp_server =
         match args with
         | Some
             [
+              `String sourceContent;
               `String sourceUri;
               `Assoc ((_, `String lexerName) :: (_, `String lexerUri) :: _);
               `Assoc ((_, `String parserName) :: (_, `String moduleUri) :: _);
             ] ->
             Some
-              ( sourceUri |> Uri.of_string,
+              ( sourceContent,
+                sourceUri |> Uri.of_string,
                 lexerName,
                 lexerUri |> Uri.of_string,
                 parserName,
@@ -487,7 +488,12 @@ class lsp_server =
           Some (`List (LexerActionMap.to_yojsons ~mly_uri ~mll_uri))
       | `StartParserWithCheckpoints ->
           let log s = log_src "small-step" s in
-          let* source_uri, rule_name, mll_uri, entrypoint_name, mly_uri =
+          let* ( source_content,
+                 source_uri,
+                 rule_name,
+                 mll_uri,
+                 entrypoint_name,
+                 mly_uri ) =
             interpreter_args args
           in
           let* mly_state = CCHashtbl.get mly_buffers mly_uri in
@@ -505,20 +511,17 @@ class lsp_server =
           let open D in
           plug_lexer_entry lexer_rule.v;
           log "reading input from file %s" (Uri.to_path source_uri);
-          In_channel.with_open_text (Uri.to_path source_uri) (fun ic ->
-              Utils.Range.Located.track_file source_uri;
-              let buffer = Bytes.of_string (In_channel.input_all ic) in
-              parse_with_checkpoints entrypoint lexer_entry mll_state.automata
-                buffer;
-              Some
-                (yodict
-                   [
-                     ( "lexerBindings",
-                       `List (LexerActionMap.to_yojsons ~mly_uri ~mll_uri) );
-                     ( "start",
-                       yojson_of_checkpoint (Interpreter.current_checkpoint ())
-                     );
-                   ]))
+          Utils.Range.Located.track_file source_uri;
+          let buffer = Bytes.of_string source_content in
+          parse_with_checkpoints entrypoint lexer_entry mll_state.automata
+            buffer;
+          yodict
+            [
+              ( "lexerBindings",
+                `List (LexerActionMap.to_yojsons ~mly_uri ~mll_uri) );
+              ("start", yojson_of_checkpoint (Interpreter.current_checkpoint ()));
+            ]
+          |> some
       | `StepForward ->
           with_adapter (fun _ (module D) ->
               let open D.Interpreter in
@@ -569,28 +572,7 @@ class lsp_server =
             |> Range.yojson_of_t
           in
           Some (`List locations)
-      | `StartTokenizerWithFile -> (
-          let open Tokenizer in
-          let* rule_name, mll_uri = entry_args args in
-          let* source_uri =
-            match args with
-            | Some (_ :: `String input :: _) -> Some (Uri.of_string input)
-            | _ -> None
-          in
-          let source_path = Uri.to_path source_uri in
-          let* state = CCHashtbl.get mll_buffers mll_uri in
-          let* _, start_rule = Mll.get_automata_entrypoint state rule_name in
-          try
-            In_channel.with_open_text source_path (fun ic ->
-                let lexbuf = Lexing.from_channel ic in
-                let tokens =
-                  tokenize_with_entry lexbuf start_rule state.automata
-                in
-                `List (L.map Token.yojson_of_t tokens) |> some)
-          with _ ->
-            show_error ~notify_back "Failed to open text file %s" source_path;
-            None)
-      | `StartTokenizerWithText ->
+      | `StartTokenizer ->
           let open Tokenizer in
           let* rule_name, mll_uri = entry_args args in
           let* content =
