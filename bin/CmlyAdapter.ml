@@ -540,8 +540,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
       let data = tok.v in
       let open O in
       match LexerActionMap.query data.action with
-      | None ->
-          Error (spr "unbound action: don't know how to interpret %s" data.text)
+      | None -> Error "empty token"
       | Some terminal -> (
           match terminal with
           | Skip -> next_token ()
@@ -826,6 +825,11 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
       let i = get_state () in
       i.current
 
+    let current_position () =
+      let i = get_state () in
+      let c = (env_of_checkpoint i.current).lexbuf in
+      Utils.Position.of_lexical_position c.lex_curr_p
+
     let step_forward () =
       let i = get_state () in
       i.current <- i.step_forward i.buffer i.current
@@ -886,11 +890,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
       in
       let data = tok.v in
       match LexerActionMap.query data.action with
-      | None ->
-          ( lexbuf',
-            Error
-              (spr "empty action: don't know how to interpret the text %S"
-                 data.text) )
+      | None -> (lexbuf', Error "empty token")
       | Some terminal -> (
           match terminal with
           | Skip -> next_token buffer lexbuf'
@@ -1175,6 +1175,7 @@ module type S = sig
 
   module Interpreter : sig
     val current_checkpoint : unit -> checkpoint
+    val current_position : unit -> Utils.Position.t
     (* val seek_checkpoint : int -> checkpoint option *)
 
     val change_buffer : Position.t -> bytes -> int

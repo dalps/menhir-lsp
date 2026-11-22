@@ -562,8 +562,14 @@ class lsp_server =
           in
           with_adapter (fun _ (module D) ->
               let open D.Interpreter in
+              let end_ = current_position () in
               let diff = change_buffer change_start new_content in
-              `Int diff)
+              let start = current_position () in
+              `Assoc
+                [
+                  ("discarded", `Int diff);
+                  ("range", Range.create ~start ~end_ |> Range.yojson_of_t);
+                ])
       | `Disconnect ->
           with_adapter (fun _ (module D) ->
               let open D.Interpreter in

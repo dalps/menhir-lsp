@@ -243,7 +243,7 @@ module Persistent = struct
     let make (buffer : Bytes.t) (lexbuf : lexbuf) action : t =
       let text =
         (* if lexbuf.lex_start_pos = Bytes.length buffer then "eof" *)
-        if lexbuf.lex_eof_reached then "eof"
+        if lexbuf.lex_eof_reached then "<end of file>"
         else
           let len = lexbuf.lex_curr_pos - lexbuf.lex_start_pos in
           Bytes.sub_string buffer lexbuf.lex_start_pos len

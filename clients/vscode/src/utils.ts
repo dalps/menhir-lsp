@@ -7,7 +7,7 @@ import {
   Production,
   QuickPickItemWithData,
   ViewId,
-  WithRange
+  WithRange,
 } from "./types";
 
 export const CURSOR_ICON = "🠷";
@@ -23,6 +23,9 @@ export const liftRange = (r: Range): vscode.Range => {
     new vscode.Position(end.line, end.character),
   );
 };
+
+export const sinceStartRange = (p: vscode.Position) =>
+  new vscode.Range(new vscode.Position(0, 0), p);
 
 export async function setupQuickPick<T>(
   title: string,
@@ -103,6 +106,15 @@ export function openCommand(
   };
 }
 
+/** Set this as the command field of a TreeItem for focusing a region of the current text by clicking on the item. */
+export function highlightText(range: Range): vscode.Command {
+  return {
+    command: "menhir-lsp-client.highlightText",
+    title: "Focus in editor",
+    arguments: [liftRange(range)],
+  };
+}
+
 /** Credit to widlow: https://stackoverflow.com/a/75192905/12274930 */
 export const closeEditor = async (editor: vscode.TextEditor) => {
   const uri = editor.document.uri;
@@ -157,6 +169,10 @@ export const stringOfRange = (r: vscode.Range | Range) =>
 
 export const rgba = (r: number, g: number, b: number, a: number) =>
   `rgba(${r},${g},${b}, ${a})`;
+
+export const YELLOW = rgba(255, 255, 0, 0.25);
+export const GREEN = rgba(0, 255, 0, 0.25);
+export const RED = rgba(255, 0, 0, 0.5);
 
 export const stringOfProduction = ({ lhs, rhs }: Production) =>
   `${lhs} → ${rhs.map((x) => x.name).join(" ")}`;
@@ -221,7 +237,7 @@ export async function askForInputSource(
 
       editor = await vscode.window.showTextDocument(document);
       break;
-  } 
+  }
   if (!editor) return;
 
   return { sourceKind, editor };

@@ -835,7 +835,7 @@ let code_lens ~uri (state : state) : CodeLens.t list option =
   let range = Range.of_lexical_positions pr_nt.p in
   if D.get_entrypoint pr_nt.v |> O.is_some then
     [
-      codelens range "$(debug-alt) Run on text file"
+      codelens range "$(debug-alt) Interpret text file"
         "menhir-lsp-client.startParserWithCheckpoints"
         [ yoentry uri pr_nt.v ];
       codelens range "$(play) Interpret token sentence"

@@ -343,13 +343,13 @@
         "icon": "$(debug-reverse-continue)"
       },
       {
-        "title": "Menhir: Jump to end",
+        "title": "Menhir: Jump to End",
         "enablement": "menhir-lsp-client.interpreterRunning == true",
         "command": "menhir-lsp-client.playToEnd",
         "icon": "$(play-to-end)"
       },
       {
-        "title": "Menhir: Jump to start",
+        "title": "Menhir: Jump to Start",
         "enablement": "menhir-lsp-client.interpreterRunning == true",
         "command": "menhir-lsp-client.playToStart",
         "icon": "$(play-to-start)"

@@ -43,13 +43,17 @@ import {
   CURSOR_ICON,
   decorationType,
   focusView,
+  GREEN,
   liftRange,
   md,
   rand,
+  RED,
   rgba,
   sep,
   setupQuickPick,
+  sinceStartRange,
   uriEqual,
+  YELLOW,
 } from "./utils";
 import path = require("path");
 
@@ -453,22 +457,38 @@ async function startParserWithCheckpointsView(
   actionProvider.refresh(res.lexerBindings);
   updateViews(res.start);
 
-  const highlightColor = rgba(0, 255, 0, 0.25);
-  let progressHighlight: vscode.TextEditorDecorationType = decorationType({
-    backgroundColor: highlightColor,
+  let grammarHighlight = decorationType({
+    backgroundColor: YELLOW,
+    isWholeLine: true,
+  });
+  let progressHighlight = decorationType({
+    backgroundColor: GREEN,
+  });
+  let discardHighlight = decorationType({
+    backgroundColor: RED,
+    textDecoration: "red dotted underline",
+  });
+  let inputHighlight = decorationType({
+    borderColor: "var(--vscode-focusBorder)",
+    borderWidth: "2px",
+    borderRadius: "4px",
+    borderStyle: "dashed",
   });
 
-  // editor.document.isDirty
-  // vscode.workspace.onDidChangeTextDocument(e => e.contentChanges.map(ch => ch))
+  const statusBar = vscode.window.createStatusBarItem(
+    "menhir-lsp-client.interpreterStatusBar",
+    vscode.StatusBarAlignment.Left,
+  );
 
-  let cursorDeco: vscode.TextEditorDecorationType = decorationType({
-    before: {
-      contentText: CURSOR_ICON,
-    },
-    after: {
-      contentText: CURSOR_ICON,
-    },
-  });
+  statusBar.name = "Menhir LSP Interpreter";
+  statusBar.text = `$(stop-circle) Interpreter (${startSymbol.name})`;
+  statusBar.tooltip = "Click to disconnect";
+  statusBar.command = "menhir-lsp-client.stopInterpreter";
+  statusBar.backgroundColor = new vscode.ThemeColor(
+    "statusBarItem.errorBackground",
+  );
+
+  statusBar.show();
 
   // Refresh the derivation and stack views and their data providers
   function updateViews(c: Checkpoint) {
@@ -478,11 +498,17 @@ async function startParserWithCheckpointsView(
       let range = liftRange(env.lookahead.token.range);
       editor.setDecorations(progressHighlight, [
         {
-          range: new vscode.Range(new vscode.Position(0, 0), range.end),
+          range: sinceStartRange(range.end),
+          renderOptions:
+            c.kind === "rejected" || c.kind === "lexerError"
+              ? rejectedDecoration
+              : c.kind === "accepted"
+                ? acceptedDecoration
+                : undefined,
         },
       ]);
-      editor.setDecorations(cursorDeco, [
-        { range, hoverMessage: md`Token ${{ $: env.lookahead.terminal }}` },
+      editor.setDecorations(inputHighlight, [
+        { range, hoverMessage: md`Token ${{ code: env.lookahead.terminal }}` },
       ]);
     }
 
@@ -547,13 +573,21 @@ async function startParserWithCheckpointsView(
     }
   }
 
-  const focusGrammar = (selection?: Range) =>
-    vscode.window.showTextDocument(grammarUri, {
+  const focusGrammar = async (selection?: Range) => {
+    const editor = await vscode.window.showTextDocument(grammarUri, {
       preview: false,
       preserveFocus: true,
-      selection: selection && liftRange(selection),
       viewColumn: vscode.ViewColumn.Beside,
     });
+
+    if (selection) {
+      let range = liftRange(selection);
+      editor.revealRange(range);
+      editor.setDecorations(grammarHighlight, [range]);
+    }
+
+    return editor;
+  };
 
   const disposables: vscode.Disposable[] = [];
 
@@ -566,6 +600,9 @@ async function startParserWithCheckpointsView(
   const aux = (cmd: string) =>
     registerCmd(cmd, async () => {
       const c = await execServerCmd<Checkpoint>(cmd, startSymbol.moduleUri);
+
+      editor.setDecorations(inputHighlight, []);
+      editor.setDecorations(discardHighlight, []);
 
       switch (c.kind) {
         case "reducing":
@@ -589,19 +626,31 @@ async function startParserWithCheckpointsView(
       let firstChangeStart = e.contentChanges.at(0)?.range.start;
       if (!firstChangeStart) return;
 
-      const discard = await execServerCmd<number>(
+      const res = await execServerCmd<{
+        discarded: number;
+        range: Range;
+      }>(
         "syncDocument",
         startSymbol.moduleUri,
         firstChangeStart,
         e.document.getText(),
       );
 
-      if (discard > 0) {
-        derivationTreeView.message = `⚠ Parsed input has changed! The interpreter travelled to the last valid checkpoint, please issue another step.`;
+      const range = liftRange(res.range);
+      editor.setDecorations(progressHighlight, [sinceStartRange(range.start)]);
+      editor.setDecorations(discardHighlight, [
+        { range, hoverMessage: "Discarded" },
+      ]);
+
+      if (res.discarded > 0) {
+        derivationTreeView.message = `⚠ Parsed input has changed! The interpreter travelled to the last valid checkpoint, please issue another step to resume.`;
         derivationTreeProvider.flush();
         stackProvider.flush();
         lr0ItemsProvider.flush();
       }
+    }),
+    registerCmd("highlightText", (range: vscode.Range) => {
+      editor.setDecorations(inputHighlight, [range]);
     }),
     registerCmd("stopInterpreter", async () => {
       setContext("interpreterRunning", false);
@@ -620,9 +669,11 @@ async function startParserWithCheckpointsView(
       lr0ItemsProvider.flush();
 
       editor.setDecorations(progressHighlight, []);
-      editor.setDecorations(cursorDeco, []);
+      editor.setDecorations(inputHighlight, []);
+      editor.setDecorations(discardHighlight, []);
 
       closeEditor(grammarEditor);
+      statusBar.hide();
 
       disposables.forEach((d) => d.dispose());
     }),
@@ -667,7 +718,7 @@ async function startTokenizerView(rule?: Entry, sourceKind?: InputSourceKind) {
   });
 
   const decorations = [
-    decorationType(emptyActionDecoreation),
+    decorationType(rejectedDecoration),
     ...regularTokenDecorations,
   ];
 
@@ -713,10 +764,17 @@ $(warning) Empty token
   updateUI();
 }
 
-const emptyActionDecoreation: vscode.DecorationRenderOptions = {
+const rejectedDecoration: vscode.DecorationRenderOptions = {
   after: {
     contentText: "⮿",
     color: "var(--vscode-errorForeground)",
+    fontStyle: "bold",
+  },
+};
+const acceptedDecoration: vscode.DecorationRenderOptions = {
+  after: {
+    contentText: "✔",
+    color: "var(--vscode-terminal-ansiBrightGreen)",
     fontStyle: "bold",
   },
 };
