@@ -588,3 +588,13 @@ let code_actions ({ regexps; grammar; _ } : state) ~(notify_back : notify_back)
       ()
   in
   Some [ `CodeAction extract_action ]
+
+(** Puts a code lens above every rule to launch the editor colorizer *)
+let code_lens ~uri (state : state) : CodeLens.t list option =
+  state.grammar.entrypoints
+  |> L.map (fun { v = { name } } ->
+      codelens
+        (Range.of_lexical_positions name.p)
+        "$(play) Run tokenizer" "menhir-lsp-client.startTokenizer"
+        [ yoentry uri name.v ])
+  |> O.some

@@ -137,6 +137,8 @@ let rec token automata lexbuf _buf _len _curr _last (state, last_action) =
         else
           (Char.code (Bytes.unsafe_get _buf _curr), _buf, _len, _curr + 1, _last)
       in
+
+      (* if next_char = newline then Lexing.new_line lexbuf; *)
       log "shift '%s' %d"
         (if next_char = eof then "eof" else Char.(escaped (chr next_char)))
         last_action;
@@ -220,8 +222,8 @@ module Persistent = struct
   }
   (** In order to support reversibility we prefer working with a persistent
       version of the lexbuf record. We also avoind chunking the content of the
-      input text so we hold the whole content inside [lex_buffer] like the
-      buffers produced by [Lexing.from_string] *)
+      input text so we hold the whole content inside a separate buffer, in a
+      similar fashion to the buffers produced by [Lexing.from_string] *)
 
   let zero_pos : position =
     { pos_fname = ""; pos_lnum = 1; pos_bol = 0; pos_cnum = 0 }

@@ -646,8 +646,7 @@ async function startTokenizerView(rule?: Entry, sourceKind?: InputSourceKind) {
     ));
   if (!sourceKind) return;
 
-  // vscode.workspace.findFiles
-  let cmd = "startTokenizer";
+  let cmd = "startTokenizerWithFile";
 
   switch (sourceKind) {
     case InputSourceKind.ActiveEditor:
@@ -658,6 +657,7 @@ async function startTokenizerView(rule?: Entry, sourceKind?: InputSourceKind) {
       if (!uri) return;
 
       editor = await vscode.window.showTextDocument(uri, { preview: false });
+
       break;
 
     case InputSourceKind.TextBox:
@@ -665,12 +665,16 @@ async function startTokenizerView(rule?: Entry, sourceKind?: InputSourceKind) {
         placeHolder: "Enter some text to be scanned",
       });
 
-      // todo: create a throwaway editor on which to display the token UI
-      // or just remove this option altogether and simply work with existing files
-      editor = await vscode.commands.executeCommand(
-        "workbench.action.files.newUntitledFile",
+      if (!content || content === "") return;
+
+      const document = await vscode.workspace.openTextDocument({
+        language: "plaintext",
         content,
-      );
+      });
+
+      editor = await vscode.window.showTextDocument(document);
+
+      cmd = "startTokenizerWithText";
       break;
   }
 
@@ -679,10 +683,12 @@ async function startTokenizerView(rule?: Entry, sourceKind?: InputSourceKind) {
     return;
   }
 
+  const docUri = editor.document.uri.toString();
+
   const actions = await execServerCmd<Range[]>("listActions", rule);
 
   const regularTokenDecorations = actions.map(() => {
-    const color = rgba(rand(127, 225), rand(127, 225), rand(127, 225), 0.5);
+    const color = rgba(rand(105, 225), rand(105, 225), rand(105, 225), 0.5);
     return decorationType({
       backgroundColor: color,
       borderSpacing: "10px",
@@ -704,11 +710,12 @@ async function startTokenizerView(rule?: Entry, sourceKind?: InputSourceKind) {
   };
 
   const updateUI = async () => {
-    const tokens = await execServerCmd<Token[]>(
-      cmd,
-      rule,
-      editor.document.uri.toString(),
-    );
+    const input =
+      sourceKind === InputSourceKind.TextBox
+        ? editor.document.getText()
+        : docUri;
+
+    const tokens = await execServerCmd<Token[]>(cmd, rule, input);
 
     for (let i = -1; i < actions.length; i++) {
       editor.setDecorations(

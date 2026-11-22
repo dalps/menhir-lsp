@@ -134,7 +134,7 @@ let show_message ~notify_back ?(type_ = MessageType.Info) fmt =
     (fun message ->
       notify_back#send_notification
         (Lsp.Server_notification.ShowMessage { message; type_ }))
-    fmt
+    ("[menhir-lsp] " ^^ fmt)
 
 let show_error ~notify_back fmt = show_message ~notify_back ~type_:Error fmt
 let show_warning ~notify_back fmt = show_message ~notify_back ~type_:Warning fmt
@@ -511,7 +511,15 @@ let yojson_of_result ~ok ~error (r : ('a, 'e) result) : json =
     (match r with Ok _ -> "ok" | Error _ -> "error")
     (R.fold ~ok ~error r)
 
+let yoentry uri name =
+  `Assoc [ ("name", `String name); ("moduleUri", Uri.yojson_of_t uri) ]
+
 let yoresult = yojson_of_result
+
+let codelens range title command arguments =
+  CodeLens.create ~range
+    ~command:(Command.create ~command ~arguments ~title ())
+    ()
 
 module Nat = struct
   type t = Zero | Succ of t

@@ -22,7 +22,8 @@ let command_dict =
     ("listEntrypoints", `ListEntrypoints);
     ("listTokens", `ListTokens);
     ("listActions", `ListActions);
-    ("startTokenizer", `StartTokenizer);
+    ("startTokenizerWithFile", `StartTokenizerWithFile);
+    ("startTokenizerWithText", `StartTokenizerWithText);
     ("startParser", `StartParser);
     ("startParserWithCheckpoints", `StartParserWithCheckpoints);
     ("updateLexerBinding", `UpdateLexerBinding);
@@ -568,7 +569,7 @@ class lsp_server =
             |> Range.yojson_of_t
           in
           Some (`List locations)
-      | `StartTokenizer -> (
+      | `StartTokenizerWithFile -> (
           let open Tokenizer in
           let* rule_name, mll_uri = entry_args args in
           let* source_uri =
@@ -589,6 +590,22 @@ class lsp_server =
           with _ ->
             show_error ~notify_back "Failed to open text file %s" source_path;
             None)
+      | `StartTokenizerWithText ->
+          let open Tokenizer in
+          let* rule_name, mll_uri = entry_args args in
+          let* content =
+            match args with
+            | Some (_ :: `String text :: _) -> Some text
+            | _ -> None
+          in
+          let* state = CCHashtbl.get mll_buffers mll_uri in
+          let* _, start_rule = Mll.get_automata_entrypoint state rule_name in
+          let buf = Bytes.of_string content in
+          let tokens =
+            Persistent.tokenize_with_entry buf Persistent.start_lexbuf
+              start_rule state.automata
+          in
+          `List (L.map Token.yojson_of_t tokens) |> some
       | exception _ -> None
 
     method private _on_req_folding_range ~(notify_back : notify_back)
@@ -701,7 +718,7 @@ class lsp_server =
     method! on_req_code_lens =
       fun ~notify_back ~id ~uri ~workDoneToken ~partialResultToken doc_state ->
         self#_dispatch uri ~notify_back ~mly_handler:(Mly.code_lens ~uri)
-          ~mll_handler:(fun state -> None)
+          ~mll_handler:(Mll.code_lens ~uri)
         |> O.flatten |> O.get_or_nil |> Lwt.return
 
     method private _on_req_selection_range ~notify_back ~r :
