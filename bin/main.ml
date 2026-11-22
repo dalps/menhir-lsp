@@ -32,7 +32,7 @@ let command_dict =
     ("playBackward", `PlayBackward);
     ("playToEnd", `PlayToEnd);
     ("playToStart", `PlayToStart);
-    (* ("syncDocument", `SyncDocument); used to sync content changes in the buffer kept by the interpreter *)
+    ("syncDocument", `SyncDocument);
     ("disconnect", `Disconnect);
   ]
 
@@ -552,6 +552,18 @@ class lsp_server =
               let open D.Interpreter in
               play_back ~pause:false ();
               current_checkpoint () |> D.yojson_of_checkpoint)
+      | `SyncDocument ->
+          let* change_start, new_content =
+            match args with
+            | Some (_ :: changeStart :: `String newContent :: _) ->
+                Some
+                  (Position.t_of_yojson changeStart, Bytes.of_string newContent)
+            | _ -> None
+          in
+          with_adapter (fun _ (module D) ->
+              let open D.Interpreter in
+              let diff = change_buffer change_start new_content in
+              `Int diff)
       | `Disconnect ->
           with_adapter (fun _ (module D) ->
               let open D.Interpreter in

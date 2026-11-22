@@ -532,6 +532,18 @@ module Nat = struct
     let rec aux acc = function Zero -> acc | Succ n -> aux (acc + 1) n in
     aux 0
 
+  let rec sub n m =
+    match (n, m) with Zero, _ | _, Zero -> n | Succ n', Succ m' -> sub n' m'
+
+  let rec compare n m =
+    match (n, m) with
+    | Zero, Zero -> 0
+    | Zero, _ -> -1
+    | _, Zero -> 1
+    | Succ n', Succ m' -> compare n' m'
+
+  let rec equal n m = compare n m = 0
+
   let of_int : int -> t =
     let rec aux acc = function
       | n when n < 0 -> failwith "Nat.of_int"
@@ -540,3 +552,5 @@ module Nat = struct
     in
     aux Zero
 end
+
+type nat = Nat.t

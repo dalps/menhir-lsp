@@ -583,6 +583,26 @@ async function startParserWithCheckpointsView(
     aux("playBackward"),
     aux("playToStart"),
     aux("playToEnd"),
+    vscode.workspace.onDidChangeTextDocument(async (e) => {
+      if (!uriEqual(e.document.uri, editor.document.uri)) return;
+
+      let firstChangeStart = e.contentChanges.at(0)?.range.start;
+      if (!firstChangeStart) return;
+
+      const discard = await execServerCmd<number>(
+        "syncDocument",
+        startSymbol.moduleUri,
+        firstChangeStart,
+        e.document.getText(),
+      );
+
+      if (discard > 0) {
+        derivationTreeView.message = `⚠ Parsed input has changed! The interpreter travelled to the last valid checkpoint, please issue another step.`;
+        derivationTreeProvider.flush();
+        stackProvider.flush();
+        lr0ItemsProvider.flush();
+      }
+    }),
     registerCmd("stopInterpreter", async () => {
       setContext("interpreterRunning", false);
       await execServerCmd("disconnect", startSymbol.moduleUri);

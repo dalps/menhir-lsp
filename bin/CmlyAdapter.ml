@@ -567,7 +567,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
    * ######################################################################## *)
 
   type env = {
-    time : Nat.t;
+    time : nat;
     entrypoint : entrypoint;
     state : lr1;
     lookahead : lookahead option;
@@ -589,11 +589,21 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
   let env_equal : env -> env -> bool =
    fun e1 e2 ->
-    Lr1.equal e1.state e2.state
+    Nat.equal e1.time e2.time
+    && Lr1.equal e1.state e2.state
     && e1.lexbuf = e2.lexbuf
     && CCEqual.option
          (fun (t1, _) (t2, _) -> Terminal.equal t1 t2)
          e1.lookahead e2.lookahead
+
+  let env_of_checkpoint : checkpoint -> env = function
+    | InputNeeded env
+    | LexerError (_, env)
+    | Shifting (_, env)
+    | Reducing (_, env)
+    | Accepted (_, env)
+    | Rejected (_, env) ->
+        env
 
   let check_breakpoint : Attribute.t list -> bool =
     L.exists (Attribute.has_label "break")
@@ -794,12 +804,15 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           Rejected (T t, env)
 
   module Interpreter = struct
+    (* Note: [play_forward] takes an additional [bytes] parameter because we allow changing the input buffer's contents. *)
     type state = {
+      mutable buffer : Bytes.t;
       mutable current : checkpoint;
-      step_forward : checkpoint -> checkpoint;
+      step_forward : bytes -> checkpoint -> checkpoint;
       step_back : checkpoint -> checkpoint;
-      play_forward : ?pause:bool -> checkpoint -> checkpoint;
-      play_back : ?pause:bool -> checkpoint -> checkpoint;
+      play_forward :
+        ?pred:(checkpoint -> bool) -> bytes -> checkpoint -> checkpoint;
+      play_back : ?pred:(checkpoint -> bool) -> checkpoint -> checkpoint;
     }
 
     let state_ref : state option ref = ref None
@@ -815,19 +828,47 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
     let step_forward () =
       let i = get_state () in
-      i.current <- i.step_forward i.current
+      i.current <- i.step_forward i.buffer i.current
 
     let step_back () =
       let i = get_state () in
       i.current <- i.step_back i.current
 
-    let play_forward ?pause () =
-      let i = get_state () in
-      i.current <- i.play_forward ?pause i.current
+    let pause_at_time n c = Nat.equal (env_of_checkpoint c).time n
 
-    let play_back ?pause () =
+    (** True whenever the [c]'s end position is strictly less than a given
+        position. *)
+    let pause_before_change (change_start : Position.t) c =
+      Position.compare
+        (Position.of_lexical_position (env_of_checkpoint c).lexbuf.lex_curr_p)
+        change_start
+      = Lt
+
+    let pause_at_breakpoint c = has_breakpoint c
+
+    let play_forward ?(pause = true) () =
       let i = get_state () in
-      i.current <- i.play_back ?pause i.current
+      let pred = O.wrap pause pause_at_breakpoint in
+      i.current <- i.play_forward ?pred i.buffer i.current
+
+    let play_back ?(pause = true) () =
+      let i = get_state () in
+      let pred = O.wrap pause pause_at_breakpoint in
+      i.current <- i.play_back ?pred i.current
+
+    let change_buffer change_start new_buffer =
+      let i = get_state () in
+      i.buffer <- new_buffer;
+
+      let old_time = (env_of_checkpoint i.current).time in
+      let is_valid = pause_before_change change_start in
+
+      (* The guard is needed because [play_back] as we implemented it performs at least one step back before testing the predicate. *)
+      if not (is_valid i.current) then
+        i.current <- i.play_back ~pred:is_valid i.current;
+
+      let new_time = (env_of_checkpoint i.current).time in
+      Nat.sub old_time new_time |> Nat.to_int
 
     let disconnect () =
       LexerActionMap.reset ();
@@ -838,7 +879,8 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
   let make_persistent_token_supplier (lexer_entry : Tokenizer.entrypoint)
       (lexer_automata : Tokenizer.automata) (buffer : bytes) =
-    let rec next_token (lexbuf : Tokenizer.Persistent.lexbuf) =
+    (* Given a buffer and a record of positions into this buffer, computes the next token in the input stream. *)
+    let rec next_token (buffer : bytes) (lexbuf : Tokenizer.Persistent.lexbuf) =
       let lexbuf', tok =
         Tokenizer.Persistent.next_token buffer lexbuf lexer_entry lexer_automata
       in
@@ -851,7 +893,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
                  data.text) )
       | Some terminal -> (
           match terminal with
-          | Skip -> next_token lexbuf'
+          | Skip -> next_token buffer lexbuf'
           | Fail -> (lexbuf', Error "lexer error")
           | Produce term -> (lexbuf', Ok (term, tok)))
     in
@@ -891,10 +933,10 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     let init_checkpoint : checkpoint = InputNeeded bottom in
 
     (* Unwraps a checkpoint and sets up the environment to call [step]. Also updates the history of checkpoints. *)
-    let step_forward (c : checkpoint) : checkpoint =
+    let step_forward (buffer : bytes) (c : checkpoint) : checkpoint =
       match c with
       | InputNeeded env -> (
-          match next_token env.lexbuf with
+          match next_token buffer env.lexbuf with
           | lexbuf, Ok tok ->
               step { env with last = c; lexbuf; lookahead = Some tok } false
           | lexbuf, Error msg ->
@@ -904,44 +946,43 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
       | LexerError _ | Accepted _ | Rejected _ -> (* makes no progress *) c
     in
 
-    (* Steps forwards until a terminal point is reached. *)
-    let rec play_forward ?(pause = true) (c : checkpoint) : checkpoint =
-      match step_forward c with
+    let test_opt_pred pred c =
+      let open O in
+      pred <*> Some c |> get_or ~default:false
+    in
+
+    (* Steps forwards until a terminal point is reached or another milestone. *)
+    let rec play_forward ?pred (buffer : bytes) (c : checkpoint) : checkpoint =
+      match step_forward buffer c with
       | (LexerError _ | Accepted _ | Rejected _) as c ->
           log "[->] stopping at the top";
           c
-      | c when pause && has_breakpoint c ->
-          log "[->] stopping at breakpoint";
+      | c when test_opt_pred pred c ->
+          log "[->] stopping at condition";
           c
-      | c -> play_forward ~pause c
+      | c -> play_forward ?pred buffer c
     in
 
     (* Forgets a history step and returns it. *)
-    let step_back : checkpoint -> checkpoint = function
-      | InputNeeded env
-      | LexerError (_, env)
-      | Shifting (_, env)
-      | Reducing (_, env)
-      | Accepted (_, env)
-      | Rejected (_, env) ->
-          env.last
-    in
+    let step_back (c : checkpoint) : checkpoint = (env_of_checkpoint c).last in
 
-    (* Steps all the way back to the bottom checkpoint. *)
-    let rec play_back ?(pause = true) (c : checkpoint) : checkpoint =
+    (* Steps all the way back to the bottom checkpoint or another milestone . *)
+    let rec play_back ?pred (c : checkpoint) : checkpoint =
       match step_back c with
       | InputNeeded env as c when env_equal env bottom ->
+          (* [env.time = Nat.zero] should suffice as well *)
           log "[<-] stopping at the bottom";
           c
-      | c when pause && has_breakpoint c ->
-          log "[<-] stopping at breakpoint";
+      | c when test_opt_pred pred c ->
+          log "[<-] stopping at condition";
           c
-      | c -> play_back ~pause c
+      | c -> play_back ?pred c
     in
 
     Interpreter.state_ref :=
       Some
         {
+          buffer;
           current = init_checkpoint;
           step_forward;
           step_back;
@@ -1102,7 +1143,7 @@ module type S = sig
   type lexer_behavior = Skip | Fail | Produce of terminal
 
   type env = {
-    time : Nat.t;
+    time : nat;
     entrypoint : entrypoint;
     state : lr1;
     lookahead : lookahead option;
@@ -1134,6 +1175,16 @@ module type S = sig
 
   module Interpreter : sig
     val current_checkpoint : unit -> checkpoint
+    (* val seek_checkpoint : int -> checkpoint option *)
+
+    val change_buffer : Position.t -> bytes -> int
+    (** Invalidate all checkpoints that were produced since the start position
+        of a text edit's range. In case the content change occurs later than the
+        current checkpoint, we stay where we are.
+
+        Returns the number of checkpoints that where discarded. Nonzero whenever
+        the change occurs before [current_checkpoint]'s position. *)
+
     val step_forward : unit -> unit
     val step_back : unit -> unit
     val play_forward : ?pause:bool -> unit -> unit
