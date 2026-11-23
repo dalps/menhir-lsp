@@ -7,7 +7,7 @@ module MF = Menhirformat_lib
 
 type doc_type = Mll | Mly | Messages
 
-(* This spares us having to pattern-match strings and prevents bugs caused by typos.*)
+(* This saves us having to pattern-match against strings and prevents introducing bugs caused by typos.*)
 let command_dict =
   [
     ("getAst", `GetAst);
@@ -17,6 +17,23 @@ let command_dict =
     ("nextDummyMessage", `NextDummyMessage);
     ("previousMessage", `PreviousMessage);
     ("previousDummyMessage", `PreviousDummyMessage);
+    ("listLexers", `ListLexers);
+    ("listParsers", `ListParsers);
+    ("listEntrypoints", `ListEntrypoints);
+    ("listTokens", `ListTokens);
+    ("listActions", `ListActions);
+    ("startTokenizer", `StartTokenizer);
+    ("startParser", `StartParser);
+    ("startParserWithCheckpoints", `StartParserWithCheckpoints);
+    ("updateLexerBinding", `UpdateLexerBinding);
+    ("stepForward", `StepForward);
+    ("stepBackward", `StepBackward);
+    ("playForward", `PlayForward);
+    ("playBackward", `PlayBackward);
+    ("playToEnd", `PlayToEnd);
+    ("playToStart", `PlayToStart);
+    ("syncDocument", `SyncDocument);
+    ("disconnect", `Disconnect);
   ]
 
 let doc_type_of_uri uri : doc_type option =
@@ -56,7 +73,8 @@ class lsp_server =
       let+ { languageId; version; content = text; _ } = self#find_doc uri in
       TD.create ~position_encoding:positionEncoding ~text ~version ~languageId
         uri
-    (** Turns Linol's [find_doc] result into a more useful [Text_document.t] *)
+    (** Wrapper around Linol's [super#find_doc] that converts the returned
+        [doc_state] type into a more useful [Text_document.t]. *)
 
     method private _word_at_position :
         notify_back:Linol_lwt.Jsonrpc2.notify_back ->
@@ -100,6 +118,9 @@ class lsp_server =
           triggerCharacters = Some [ "%"; "$"; "." ];
           workDoneProgress = None;
         }
+
+    method! config_code_lens_options =
+      Some { resolveProvider = None; workDoneProgress = None }
 
     method! on_req_completion =
       fun ~notify_back ~id:_ ~uri ~pos ~ctx:_ ~workDoneToken:_
@@ -299,27 +320,98 @@ class lsp_server =
       Lwt.return @@ O.get_or ~default:`Null
       @@
       (* All the commands we define carry a uri as the first argument, which we extract right away and exit early if not found. *)
-      let* uri =
+      let uri_of_args args =
         match args with
         | Some (`String uri :: _) -> Some (Uri.of_string uri)
         | _ ->
-            log "Failed to read uri argument";
+            log "Failed to read uri as the first argument";
             None
+      in
+      let interpreter_args (args : json list option) =
+        match args with
+        | Some
+            [
+              `String sourceContent;
+              `String sourceUri;
+              `Assoc ((_, `String lexerName) :: (_, `String lexerUri) :: _);
+              `Assoc ((_, `String parserName) :: (_, `String moduleUri) :: _);
+            ] ->
+            Some
+              ( sourceContent,
+                sourceUri |> Uri.of_string,
+                lexerName,
+                lexerUri |> Uri.of_string,
+                parserName,
+                moduleUri |> Uri.of_string )
+        | _ -> None
+      in
+      (* Helper for handling the interpreter commands *)
+      let with_adapter k =
+        let* uri = uri_of_args args in
+        let* state = CCHashtbl.get mly_buffers uri in
+        let+ adapter = state.cmly in
+        log "✔ got adapter of %a" pp_uri uri;
+        k uri adapter
       in
       (* Helper for handling .messages commands *)
       let focus f =
+        let* uri = uri_of_args args in
         let* pos = pos_of_args args in
         let* state = Hashtbl.find_opt msg_buffers uri in
         let selection = f state ~pos in
         log "Next selection: %a" (pp_option Range.pp) selection;
         showDoc (uri, selection)
       in
+      let entrypoints kind buffers getter : json list =
+        CCHashtbl.to_list buffers
+        |> L.filter_map (fun (uri, state) ->
+            let open O in
+            log "Reading entrypoints of %a" pp_uri uri;
+            getter uri state >|= make_entries_dict kind uri)
+      in
+      (* Always returns some entrypoint *)
+      let get_mll_entries () =
+        entrypoints `Mll mll_buffers (fun uri state ->
+            let open OcamllexSyntax.Syntax in
+            state.Mll.grammar.entrypoints
+            |> L.map (fun { p; v = { name } } ->
+                (name.v, Range.of_lexical_positions p))
+            |> O.some)
+      in
+      (* May fail for many reasons: dune locked the build dir, an error reading the CMLY file, etc. *)
+      let get_mly_entries () =
+        entrypoints `Mly mly_buffers (fun uri state ->
+            let open O in
+            let+ (module D) = state.Mly.cmly in
+            log "✔ got adapter of %a" pp_uri uri;
+            L.filter_map
+              (function
+                | M.Syntax.Old { v = { pr_nt }; p }
+                | M.Syntax.New { v = { pr_nt }; p } ->
+                    let+ _ = D.get_entrypoint pr_nt.v in
+                    log "✔ found %s" pr_nt.v;
+                    (pr_nt.v, Range.of_lexical_positions p))
+              state.grammar.pg_rules)
+      in
+      let error msg =
+        show_error ~notify_back "%s" msg;
+        yostring msg
+      in
+      let entry_args (args : json list option) =
+        match args with
+        | Some (`Assoc ((_, `String name) :: (_, `String moduleUri) :: _) :: _)
+          ->
+            Some (name, Uri.of_string moduleUri)
+        | _ -> None
+      in
       match L.assoc ~eq:String.equal command command_dict with
       | `GetAst ->
+          let* uri = uri_of_args args in
           self#_dispatch uri ~notify_back
             ~mly_handler:(fun state -> Mly.yojson_of_ast state.grammar)
             ~mll_handler:(fun state -> Mll.yojson_of_ast state.grammar)
       | `GotoImplementation ->
+          let* uri = uri_of_args args in
           let pos = pos_of_args args in
           log "Client requested implementation of %a at position %a" pp_uri uri
             (pp_option Position.pp) pos;
@@ -328,6 +420,7 @@ class lsp_server =
             ~mll_handler:(Mll.show_impl ?pos >=> showDoc)
           |> O.flatten
       | `EchoErrors ->
+          let* uri = uri_of_args args in
           let+ state = Hashtbl.find_opt msg_buffers uri in
           let stats = Msg.stats state in
           `String stats
@@ -335,6 +428,198 @@ class lsp_server =
       | `NextDummyMessage -> focus Msg.next_dummy_message
       | `PreviousMessage -> focus Msg.previous_message
       | `PreviousDummyMessage -> focus Msg.previous_dummy_message
+      | `ListParsers -> Some (`List (get_mly_entries ()))
+      | `ListLexers -> Some (`List (get_mll_entries ()))
+      | `ListEntrypoints ->
+          Some (`List (get_mly_entries () @ get_mll_entries ()))
+      | `ListTokens ->
+          with_adapter (fun mly_uri (module D) ->
+              let open D in
+              let res =
+                G.Terminal.fold
+                  (fun t acc ->
+                    O.map_or ~default:acc (L.cons' acc) (yoterminal' ~mly_uri t))
+                  []
+              in
+              `List (List.rev res))
+      | `StartParser ->
+          let* entrypoint_name, mly_uri = entry_args args in
+          let* input =
+            match args with
+            | Some [ _; `List input ] -> (
+                try Some (L.map Yojson.Safe.Util.to_string input)
+                with _ -> None)
+            | _ -> None
+          in
+          let* state = CCHashtbl.get mly_buffers mly_uri in
+          let* (module D) = state.cmly in
+          let open D in
+          let+ entrypoint = get_entrypoint entrypoint_name in
+          parse_sentence entrypoint input
+          |> yoresult ~ok:yojson_of_simple_derivation_tree ~error:yostring
+      | `UpdateLexerBinding ->
+          let* mly_uri, mll_uri, id, v =
+            match args with
+            | Some [ `String mly_uri; `String mll_uri; `Int id; v ] ->
+                Some (Uri.of_string mly_uri, Uri.of_string mll_uri, id, v)
+            | _ -> None
+          in
+          let* mly_state = CCHashtbl.get mly_buffers mly_uri in
+          let* (module D) = mly_state.cmly in
+          let open D in
+          let open D.G in
+          log "got adapter";
+          let open Lex in
+          let* lexer_behavior =
+            match v with
+            | `Assoc (("kind", `String k) :: rest) -> (
+                match k with
+                | "skip" -> Some Skip
+                | "fail" -> Some Fail
+                | "token" -> (
+                    match rest with
+                    | ("value", `Assoc obj) :: _ -> (
+                        let* id = L.assoc_opt ~eq:String.equal "id" obj in
+                        match id with
+                        | `Int id -> Some (Produce (Terminal.of_int id))
+                        | _ -> None)
+                    | _ -> None)
+                | _ -> None)
+            | _ -> None
+          in
+          log "parsed behavior";
+          LexerActionMap.edit id lexer_behavior;
+          Some (`List (LexerActionMap.to_yojsons ~mly_uri ~mll_uri))
+      | `StartParserWithCheckpoints ->
+          let log s = log_src "small-step" s in
+          let* ( source_content,
+                 source_uri,
+                 rule_name,
+                 mll_uri,
+                 entrypoint_name,
+                 mly_uri ) =
+            interpreter_args args
+          in
+          let* mly_state = CCHashtbl.get mly_buffers mly_uri in
+          let* (module D) = mly_state.cmly in
+          let open D.G in
+          log "got adapter";
+          let open Lex in
+          let* entrypoint = D.get_entrypoint entrypoint_name in
+          let* mll_state = CCHashtbl.get mll_buffers mll_uri in
+          let* _, lexer_rule = Mll.get_syntax_entrypoint mll_state rule_name in
+          let* _, lexer_entry =
+            Mll.get_automata_entrypoint mll_state rule_name
+          in
+          log "got lexer";
+          let open D in
+          plug_lexer_entry lexer_rule.v;
+          log "reading input from file %s" (Uri.to_path source_uri);
+          Utils.Range.Located.track_file source_uri;
+          let buffer = Bytes.of_string source_content in
+          let init =
+            parse_with_checkpoints entrypoint lexer_entry mll_state.automata
+              buffer
+          in
+          yodict
+            [
+              ( "lexerBindings",
+                `List (LexerActionMap.to_yojsons ~mly_uri ~mll_uri) );
+              ("start", yojson_of_checkpoint init);
+            ]
+          |> some
+      | `StepForward ->
+          with_adapter (fun _ (module D) ->
+              let open D.Interpreter in
+              step_forward ();
+              current_checkpoint ()
+              |> yoresult ~ok:D.yojson_of_checkpoint ~error)
+      | `StepBackward ->
+          with_adapter (fun _ (module D) ->
+              let open D.Interpreter in
+              step_back ();
+              current_checkpoint ()
+              |> yoresult ~ok:D.yojson_of_checkpoint ~error)
+      | `PlayForward ->
+          with_adapter (fun _ (module D) ->
+              let open D.Interpreter in
+              play_forward ();
+              current_checkpoint ()
+              |> yoresult ~ok:D.yojson_of_checkpoint ~error)
+      | `PlayBackward ->
+          with_adapter (fun _ (module D) ->
+              let open D.Interpreter in
+              play_back ();
+              current_checkpoint ()
+              |> yoresult ~ok:D.yojson_of_checkpoint ~error)
+      | `PlayToEnd ->
+          with_adapter (fun _ (module D) ->
+              let open D.Interpreter in
+              play_forward ~pause:false ();
+              current_checkpoint ()
+              |> yoresult ~ok:D.yojson_of_checkpoint ~error)
+      | `PlayToStart ->
+          with_adapter (fun _ (module D) ->
+              let open D.Interpreter in
+              play_back ~pause:false ();
+              current_checkpoint ()
+              |> yoresult ~ok:D.yojson_of_checkpoint ~error)
+      | `SyncDocument ->
+          let* change_start, new_content =
+            match args with
+            | Some (_ :: changeStart :: `String newContent :: _) ->
+                Some
+                  (Position.t_of_yojson changeStart, Bytes.of_string newContent)
+            | _ -> None
+          in
+          with_adapter (fun _ (module D) ->
+              let open R in
+              let open D.Interpreter in
+              let* end_ = current_position () in
+              let* diff = change_buffer change_start new_content in
+              let+ start = current_position () in
+              `Assoc
+                [
+                  ("discarded", `Int diff);
+                  ("range", Range.create ~start ~end_ |> Range.yojson_of_t);
+                ])
+          >|= yoresult ~ok:(fun x -> x) ~error
+      | `Disconnect ->
+          with_adapter (fun _ (module D) ->
+              let open D.Interpreter in
+              disconnect ();
+              `Null)
+      | `ListActions ->
+          let open Tokenizer in
+          let* rule_name, mll_uri = entry_args args in
+          let* state = CCHashtbl.get mll_buffers mll_uri in
+          let* _, start_rule = Mll.get_automata_entrypoint state rule_name in
+          let locations =
+            let open L in
+            let+ _, _, loc = start_rule.auto_actions in
+            let Lex.Syntax.{ start_line; start_col; end_line; end_col } = loc in
+            Range.create
+              ~start:(Position.create ~character:start_col ~line:start_line)
+              ~end_:(Position.create ~character:end_col ~line:end_line)
+            |> Range.yojson_of_t
+          in
+          Some (`List locations)
+      | `StartTokenizer ->
+          let open Tokenizer in
+          let* rule_name, mll_uri = entry_args args in
+          let* content =
+            match args with
+            | Some (_ :: `String text :: _) -> Some text
+            | _ -> None
+          in
+          let* state = CCHashtbl.get mll_buffers mll_uri in
+          let* _, start_rule = Mll.get_automata_entrypoint state rule_name in
+          let buf = Bytes.of_string content in
+          let tokens =
+            Persistent.tokenize_with_entry buf Persistent.start_lexbuf
+              start_rule state.automata
+          in
+          `List (L.map Token.yojson_of_t tokens) |> some
       | exception _ -> None
 
     method private _on_req_folding_range ~(notify_back : notify_back)
@@ -443,6 +728,12 @@ class lsp_server =
             let* doc = self#get_text_document uri in
             Mll.code_actions ~doc ~range ~notify_back state)
         |> O.flatten |> Lwt.return
+
+    method! on_req_code_lens =
+      fun ~notify_back ~id ~uri ~workDoneToken ~partialResultToken doc_state ->
+        self#_dispatch uri ~notify_back ~mly_handler:(Mly.code_lens ~uri)
+          ~mll_handler:(Mll.code_lens ~uri)
+        |> O.flatten |> O.get_or_nil |> Lwt.return
 
     method private _on_req_selection_range ~notify_back ~r :
         SelectionRange.t list Lwt.t =

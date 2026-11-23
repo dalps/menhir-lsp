@@ -39,6 +39,22 @@
         "description": "The background color of the source code contained in the highlighted AST node."
       }
     ],
+    "icons": {
+      "play-to-start": {
+        "description": "Play/Run to start",
+        "default": {
+          "fontPath": "icons/myiconfont.ttf",
+          "fontCharacter": "\\c350"
+        }
+      },
+      "play-to-end": {
+        "description": "Play/Run to end",
+        "default": {
+          "fontPath": "icons/myiconfont.ttf",
+          "fontCharacter": "\\c351"
+        }
+      }
+    },
     "languages": [
       {
         "id": "ocaml.menhir",
@@ -67,6 +83,58 @@
       }
     ],
     "menus": {
+      "view/title": [
+        {
+          "command": "menhir-lsp-client.refreshEntrypoints",
+          "when": "view == menhir-lsp-entrypoint-explorer",
+          "group": "navigation"
+        },
+        {
+          "command": "menhir-lsp-client.stopInterpreter",
+          "when": "view == menhir-lsp-derivation-view",
+          "group": "navigation@4"
+        },
+        {
+          "command": "menhir-lsp-client.playForward",
+          "alt": "menhir-lsp-client.playToEnd",
+          "when": "view == menhir-lsp-derivation-view",
+          "group": "navigation@3"
+        },
+        {
+          "command": "menhir-lsp-client.stepForward",
+          "when": "view == menhir-lsp-derivation-view",
+          "group": "navigation@2"
+        },
+        {
+          "command": "menhir-lsp-client.stepBackward",
+          "when": "view == menhir-lsp-derivation-view",
+          "group": "navigation@1"
+        },
+        {
+          "command": "menhir-lsp-client.playBackward",
+          "alt": "menhir-lsp-client.playToStart",
+          "when": "view == menhir-lsp-derivation-view",
+          "group": "navigation@0"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "menhir-lsp-client.editRegexpTokenBinding",
+          "when": "view == menhir-lsp-action-map && viewItem == regexpKey",
+          "group": "inline"
+        },
+        {
+          "command": "menhir-lsp-client.startTokenizer",
+          "when": "view == menhir-lsp-entrypoint-explorer && viewItem == lexerEntrypoint",
+          "group": "inline"
+        },
+        {
+          "command": "menhir-lsp-client.startParserWithCheckpoints",
+          "alt": "menhir-lsp-client.startParser",
+          "when": "view == menhir-lsp-entrypoint-explorer && viewItem == parserEntrypoint",
+          "group": "inline"
+        }
+      ],
       "editor/context": [
         {
           "when": "editorTextFocus && (editorLangId == ocaml.menhir || editorLangId == ocaml.ocamllex)",
@@ -94,13 +162,103 @@
         "command": "menhir-lsp-client.previousDummyMessage",
         "when": "editorTextFocus && editorLangId == ocaml.menhir.messages",
         "key": "alt+shift+p"
+      },
+      {
+        "command": "menhir-lsp-client.stepForward",
+        "when": "menhir-lsp-client.interpreterRunning == true",
+        "key": "alt+n"
+      },
+      {
+        "command": "menhir-lsp-client.stepBackward",
+        "when": "menhir-lsp-client.interpreterRunning == true",
+        "key": "alt+p"
+      },
+      {
+        "command": "menhir-lsp-client.playForward",
+        "when": "menhir-lsp-client.interpreterRunning == true",
+        "key": "alt+f"
+      },
+      {
+        "command": "menhir-lsp-client.playBackward",
+        "when": "menhir-lsp-client.interpreterRunning == true",
+        "key": "alt+b"
+      },
+      {
+        "command": "menhir-lsp-client.playToEnd",
+        "when": "menhir-lsp-client.interpreterRunning == true",
+        "key": "alt+shift+f"
+      },
+      {
+        "command": "menhir-lsp-client.playToStart",
+        "when": "menhir-lsp-client.interpreterRunning == true",
+        "key": "alt+shift+b"
       }
     ],
+    "views": {
+      "menhir-lsp-view-container": [
+        {
+          "id": "menhir-lsp-entrypoint-explorer",
+          "name": "Entrypoint Explorer",
+          "icon": "icons/view_icon.svg",
+          "contextualTitle": "Entrypoint Explorer"
+        },
+        {
+          "id": "menhir-lsp-derivation-view",
+          "name": "Derivation Explorer",
+          "icon": "icons/view_icon.svg",
+          "contextualTitle": "Derivation Explorer"
+        },
+        {
+          "id": "menhir-lsp-stack-view",
+          "name": "Stack Explorer",
+          "icon": "icons/view_icon.svg",
+          "contextualTitle": "Stack Explorer"
+        },
+        {
+          "id": "menhir-lr0-items-view",
+          "name": "Lr0 Items Explorer",
+          "icon": "icons/view_icon.svg",
+          "contextualTitle": "Lr0 Items Explorer"
+        },
+        {
+          "id": "menhir-lsp-action-map",
+          "name": "Regexp-Token Mapping",
+          "icon": "icons/view_icon.svg",
+          "contextualTitle": "Regexp-Token Mapping"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "menhir-lsp-entrypoint-explorer",
+        "contents": "The lexers and parsers you have opened will show up here ready for playing.\n\nNote: only the parsers that have been compiled to the [CMLY format](https://cambium.inria.fr/~fpottier/menhir/manual.html#sec110) will be shown. To obtain the CMLY representation for your parser add the --cmly flag inside the [menhir stanza](https://dune.readthedocs.io/en/stable/reference/dune/menhir.html) of its respective dune file."
+      },
+      {
+        "view": "menhir-lsp-action-map",
+        "contents": "This view will show a model of a lexer's semantics with respect to a grammar's token set once the interpreter is launched for two given lexer and parser entrypoints. The value bound to each pattern is used by the interpreter to drive the parser's automaton.\nThe initial mapping inferred from the OCaml code of the actions may be inaccurate; you can tweak it at run time to best suit the lexer's semantics via the 🖉 icons so that each pattern has one of the following effects: (a) produce a token of the grammar; (b) skip the consumed text; (c) fail and halt the derivation."
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "menhir-lsp-view-container",
+          "title": "Menhir LSP",
+          "icon": "icons/view_icon.svg",
+          "contextualTitle": "Menhir LSP"
+        }
+      ]
+    },
     "commands": [
+      {
+        "title": "Menhir: Start Interactive Tokenizer",
+        "command": "menhir-lsp-client.startTokenizer",
+        "icon": "$(play)"
+      },
       {
         "title": "Menhir: Go To Implementation",
         "shortTitle": "Go To Implementation",
-        "command": "menhir-lsp-client.gotoImplementation"
+        "command": "menhir-lsp-client.gotoImplementation",
+        "icon": "$(open-preview)"
       },
       {
         "title": "Menhir: Show Language Server Output",
@@ -148,6 +306,75 @@
         "title": "echo errors",
         "enablement": "never",
         "command": "menhir-lsp-client.echoErrors"
+      },
+      {
+        "title": "Menhir: Edit Regexp-Token Binding",
+        "shortTitle": "Edit Binding",
+        "command": "menhir-lsp-client.editRegexpTokenBinding",
+        "icon": "$(edit)"
+      },
+      {
+        "title": "Menhir: Refresh Entrypoints",
+        "command": "menhir-lsp-client.refreshEntrypoints",
+        "icon": "$(refresh)"
+      },
+      {
+        "title": "Menhir: Step Forward",
+        "enablement": "menhir-lsp-client.interpreterRunning == true",
+        "command": "menhir-lsp-client.stepForward",
+        "icon": "$(triangle-right)"
+      },
+      {
+        "title": "Menhir: Step Back",
+        "enablement": "menhir-lsp-client.interpreterRunning == true",
+        "command": "menhir-lsp-client.stepBackward",
+        "icon": "$(triangle-left)"
+      },
+      {
+        "title": "Menhir: Play Forward",
+        "enablement": "menhir-lsp-client.interpreterRunning == true",
+        "command": "menhir-lsp-client.playForward",
+        "icon": "$(debug-continue)"
+      },
+      {
+        "title": "Menhir: Play Back",
+        "enablement": "menhir-lsp-client.interpreterRunning == true",
+        "command": "menhir-lsp-client.playBackward",
+        "icon": "$(debug-reverse-continue)"
+      },
+      {
+        "title": "Menhir: Jump to End",
+        "enablement": "menhir-lsp-client.interpreterRunning == true",
+        "command": "menhir-lsp-client.playToEnd",
+        "icon": "$(play-to-end)"
+      },
+      {
+        "title": "Menhir: Jump to Start",
+        "enablement": "menhir-lsp-client.interpreterRunning == true",
+        "command": "menhir-lsp-client.playToStart",
+        "icon": "$(play-to-start)"
+      },
+      {
+        "title": "Menhir: Run Parser",
+        "command": "menhir-lsp-client.startParser",
+        "icon": "$(play)"
+      },
+      {
+        "title": "Menhir: Run Parser With Position Tracking",
+        "command": "menhir-lsp-client.startParserWithPositions",
+        "icon": "$(play)"
+      },
+      {
+        "title": "Menhir: Run Parser With Checkpoints",
+        "enablement": "menhir-lsp-client.interpreterRunning == false",
+        "command": "menhir-lsp-client.startParserWithCheckpoints",
+        "icon": "$(debug-alt)"
+      },
+      {
+        "title": "Menhir: Stop Interpreter",
+        "enablement": "menhir-lsp-client.interpreterRunning == true",
+        "command": "menhir-lsp-client.stopInterpreter",
+        "icon": "$(debug-stop)"
       }
     ],
     "configuration": {

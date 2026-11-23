@@ -41,6 +41,7 @@ type state = {
   intervals : zone Ivl_map.t;
   implementation : Text_document.t option;
   sourcemap : Line_directives.source_mapping list;
+  cmly : (module CmlyAdapter.S) option;
 }
 
 let pp_state out state =
@@ -83,13 +84,7 @@ let yojson_of_ast (grammar : partial_grammar) : Json.t =
     object
       inherit [_] ast_reduce as super
       method zero : t = `List []
-
-      method plus (o1 : t) (o2 : t) =
-        match (o1, o2) with
-        | `List o1, `List o2 -> `List (o1 @ o2)
-        | `List o1, o2 -> `List (o1 @ [ o2 ])
-        | o1, `List o2 -> `List (o1 :: o2)
-        | _, _ -> `List [ o1; o2 ]
+      method plus = combine_json_lists
 
       method! visit_located =
         fun visit_v env loc ->
@@ -230,7 +225,7 @@ let process_symbols : partial_grammar -> symbol located list =
   v#visit_partial_grammar ()
 
 let load_state_from_partial_grammar ?(implementation = None) ?(sourcemap = [])
-    (grammar : partial_grammar) =
+    ?(cmly = None) (grammar : partial_grammar) =
   let symbols = process_symbols grammar in
   let map_ref = ref Ivl_map.empty in
   let add_interval : 'a. zone -> Ivl.t -> unit =
@@ -337,7 +332,15 @@ let load_state_from_partial_grammar ?(implementation = None) ?(sourcemap = [])
         | _ -> [])
       grammar.pg_declarations
   in
-  { grammar; tokens; symbols; intervals = !map_ref; implementation; sourcemap }
+  {
+    grammar;
+    tokens;
+    symbols;
+    intervals = !map_ref;
+    implementation;
+    sourcemap;
+    cmly;
+  }
 
 let load_state_from_contents (uri : uri) (file_contents : string) :
     (state, Diagnostic.t list) result =
@@ -346,11 +349,23 @@ let load_state_from_contents (uri : uri) (file_contents : string) :
     Diagnostic.create ~message:(`String msg) ~range () ~source:server_name
   in
   let implementation, sourcemap = get_source_map uri in
+  let cmly =
+    let open O in
+    let* filename = get_cmly_file uri |> O.of_result in
+    try
+      let module G = MenhirSdk.Cmly_read.Read (struct
+        let filename = filename
+      end) in
+      Some (module CmlyAdapter.Make (G) : CmlyAdapter.S)
+    with MenhirSdk.Cmly_read.Error msg ->
+      log_error "Error reading cmly file of %a: %s" pp_uri uri msg;
+      None
+  in
   let file_name = Uri.to_path uri in
   M.Main.load_grammar_from_contents 0 file_name file_contents
   |> map_err (fun (msg, rng) ->
       mk_diag msg (Range.of_lexical_positions rng) :: [])
-  |> map (load_state_from_partial_grammar ~implementation ~sourcemap)
+  |> map (load_state_from_partial_grammar ~implementation ~sourcemap ~cmly)
 
 let standard_lib =
   menhir_standard_library_grammar |> R.get_exn
@@ -801,6 +816,26 @@ let code_actions (state : state) ~uri ~(range : Range.t) : CodeActionResult.t =
       | _ -> [])
     state.tokens
   |> some
+
+let code_lens ~uri (state : state) : CodeLens.t list option =
+  let open O in
+  let+ (module D) = state.cmly in
+  let open D in
+  let open L in
+  let* (Old { v = { pr_nt }; p } | New { v = { pr_nt }; p }) =
+    state.grammar.pg_rules
+  in
+  let range = Range.of_lexical_positions pr_nt.p in
+  if D.get_entrypoint pr_nt.v |> O.is_some then
+    [
+      codelens range "$(debug-alt) Interpret text file"
+        "menhir-lsp-client.startParserWithCheckpoints"
+        [ yoentry uri pr_nt.v ];
+      codelens range "$(play) Interpret token sentence"
+        "menhir-lsp-client.startParser"
+        [ yoentry uri pr_nt.v ];
+    ]
+  else []
 
 let selection_range ({ grammar; _ } as _state : state)
     ~(positions : Position.t list) ~(notify_back : notify_back) :

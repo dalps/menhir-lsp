@@ -39,6 +39,22 @@ let get_vars ast : string loc list =
   in
   v#structure ast []
 
+  (** Get the constructors that appear in the expression *)
+let get_tags (ast : Ppxlib.structure) =
+  let v =
+    object (self)
+      inherit [string loc list] T.fold as super
+
+      (* This object would be slightly less boilerplate-y if ppxlib provided dedicated visitors for each AST constructor, thus we could visit [Ppat_var] or [Pexp_record] directly. Oh well :/ *)
+
+      method! expression_desc expression_desc acc =
+        match expression_desc with
+        | Pexp_construct (lid, _expr) -> Loc.map ~f:Longident.name lid :: acc
+        | desc -> super#expression_desc desc acc
+    end
+  in
+  v#structure ast []
+
 (** Get the free variables referenced inside a parsetree. *)
 let get_fvars ast : string loc list =
   let v =

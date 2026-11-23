@@ -2,15 +2,17 @@
  (public_name menhir-lsp)
  (name main)
  (preprocess
-  (pps lwt_ppx))
+  (pps lwt_ppx visitors.ppx))
  (package menhir-lsp)
  (libraries
   yojson
   dune-build-info
   merlin-lib.kernel
   merlin-lib.query_commands
+  menhirSdk
   menhirSyntax
   ocamllexSyntax
+  lex
   menhirformat_lib
   linol
   linol-lwt
@@ -23,4 +25,4 @@
   odoc-parser
   cmarkit)
  ; ocaml-lsp-server doesn't expose any utility library :(
- (flags -w -27))
+ (flags -w -27-10))

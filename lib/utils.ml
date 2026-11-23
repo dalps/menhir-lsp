@@ -1,3 +1,5 @@
+type json = Yojson.Safe.t
+
 module F = CCFun
 
 module L = struct
@@ -40,6 +42,23 @@ module L = struct
   let if_ (p : 'a -> bool) (x : 'a) : 'a t = if p x then [ x ] else []
 
   let len = length
+  let ( .-[] ) = nth
+
+  let sub_split ~cmp xs ys =
+    let fail msg = failwith ("List.sub: " ^ msg) in
+    let rec aux xs ys acc =
+      match (xs, ys) with
+      | [], _ -> (List.rev acc, ys)
+      | x :: xs', y :: ys' when cmp x y = 0 -> aux xs' ys' (y :: acc)
+      | x :: xs', [] -> fail "insufficient items"
+      | _ -> fail "items mismatch"
+    in
+    aux xs ys []
+
+  let sub ~cmp xs ys = sub_split ~cmp xs ys |> snd
+  let push s x = x :: s
+  let peek s = nth_opt s 0
+  let pop l = take 1 l
   let ( .-() ) l i = if i < 0 then nth l (len l + i) else nth l i
 end
 
@@ -52,19 +71,26 @@ module O = struct
   let ( <|> ) (a : 'a option) (b : unit -> 'a option) =
     match (a, b) with Some a, _ -> Some a | None, f -> f ()
 
+  (** Iter on an option, noop if it is [None]. *)
+  let ( let$ ) o f = iter o f
+
   let pair (o : ('a * 'b) t) : 'a t * 'b t =
     match o with None -> (None, None) | Some (a, b) -> (Some a, Some b)
 
   let flatten_pair (o : ('a t * 'b t) t) : 'a t * 'b t =
     match o with None -> (None, None) | Some (a, b) -> (a, b)
 
-  let guard b = if b then Some () else None
+  let wrap b v = if b then Some v else None
+  let guard b = wrap b ()
   let get_or_nil (t : 'a list t) : 'a list = get_or ~default:[] t
   let get_string = get_or ~default:""
 end
 
 module R = struct
   include CCResult
+
+  (** Iter on a result, noop if it is [Error]. *)
+  let ( let$ ) r f = iter f r
 
   let get_or_nil (t : ('a list, 'err) t) : 'a list = get_or ~default:[] t
 end
@@ -90,6 +116,7 @@ module TD = struct
 end
 
 let ( >> ) = CCFun.( %> )
+let ( !! ) = Option.get
 
 (******************************************************************************
  * Logging helpers
@@ -108,6 +135,16 @@ let notify_back_ref : notify_back option ref = ref None
 let set_notify_back nb = notify_back_ref := Some nb
 let guard flag f s = if flag then f s
 let guard' flag f s = if%lwt flag then f s
+
+let show_message ~notify_back ?(type_ = MessageType.Info) fmt =
+  Format.kasprintf
+    (fun message ->
+      notify_back#send_notification
+        (Lsp.Server_notification.ShowMessage { message; type_ }))
+    ("[menhir-lsp] " ^^ fmt)
+
+let show_error ~notify_back fmt = show_message ~notify_back ~type_:Error fmt
+let show_warning ~notify_back fmt = show_message ~notify_back ~type_:Warning fmt
 
 (** [log] prints to the first available output channel. It will use caller's
     [notify_back] argument if provided, falling back to the optional value
@@ -160,6 +197,7 @@ module Position = struct
   include LSP.Position
 
   let start = { line = 0; character = 0 }
+  let dummy = { line = -1; character = -1 }
 
   let is_dummy (lp : Lexing.position) =
     lp.pos_lnum = Lexing.dummy_pos.pos_lnum
@@ -338,6 +376,38 @@ module Range = struct
     with
     | (Lt | Eq), (Gt | Eq) | (Gt | Eq), (Lt | Eq) -> true
     | _ -> false
+
+  let make start end_ = Range.create ~start ~end_
+
+  type 'a located = { v : 'a; p : Range.t }
+
+  module Located = struct
+    type 'a t = 'a located
+
+    let file_uri = ref None
+    let track_file uri = file_uri := Some uri
+    let make v p : 'a t = { v; p }
+    let of_lexpos v p = { v; p = of_lexical_positions p }
+    let map f (loc : 'a t) : 'b t = { loc with v = f loc.v }
+    let value (loc : 'a t) = loc.v
+    let range (loc : 'a t) = loc.p
+    let startp (loc : 'a t) = loc.p.start
+    let endp (loc : 'a t) = loc.p.end_
+    let pp pp_v out (loc : 'a t) = pf out "%a%a" pp_v loc.v pp loc.p
+    let show pp_v (loc : 'a t) = spr "%a" (pp pp_v) loc
+    let print pp_v (loc : 'a t) = pr "%a" (pp pp_v) loc
+
+    let yojson_of_t ?(v_key = "value") y_of_a ({ v; p } : 'a t) : Yojson.Safe.t
+        =
+      `Assoc
+        [
+          (v_key, y_of_a v);
+          ("range", yojson_of_t p);
+          ("moduleUri", O.map_or ~default:`Null Uri.yojson_of_t !file_uri);
+        ]
+  end
+
+  let locate = Located.make
 end
 
 (** Surround the given string in Markdown code block fences. *)
@@ -429,3 +499,65 @@ let pp_error_location out ((startp, endp) : Lexing.position * Lexing.position) =
     let char2 = endp.pos_cnum - startp.pos_bol + 1 in
     if file = "" then pf out "Line %d, characters %d-%d" line char1 char2
     else pf out "File %S, line %d, characters %d-%d" file line char1 char2
+
+let yooption f : 'a option -> json = O.map_or f ~default:`Null
+let yodict assoc : json = `Assoc assoc
+let yostring s : json = `String s
+let yolist f l : json = `List (L.map f l)
+
+let yovariant ?(value_key = "value") ?value tag : json =
+  `Assoc
+    (L.cons
+       ("kind", `String tag)
+       (O.flat_map_l (fun v -> [ (value_key, v) ]) value))
+
+let yotagged tag value : json = yovariant ~value tag
+
+let yojson_of_result ~ok ~error (r : ('a, 'e) result) : json =
+  yotagged
+    (match r with Ok _ -> "ok" | Error _ -> "error")
+    (R.fold ~ok ~error r)
+
+let yoentry uri name =
+  `Assoc [ ("name", `String name); ("moduleUri", Uri.yojson_of_t uri) ]
+
+let yoresult = yojson_of_result
+
+let codelens range title command arguments =
+  CodeLens.create ~range
+    ~command:(Command.create ~command ~arguments ~title ())
+    ()
+
+module Nat = struct
+  type t = Zero | Succ of t
+
+  let zero = Zero
+  let succ n = Succ n
+  let pred = function Zero -> Zero | Succ n -> n
+
+  let to_int : t -> int =
+    let rec aux acc = function Zero -> acc | Succ n -> aux (acc + 1) n in
+    aux 0
+
+  let rec sub n m =
+    match (n, m) with Zero, _ | _, Zero -> n | Succ n', Succ m' -> sub n' m'
+
+  let rec compare n m =
+    match (n, m) with
+    | Zero, Zero -> 0
+    | Zero, _ -> -1
+    | _, Zero -> 1
+    | Succ n', Succ m' -> compare n' m'
+
+  let rec equal n m = compare n m = 0
+
+  let of_int : int -> t =
+    let rec aux acc = function
+      | n when n < 0 -> failwith "Nat.of_int"
+      | n when n = 0 -> acc
+      | n -> aux (Succ acc) (n - 1)
+    in
+    aux Zero
+end
+
+type nat = Nat.t

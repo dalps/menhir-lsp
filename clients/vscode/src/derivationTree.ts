@@ -1,0 +1,215 @@
+import * as vscode from "vscode";
+import { TreeItem, TreeItemCollapsibleState, Uri } from "vscode";
+import { execServerCmd } from "./extension";
+import { TreeProvider } from "./TreeProvider";
+import {
+  ActionMapping,
+  DerivationTree,
+  Entry,
+  Item,
+  LexerActionKind,
+  ModuleEntries,
+  StackItem,
+  Terminal,
+  WithRange,
+} from "./types";
+import {
+  highlightText,
+  md,
+  openCommand as open,
+  stringOfItem,
+  stringOfRange,
+  themeicon,
+} from "./utils";
+
+const isNonterminal = (tree: DerivationTree) => "nt" in tree;
+
+export class DerivationTreeProvider extends TreeProvider<DerivationTree> {
+  getTreeItem(element: DerivationTree): TreeItem | Thenable<TreeItem> {
+    const isT = !isNonterminal(element);
+
+    const data = isT ? element.t : element.nt;
+    const { moduleUri, range } = data;
+    const item = new TreeItem(
+      isT ? element.t.value.terminal : element.nt.value,
+      isT ? TreeItemCollapsibleState.None : TreeItemCollapsibleState.Expanded,
+    );
+
+    let hint = "\n\n---\n\n*Click to highlight text in active editor*";
+
+    item.contextValue = "derivationNode";
+    item.iconPath = themeicon(isT ? "symbol-constant" : "symbol-method");
+    item.tooltip = isT
+      ? element.t.value.token
+        ? md`Terminal ${{ code: element.t.value.terminal }} · Text ${{ code: element.t.value.token.text }}`
+        : md`Terminal ${{ code: element.t.value.terminal }}`
+      : md`Nonterminal ${{ code: element.nt.value }}`;
+
+    if (moduleUri && range) {
+      item.description = stringOfRange(range);
+      item.tooltip.appendMarkdown(hint);
+      item.command = highlightText(range);
+    }
+
+    return item;
+  }
+
+  override getChildren(
+    element?: DerivationTree | undefined,
+  ): vscode.ProviderResult<DerivationTree[]> {
+    if (!element) return this.trees;
+
+    const tree = element;
+
+    return isNonterminal(tree) ? tree.children : [];
+  }
+}
+
+export class ActionMapProvider extends TreeProvider<ActionMapping | Terminal> {
+  getTreeItem(
+    element: ActionMapping | Terminal,
+  ): vscode.TreeItem | Thenable<vscode.TreeItem> {
+    if ("name" in element) {
+      const item = new vscode.TreeItem(element.name);
+      const uri = vscode.Uri.parse(element.moduleUri);
+
+      // item.resourceUri = uri;
+      item.collapsibleState = vscode.TreeItemCollapsibleState.None;
+      item.iconPath = themeicon("symbol-constant");
+      item.command = open(uri, element);
+      return item;
+    }
+
+    const item = new vscode.TreeItem(
+      element.regexp.value.replaceAll(/\n/g, " "),
+    );
+    const uri = vscode.Uri.parse(element.moduleUri);
+
+    item.collapsibleState = vscode.TreeItemCollapsibleState.None;
+    item.command = open(uri, element.regexp);
+    item.contextValue = "regexpKey";
+
+    if (!element.action) {
+      item.iconPath = themeicon("warning", "list.warningForeground");
+      item.tooltip = "Please choose an action for this pattern.";
+      item.description = "Uninterpreted.";
+      return item;
+    }
+
+    switch (element.action.kind) {
+      case LexerActionKind.Fail:
+        item.iconPath = themeicon("error");
+        item.tooltip = "The tokenizer will halt on this pattern.";
+        break;
+      case LexerActionKind.Skip:
+        item.iconPath = themeicon("skip");
+        item.tooltip = "The tokenizer will skip this pattern.";
+        break;
+      case LexerActionKind.Produce:
+        item.iconPath = themeicon("milestone");
+        item.tooltip = `The tokenizer will emit the token ${element.action.value.name} on this pattern.`;
+        // show the mapped token as the only child
+        item.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+        break;
+    }
+
+    return item;
+  }
+
+  getChildren(
+    element?: ActionMapping | Terminal | undefined,
+  ): vscode.ProviderResult<(ActionMapping | Terminal)[]> {
+    if (!element) return this.trees;
+
+    if (
+      "action" in element &&
+      element.action?.kind === LexerActionKind.Produce
+    ) {
+      return [element.action.value];
+    }
+  }
+}
+
+export class FileProvider extends TreeProvider<vscode.Uri> {
+  constructor(
+    context: vscode.ExtensionContext,
+    private pattern: string,
+  ) {
+    super(context);
+  }
+
+  getTreeItem(
+    element: vscode.Uri,
+  ): vscode.TreeItem | Thenable<vscode.TreeItem> {
+    const item = new vscode.TreeItem(element);
+
+    return item;
+  }
+
+  getChildren(
+    element?: vscode.Uri | undefined,
+  ): vscode.ProviderResult<vscode.Uri[]> {
+    return vscode.workspace.findFiles(this.pattern);
+  }
+}
+
+export class EntrypointProvider extends TreeProvider<Entry | ModuleEntries> {
+  getTreeItem(
+    element: Entry | ModuleEntries,
+  ): vscode.TreeItem | Thenable<vscode.TreeItem> {
+    const uri = vscode.Uri.parse(element.moduleUri);
+
+    if ("name" in element) {
+      const item = new vscode.TreeItem(element.name);
+      item.contextValue = `${element.kind}Entrypoint`;
+      item.command = open(uri, element);
+      item.iconPath = themeicon("symbol-method");
+      return item;
+    }
+
+    const item = new vscode.TreeItem(uri);
+
+    item.collapsibleState = vscode.TreeItemCollapsibleState.Expanded;
+    item.contextValue = "module";
+    item.iconPath = vscode.ThemeIcon.File;
+    item.command = open(uri);
+    return item;
+  }
+
+  getChildren(
+    element?: Entry | ModuleEntries | undefined,
+  ): vscode.ProviderResult<(Entry | ModuleEntries)[]> {
+    if (!element) {
+      return execServerCmd("listEntrypoints") as Promise<ModuleEntries[]>;
+    }
+
+    return "name" in element ? [] : element.entrypoints;
+  }
+}
+
+export class StackProvider extends TreeProvider<StackItem> {
+  getTreeItem(element: StackItem): vscode.TreeItem | Thenable<vscode.TreeItem> {
+    const item = new TreeItem(element.value.symbol.name);
+
+    switch (element.value.symbol.kind) {
+      case "t":
+        item.iconPath = themeicon("symbol-constant");
+        break;
+
+      case "nt":
+        item.iconPath = themeicon("symbol-method");
+        break;
+    }
+
+    item.description = `${element.value.state}`;
+    item.tooltip = `State ${element.value.state}`;
+
+    return item;
+  }
+}
+
+export class Lr0ItemProvider extends TreeProvider<Item> {
+  getTreeItem(element: Item): vscode.TreeItem | Thenable<vscode.TreeItem> {
+    return new TreeItem(stringOfItem(element));
+  }
+}
