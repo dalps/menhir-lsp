@@ -393,6 +393,10 @@ class lsp_server =
                     (pr_nt.v, Range.of_lexical_positions p))
               state.grammar.pg_rules)
       in
+      let error msg =
+        show_error ~notify_back "%s" msg;
+        yostring msg
+      in
       let entry_args (args : json list option) =
         match args with
         | Some (`Assoc ((_, `String name) :: (_, `String moduleUri) :: _) :: _)
@@ -513,45 +517,53 @@ class lsp_server =
           log "reading input from file %s" (Uri.to_path source_uri);
           Utils.Range.Located.track_file source_uri;
           let buffer = Bytes.of_string source_content in
-          parse_with_checkpoints entrypoint lexer_entry mll_state.automata
-            buffer;
+          let init =
+            parse_with_checkpoints entrypoint lexer_entry mll_state.automata
+              buffer
+          in
           yodict
             [
               ( "lexerBindings",
                 `List (LexerActionMap.to_yojsons ~mly_uri ~mll_uri) );
-              ("start", yojson_of_checkpoint (Interpreter.current_checkpoint ()));
+              ("start", yojson_of_checkpoint init);
             ]
           |> some
       | `StepForward ->
           with_adapter (fun _ (module D) ->
               let open D.Interpreter in
               step_forward ();
-              current_checkpoint () |> D.yojson_of_checkpoint)
+              current_checkpoint ()
+              |> yoresult ~ok:D.yojson_of_checkpoint ~error)
       | `StepBackward ->
           with_adapter (fun _ (module D) ->
               let open D.Interpreter in
               step_back ();
-              current_checkpoint () |> D.yojson_of_checkpoint)
+              current_checkpoint ()
+              |> yoresult ~ok:D.yojson_of_checkpoint ~error)
       | `PlayForward ->
           with_adapter (fun _ (module D) ->
               let open D.Interpreter in
               play_forward ();
-              current_checkpoint () |> D.yojson_of_checkpoint)
+              current_checkpoint ()
+              |> yoresult ~ok:D.yojson_of_checkpoint ~error)
       | `PlayBackward ->
           with_adapter (fun _ (module D) ->
               let open D.Interpreter in
               play_back ();
-              current_checkpoint () |> D.yojson_of_checkpoint)
+              current_checkpoint ()
+              |> yoresult ~ok:D.yojson_of_checkpoint ~error)
       | `PlayToEnd ->
           with_adapter (fun _ (module D) ->
               let open D.Interpreter in
               play_forward ~pause:false ();
-              current_checkpoint () |> D.yojson_of_checkpoint)
+              current_checkpoint ()
+              |> yoresult ~ok:D.yojson_of_checkpoint ~error)
       | `PlayToStart ->
           with_adapter (fun _ (module D) ->
               let open D.Interpreter in
               play_back ~pause:false ();
-              current_checkpoint () |> D.yojson_of_checkpoint)
+              current_checkpoint ()
+              |> yoresult ~ok:D.yojson_of_checkpoint ~error)
       | `SyncDocument ->
           let* change_start, new_content =
             match args with
@@ -561,15 +573,17 @@ class lsp_server =
             | _ -> None
           in
           with_adapter (fun _ (module D) ->
+              let open R in
               let open D.Interpreter in
-              let end_ = current_position () in
-              let diff = change_buffer change_start new_content in
-              let start = current_position () in
+              let* end_ = current_position () in
+              let* diff = change_buffer change_start new_content in
+              let+ start = current_position () in
               `Assoc
                 [
                   ("discarded", `Int diff);
                   ("range", Range.create ~start ~end_ |> Range.yojson_of_t);
                 ])
+          >|= yoresult ~ok:(fun x -> x) ~error
       | `Disconnect ->
           with_adapter (fun _ (module D) ->
               let open D.Interpreter in

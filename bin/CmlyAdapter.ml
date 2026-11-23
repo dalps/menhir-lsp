@@ -816,26 +816,28 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
 
     let state_ref : state option ref = ref None
 
+    open R
+
     let get_state () =
       match !state_ref with
-      | None -> failwith "Interpreter not connected"
-      | Some i -> i
+      | None -> Error "Interpreter not connected"
+      | Some i -> Ok i
 
     let current_checkpoint () =
-      let i = get_state () in
+      let+ i = get_state () in
       i.current
 
     let current_position () =
-      let i = get_state () in
+      let+ i = get_state () in
       let c = (env_of_checkpoint i.current).lexbuf in
       Utils.Position.of_lexical_position c.lex_curr_p
 
     let step_forward () =
-      let i = get_state () in
+      let$ i = get_state () in
       i.current <- i.step_forward i.buffer i.current
 
     let step_back () =
-      let i = get_state () in
+      let$ i = get_state () in
       i.current <- i.step_back i.current
 
     let pause_at_time n c = Nat.equal (env_of_checkpoint c).time n
@@ -851,17 +853,17 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
     let pause_at_breakpoint c = has_breakpoint c
 
     let play_forward ?(pause = true) () =
-      let i = get_state () in
+      let$ i = get_state () in
       let pred = O.wrap pause pause_at_breakpoint in
       i.current <- i.play_forward ?pred i.buffer i.current
 
     let play_back ?(pause = true) () =
-      let i = get_state () in
+      let$ i = get_state () in
       let pred = O.wrap pause pause_at_breakpoint in
       i.current <- i.play_back ?pred i.current
 
     let change_buffer change_start new_buffer =
-      let i = get_state () in
+      let+ i = get_state () in
       i.buffer <- new_buffer;
 
       let old_time = (env_of_checkpoint i.current).time in
@@ -988,7 +990,9 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
           step_back;
           play_forward;
           play_back;
-        }
+        };
+
+    init_checkpoint
 
   (** Creates a mapping between this [G]'s tokens and the actions of the given
       lexer's rule by searching for token occurrences within the rule's actions.
@@ -1174,11 +1178,11 @@ module type S = sig
   end
 
   module Interpreter : sig
-    val current_checkpoint : unit -> checkpoint
-    val current_position : unit -> Utils.Position.t
+    val current_checkpoint : unit -> (checkpoint, string) result
+    val current_position : unit -> (Utils.Position.t, string) result
     (* val seek_checkpoint : int -> checkpoint option *)
 
-    val change_buffer : Position.t -> bytes -> int
+    val change_buffer : Position.t -> bytes -> (int, string) result
     (** Invalidate all checkpoints that were produced since the start position
         of a text edit's range. In case the content change occurs later than the
         current checkpoint, we stay where we are.
@@ -1194,7 +1198,11 @@ module type S = sig
   end
 
   val parse_with_checkpoints :
-    entrypoint -> Tokenizer.entrypoint -> Tokenizer.automata -> bytes -> unit
+    entrypoint ->
+    Tokenizer.entrypoint ->
+    Tokenizer.automata ->
+    bytes ->
+    checkpoint
 
   val plug_lexer_entry : OcamllexSyntax.Syntax.entry -> unit
 end

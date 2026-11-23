@@ -142,3 +142,5 @@ export type Checkpoint =
   | Variant<"reducing", WithEnv & { production: Located<Production> }>
   | Variant<"accepted", WithEnv & DerivationTree>
   | Variant<"rejected", WithEnv & { symbol: string }>;
+
+export type InterpreterResult<T> = Result<T, string>;

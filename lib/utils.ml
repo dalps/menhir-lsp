@@ -70,6 +70,9 @@ module O = struct
   let ( <|> ) (a : 'a option) (b : unit -> 'a option) =
     match (a, b) with Some a, _ -> Some a | None, f -> f ()
 
+  (** Iter on an option, noop if it is [None]. *)
+  let ( let$ ) o f = iter o f
+
   let pair (o : ('a * 'b) t) : 'a t * 'b t =
     match o with None -> (None, None) | Some (a, b) -> (Some a, Some b)
 
@@ -84,6 +87,9 @@ end
 
 module R = struct
   include CCResult
+
+  (** Iter on a result, noop if it is [Error]. *)
+  let ( let$ ) r f = iter f r
 
   let get_or_nil (t : ('a list, 'err) t) : 'a list = get_or ~default:[] t
 end

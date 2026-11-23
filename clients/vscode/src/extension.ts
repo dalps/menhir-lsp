@@ -27,6 +27,7 @@ import {
   DerivationTree,
   Entry,
   InputSourceKind,
+  InterpreterResult,
   Item,
   LexerAction,
   LexerActionKind,
@@ -40,7 +41,6 @@ import {
   askForInputSource,
   choose,
   closeEditor,
-  CURSOR_ICON,
   decorationType,
   focusView,
   GREEN,
@@ -55,7 +55,6 @@ import {
   uriEqual,
   YELLOW,
 } from "./utils";
-import path = require("path");
 
 let client: LanguageClient;
 let derivationTreeView: vscode.TreeView<DerivationTree>;
@@ -71,6 +70,9 @@ let entrypointProvider: EntrypointProvider;
 
 const serverName = "menhir-lsp";
 const clientName = "menhir-lsp-client";
+
+const showError = (msg: string, ...items: string[]) =>
+  vscode.window.showErrorMessage(`[${serverName}] ${msg}`, ...items);
 
 ////////////////////////////////////////////////////////////////////////////////
 // Helpers for defining commands
@@ -149,8 +151,8 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
-    let install = await vscode.window.showErrorMessage(
-      `[Menhir] The package ${serverName} is required but not installed. Would you like to install automatically it with opam?`,
+    let install = await showError(
+      `The package ${serverName} is required but not installed. Would you like to install automatically it with opam?`,
       `Install ${serverName}`,
       "Cancel",
     );
@@ -158,7 +160,7 @@ export function activate(context: vscode.ExtensionContext) {
     if (install === undefined || install === "Cancel") return;
 
     vscode.window.showInformationMessage(
-      `[Menhir] Installing ${serverName}. Please reload the window once the installation completes to activate client.`,
+      `Installing ${serverName}. Please reload the window once the installation completes to activate client.`,
     );
 
     let opamInstallCmd = `opam install ${serverName}`;
@@ -338,7 +340,7 @@ async function selectParser() {
   const modules = await execServerCmd<ModuleEntries[]>("listParsers");
 
   if (modules.length <= 0) {
-    vscode.window.showErrorMessage(
+    showError(
       "You need to open at least one .mly file that has been compiled to the CMLY format.\n\nAdd the --cmly flag inside the menhir stanza of the dune file that declares the parser you'd like to use.",
     );
     return;
@@ -354,7 +356,7 @@ async function selectLexer() {
   const lexers = await execServerCmd<ModuleEntries[]>("listLexers");
 
   if (lexers.length <= 0) {
-    vscode.window.showErrorMessage("You need to open at least one .mll file");
+    showError("You need to open at least one .mll file");
     return;
   }
 
@@ -400,7 +402,7 @@ async function startParserView(startSymbol?: Entry) {
   );
 
   if (res.kind === "error") {
-    vscode.window.showErrorMessage(`Error: ${res.value}`);
+    showError(`Error: ${res.value}`);
     return;
   }
 
@@ -427,7 +429,7 @@ async function startParserWithCheckpointsView(
   let source = await askForInputSource(sourceKind, "Enter some text to parse");
 
   if (!source) {
-    vscode.window.showErrorMessage("No editor available.");
+    showError("No editor available.");
     return;
   }
 
@@ -448,7 +450,7 @@ async function startParserWithCheckpointsView(
   );
 
   if (!res) {
-    vscode.window.showErrorMessage("Server failed to launch the interpreter.");
+    showError("Server failed to launch the interpreter.");
     return;
   }
 
@@ -597,52 +599,64 @@ async function startParserWithCheckpointsView(
   focusView("menhir-lsp-stack-view");
   focusView("menhir-lr0-items-view");
 
-  const aux = (cmd: string) =>
+  const stepCmd = (cmd: string) =>
     registerCmd(cmd, async () => {
-      const c = await execServerCmd<Checkpoint>(cmd, startSymbol.moduleUri);
+      const c = await execServerCmd<InterpreterResult<Checkpoint>>(
+        cmd,
+        startSymbol.moduleUri,
+      );
+
+      if (c.kind === "error") return;
+
+      const checkpoint = c.value;
 
       editor.setDecorations(inputHighlight, []);
       editor.setDecorations(discardHighlight, []);
 
-      switch (c.kind) {
+      switch (checkpoint.kind) {
         case "reducing":
-          focusGrammar(c.value.production.range);
+          focusGrammar(checkpoint.value.production.range);
           break;
       }
 
-      updateViews(c);
+      updateViews(checkpoint);
     });
 
   disposables.push(
-    aux("stepForward"),
-    aux("stepBackward"),
-    aux("playForward"),
-    aux("playBackward"),
-    aux("playToStart"),
-    aux("playToEnd"),
+    stepCmd("stepForward"),
+    stepCmd("stepBackward"),
+    stepCmd("playForward"),
+    stepCmd("playBackward"),
+    stepCmd("playToStart"),
+    stepCmd("playToEnd"),
     vscode.workspace.onDidChangeTextDocument(async (e) => {
       if (!uriEqual(e.document.uri, editor.document.uri)) return;
 
       let firstChangeStart = e.contentChanges.at(0)?.range.start;
       if (!firstChangeStart) return;
 
-      const res = await execServerCmd<{
-        discarded: number;
-        range: Range;
-      }>(
+      const res = await execServerCmd<
+        InterpreterResult<{
+          discarded: number;
+          range: Range;
+        }>
+      >(
         "syncDocument",
         startSymbol.moduleUri,
         firstChangeStart,
         e.document.getText(),
       );
 
-      const range = liftRange(res.range);
+      if (res.kind === "error") return;
+
+      const { range: r, discarded } = res.value;
+      const range = liftRange(r);
       editor.setDecorations(progressHighlight, [sinceStartRange(range.start)]);
       editor.setDecorations(discardHighlight, [
         { range, hoverMessage: "Discarded" },
       ]);
 
-      if (res.discarded > 0) {
+      if (discarded > 0) {
         derivationTreeView.message = `⚠ Parsed input has changed! The interpreter travelled to the last valid checkpoint, please issue another step to resume.`;
         derivationTreeProvider.flush();
         stackProvider.flush();
@@ -696,7 +710,7 @@ async function startTokenizerView(rule?: Entry, sourceKind?: InputSourceKind) {
   );
 
   if (!source) {
-    vscode.window.showErrorMessage("No editor available.");
+    showError("No editor available.");
     return;
   }
 
