@@ -16,6 +16,8 @@ Enjoy ease of navigation and *rock*-solid language support in your grammars!
 
 ## Features
 
+### Language Features
+
 * Context-aware completions for your grammar's terminals and nonterminals, Menhir's standard library rules, named regexes, captured variables, OCaml modules and constants, etc.
 * References View (Shift+F12 on any symbol)
 * Jump to Definition (Ctrl+Click on any symbol)
@@ -37,6 +39,28 @@ Enjoy ease of navigation and *rock*-solid language support in your grammars!
 #### ocamllex Refactorings
 
 * **Extract named regexp**: extract a named regular expression out of a valid regexp selection. The original regexp is replaced with a reference to a new named regular expression placed at the top of your lexer.
+
+### Parsing and Lexing UI (experimental)
+
+You can explore the behavior of your lexer and parser entrypoints interactively in two distinct UIs. Both the Lexing and Parsing UI are accessible either from the play buttons in the Entrypoint Explorer or from the code lenses placed above each entrypoint in an .mll or .mly open editor.
+
+The Lexing UI tokenizes the input text and highlights the computed tokens. Tokens are recomputed as you edit the editor's contents.
+
+The Parsing UI computes the conrete syntax tree out of an input text for a grammar start symbol. It requires that your parser be compiled to the CMLY format; you can ask dune to produce this format by adding the `--cmly` flag in the [menhir stanza](https://dune.readthedocs.io/en/stable/reference/dune/menhir.html) where your parser is declared, for example:
+
+```
+(menhir
+ (modules calc_parser)
+ (flags --cmly))
+```
+
+When the Parsing UI is run on an input text file and a lexer, it also needs to know what to do with each lexer action, since it does not run any OCaml code. To ease this procedure, the server generates an early mapping that is shown in the Regexp-Token Mapping view. This mapping approximates the semantics of the selected lexer rule and you should check it's correct before running the interpreter. For each branch of the rule, you can choose among three possible kinds of action:
+
+- **Skip**: read the next token
+- **Fail**: halt the lexer
+- **Produce** a token of the grammar
+
+Once the lexer actions look right, head on over to the Derivation Explorer view and start stepping on the input text with the arrow buttons!
 
 ### Commands
 
