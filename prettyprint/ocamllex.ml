@@ -47,7 +47,7 @@ class formatter ({ tabsize; _ } as cfg : Config.t) =
 
     method! visit_action _ =
       self#with_located (fun code ->
-          surround tabsize 1 lbrace (Ocamlformat_client.main code) rbrace)
+          surround' tabsize 1 lbrace (Ocamlformat_client.main code) rbrace)
 
     method! visit_lexer_definition _ lexer_definition =
       let { header; entrypoints; trailer; refill_handler; named_regexps } =

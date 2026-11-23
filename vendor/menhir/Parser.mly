@@ -115,6 +115,7 @@ let last_bar = ref None
 %start <Syntax.partial_grammar> grammar
 
 %type <Syntax.declaration located list> declaration (* [menhir-lsp] removed [list] *)
+%type <Syntax.modifier> modifier
 
 /* ------------------------------------------------------------------------- */
 /* Priorities. */
@@ -466,7 +467,8 @@ producer:
     { locate' (startp symbol, $endpos(actuals)) @@ Parameter.apply symbol actuals }
 (* 2- *)
 | p = B m = located(modifier)
-    { locate' $loc @@ Parameter.apply m [p] }
+    // { locate' $loc @@ Parameter.apply m [p] } (* [menhir-lsp] changed *)
+    { locate' $loc @@ ParamEBNFApp (p, m) }
 
 strict_actual:
   p = generic_actual(strict_actual, strict_actual)
@@ -494,13 +496,14 @@ lax_actual:
 /* The "?", "+", and "*" modifiers are short-hands for applications of
    certain parameterized nonterminals, defined in the standard library. */
 
+(* [menhir-lsp] Changed actions to use dedicated type *)
 modifier:
   QUESTION
-    { "option" }
+    { MOption }
 | PLUS
-    { "nonempty_list" }
+    { MNonempty_list }
 | STAR
-    { "list" }
+    { MList }
 
 /* ------------------------------------------------------------------------- */
 /* A postlude is announced by %%, but is optional. */
@@ -655,8 +658,8 @@ symbol_expression:
 | e = symbol_expression m = located(modifier) attrs = ATTRIBUTE*
     (* We are forced by syntactic considerations to require a symbol expression
        in a position where an expression is expected. As a result, an injection
-       must be applied. *)
-    { locate' $loc @@ ESymbol (m, [ inject e ], attrs) }
+       must be applied. (* [menhir-lsp] Not anymore, using ad-hoc constructor *) *)
+    { locate' $loc @@ EEBNFApp (e, m, attrs) }
 
 /* An action expression is a semantic action, optionally preceded or followed
    with a precedence annotation. */

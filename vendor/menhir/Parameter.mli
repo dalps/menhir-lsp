@@ -67,6 +67,9 @@ val position : parameter -> range
    using the position [position p]. *)
 val locate : parameter -> parameter located
 
+(** [menhir-lsp]: [print_modifier m] converts [m] into a string according to Menhir's EBNF notation. *)
+val print_modifier : modifier -> string
+
 (**[print sep p] converts the parameter [p] into a string. The separator
    [sep] is used to separate the actual parameters in an application. It
    should typically be a comma, possibly with a space. *)

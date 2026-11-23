@@ -166,10 +166,15 @@ and properties = {
    anonymous rule, represented as a list of branches. *)
 and parameter =
   | ParamVar of symbol located
+  | ParamEBNFApp of parameter located * modifier located
   | ParamApp of symbol located * parameters
   | ParamAnonymous of parameterized_branch located list located
 
 and parameters = parameter located list (* [menhir-lsp] inserted located *)
+
+(* [menhir-lsp] Added [modifier] variants to allow the formatter to preserve the EBNF operator notation. *)
+and modifier = MList | MNonempty_list | MOption
+
 (* -------------------------------------------------------------------------- *)
 
 and early_producer = identifier located option * parameter located * attributes
@@ -279,6 +284,7 @@ and raw_seq_expression =
    and attributes. *)
 and symbol_expression =
   | ESymbol of symbol located * expression list * attributes
+  | EEBNFApp of symbol_expression located * modifier located * attributes
 
 (**A semantic action is either traditional { ... } or point-free.
     There are two forms of point-free actions, <> and <id>.
@@ -294,8 +300,8 @@ and rule = Old of old_rule located | New of new_rule located
 
 (**A declaration. (Only before joining.) *)
 and declaration =
-  | DCode of string located  (**Raw OCaml code. *)
-  | DParameter of string located  (**Raw OCaml functor parameter. *)
+  | DCode of (string[@opaque]) located  (**Raw OCaml code. *)
+  | DParameter of (string[@opaque]) located  (**Raw OCaml functor parameter. *)
   | DToken of
       ocamltype option * (terminal located * alias * attributes) located list
       (**Terminal symbol (token) declaration. *)
@@ -313,11 +319,14 @@ and declaration =
       (**A default %merge function. *)
 (* -------------------------------------------------------------------------- *)
 
+(* [menhir-lsp] We isolate this type so visitors generates a dedicated method for it and we can visit it without rewriting the whole [partial_grammar] method. A more elegant solution would be if the library provided a record field annotation so it gives us a dedicated method for visiting that particular field. *)
+and declaration_lst = declaration located list
+
 and partial_grammar = {
   pg_filename : filename;
-  pg_declarations : declaration located list;
+  pg_declarations : declaration_lst;
   pg_rules : rule list;
-  pg_postlude : string located option;
+  pg_postlude : (string [@opaque]) located option;
       (* [menhir-lsp] moved down. The comment-attaching logic is sensible to the order of these fields. *)
 }
 (**A partial grammar. (Only before joining.) *)
@@ -333,6 +342,7 @@ and main = partial_grammar
   visitors { name = "ast_map"; variety = "map"; polymorphic = true },
   visitors { name = "ast_reduce"; variety = "reduce"; polymorphic = true },
   visitors { name = "ast_iter"; variety = "iter"; polymorphic = true },
+  visitors { name = "ast_iter2"; variety = "iter2"; polymorphic = true },
   visitors { name = "ast_endo"; variety = "endo"; polymorphic = true }]
 
 (* -------------------------------------------------------------------------- *)
@@ -385,6 +395,13 @@ module DBuckets = struct
         variety = "reduce";
         polymorphic = true;
         ancestors = [ "ast_reduce" ];
+      },
+    visitors
+      {
+        name = "buckets_iter2";
+        variety = "iter2";
+        polymorphic = true;
+        ancestors = [ "ast_iter2" ];
       }]
 
   let init : t =
@@ -400,4 +417,26 @@ module DBuckets = struct
       dOnErrorReduce = [];
       dDefaultMergeFunction = [];
     }
+
+  let from_declarations (decls : declaration located list) =
+    List.fold_right
+      (fun (d : declaration located) (acc : t) ->
+        (* used destruct + multiline editing to make this monster *)
+        match d.v with
+        | DCode _ -> { acc with dCode = d :: acc.dCode }
+        | DParameter _ -> { acc with dParameter = d :: acc.dParameter }
+        | DToken _ -> { acc with dToken = d :: acc.dToken }
+        | DStart _ -> { acc with dStart = d :: acc.dStart }
+        | DTokenProperties _ ->
+            { acc with dTokenProperties = d :: acc.dTokenProperties }
+        | DType _ -> { acc with dType = d :: acc.dType }
+        | DGrammarAttribute _ ->
+            { acc with dGrammarAttribute = d :: acc.dGrammarAttribute }
+        | DSymbolAttributes _ ->
+            { acc with dSymbolAttributes = d :: acc.dSymbolAttributes }
+        | DOnErrorReduce _ ->
+            { acc with dOnErrorReduce = d :: acc.dOnErrorReduce }
+        | DDefaultMergeFunction _ ->
+            { acc with dDefaultMergeFunction = d :: acc.dDefaultMergeFunction })
+      decls init
 end

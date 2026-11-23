@@ -30,7 +30,7 @@ let destruct p =
       x, []
   | ParamApp (x, ps) ->
       x, ps
-  | ParamAnonymous _ ->
+  | _ ->
       assert false
 
 let head p =
@@ -45,7 +45,7 @@ let rec iter f p =
   | ParamApp (x, ps) ->
       f x;
       List.iter (Located.iter (iter f)) ps
-  | ParamAnonymous _ ->
+  | _ ->
       assert false
 
 let rec map f p =
@@ -54,7 +54,7 @@ let rec map f p =
       ParamVar (f x)
   | ParamApp (x, ps) ->
       ParamApp (f x, List.map (Located.map (map f)) ps)
-  | ParamAnonymous _ ->
+  | _ ->
       assert false
 
 let[@inline] apply' (p : parameter) (ps : parameters) : parameter =
@@ -68,7 +68,7 @@ let rec subst f p =
       f x
   | ParamApp (x, ps) ->
       apply' (f x) (List.map (Located.map @@ subst f) ps)
-  | ParamAnonymous _ ->
+  | _ ->
       assert false
 
 let rec occurs x p =
@@ -77,7 +77,7 @@ let rec occurs x p =
       x = value y
   | ParamApp (y, ps) ->
       x = value y || List.exists (Located.iter @@ occurs x) ps
-  | ParamAnonymous _ ->
+  | _ ->
       assert false
 
 let rec equal x y =
@@ -94,7 +94,7 @@ let hash p =
   | ParamVar x
   | ParamApp (x, _) ->
       Hashtbl.hash (value x)
-  | ParamAnonymous _ ->
+  | _ ->
       assert false
 
 let position p =
@@ -104,10 +104,18 @@ let position p =
       position x
   | ParamAnonymous bs ->
       position bs
+  | ParamEBNFApp
+      (p, m) -> (Located.startp p, Located.endp m)
 
 let locate p =
   locate (position p) p
 
+let print_modifier = function
+  | MList -> "*"
+  | MNonempty_list -> "+"
+  | MOption -> "?"
+
+(* [menhir-lsp] Added unhandled cases. *)
 let rec print separator p =
   match p with
   | ParamVar x
@@ -117,5 +125,8 @@ let rec print separator p =
       Printf.sprintf "%s(%s)"
         (value x)
         (MString.separated_list (Located.iter @@ print separator) separator ps)
-  | ParamAnonymous _ ->
-      assert false
+  | ParamEBNFApp (p, m) ->
+      Printf.sprintf "%s%s"
+        (print separator (value p))
+        (print_modifier (value m))
+  | ParamAnonymous _ -> "<anonymous rule>"

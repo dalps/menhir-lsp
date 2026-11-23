@@ -59,6 +59,7 @@ module L = struct
   let push s x = x :: s
   let peek s = nth_opt s 0
   let pop l = take 1 l
+  let ( .-() ) l i = if i < 0 then nth l (len l + i) else nth l i
 end
 
 module P = CCParse
