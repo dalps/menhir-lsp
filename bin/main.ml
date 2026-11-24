@@ -314,11 +314,6 @@ class lsp_server =
             log "Failed to read uri argument";
             None
       in
-      log "Command %s invoked with args: %a" command
-        (pp_option @@ pp_list Json.pp)
-        args;
-      Lwt.return @@ O.get_or ~default:`Null
-      @@
       (* All the commands we define carry a uri as the first argument, which we extract right away and exit early if not found. *)
       let uri_of_args args =
         match args with
@@ -404,6 +399,16 @@ class lsp_server =
             Some (name, Uri.of_string moduleUri)
         | _ -> None
       in
+      log "Command %s invoked with args: %a" command
+        (pp_option @@ pp_list Json.pp)
+        args;
+      Lwt.return
+      @@ (fun o ->
+        let status, obj =
+          match o with None -> (-1, `Null) | Some obj -> (0, obj)
+        in
+        `Assoc [ ("status", `Int status); ("value", obj) ])
+      @@
       match L.assoc ~eq:String.equal command command_dict with
       | `GetAst ->
           let* uri = uri_of_args args in
@@ -847,11 +852,11 @@ class lsp_server =
 (* Main code
       This is the code that creates an instance of the lsp server class
       and runs it as a task. *)
-let run () =
+let run ~version () =
   let s = new lsp_server in
   let server = Linol_lwt.Jsonrpc2.create_stdio ~env:() s in
   let task =
-    prerr_endline "Started LSP server";
+    epr "Started LSP server (version %s)" version;
     let shutdown () = s#get_status = `ReceivedExit in
     Linol_lwt.Jsonrpc2.run ~shutdown server
   in
@@ -885,4 +890,4 @@ Usage: menhir-lsp|};
   (* let module Cli = Linol_lsp.Cli in
   let arg = Cli.Arg.create () in
   let spec = Cli.Arg.spec arg in *)
-  run ()
+  run ~version ()
