@@ -235,7 +235,7 @@
       },
       {
         "view": "menhir-lsp-action-map",
-        "contents": "This view will show a model of a lexer's semantics with respect to a grammar's token set once the interpreter is launched for two given lexer and parser entrypoints. The value bound to each pattern is used by the interpreter to drive the parser's automaton.\nThe initial mapping inferred from the OCaml code of the actions may be inaccurate; you can tweak it at run time to best suit the lexer's semantics via the 🖉 icons so that each pattern has one of the following effects: (a) produce a token of the grammar; (b) skip the consumed text; (c) fail and halt the derivation."
+        "contents": "This view will show a model of a lexer's semantics with respect to a grammar's token set once the interpreter is launched for two given lexer and parser entrypoints. The value bound to each pattern is used by the interpreter to drive the parser's automaton.\nThe initial mapping is inferred from the OCaml expressions of the rule and may be inaccurate; you can tweak it to best suit the lexer's semantics via the 🖉 icons so that each pattern has one of the following effects: (a) produce a token of the grammar; (b) skip the consumed text; (c) fail and halt the derivation."
       }
     ],
     "viewsContainers": {
@@ -250,7 +250,7 @@
     },
     "commands": [
       {
-        "title": "Menhir: Start Interactive Tokenizer",
+        "title": "Menhir: Start Live Tokenizer",
         "command": "menhir-lsp-client.startTokenizer",
         "icon": "$(play)"
       },
@@ -296,16 +296,6 @@
         "title": "Menhir: Focus Previous Dummy Message",
         "command": "menhir-lsp-client.previousDummyMessage",
         "enablement": "editorLangId == ocaml.menhir.messages"
-      },
-      {
-        "title": "Menhir: prompt for an alias",
-        "enablement": "never",
-        "command": "menhir-lsp-client.promptAlias"
-      },
-      {
-        "title": "echo errors",
-        "enablement": "never",
-        "command": "menhir-lsp-client.echoErrors"
       },
       {
         "title": "Menhir: Edit Regexp-Token Binding",
@@ -355,17 +345,12 @@
         "icon": "$(play-to-start)"
       },
       {
-        "title": "Menhir: Run Parser",
+        "title": "Menhir: Start Interpreter on Token Sentence",
         "command": "menhir-lsp-client.startParser",
         "icon": "$(play)"
       },
       {
-        "title": "Menhir: Run Parser With Position Tracking",
-        "command": "menhir-lsp-client.startParserWithPositions",
-        "icon": "$(play)"
-      },
-      {
-        "title": "Menhir: Run Parser With Checkpoints",
+        "title": "Menhir: Start Interpreter on Text File",
         "enablement": "menhir-lsp-client.interpreterRunning == false",
         "command": "menhir-lsp-client.startParserWithCheckpoints",
         "icon": "$(debug-alt)"

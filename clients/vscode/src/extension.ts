@@ -170,12 +170,11 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     let install = await showError(
-      `The package ${serverName} is required but not installed. Would you like to install automatically it with opam?`,
+      `The ${serverName} executable was not found on the host. Would you like to install it automatically with opam?`,
       `Install ${serverName}`,
-      "Cancel",
     );
 
-    if (install === undefined || install === "Cancel") return;
+    if (install === undefined) return;
 
     vscode.window.showInformationMessage(
       `Installing ${serverName}. Please reload the window once the installation completes to activate client.`,
