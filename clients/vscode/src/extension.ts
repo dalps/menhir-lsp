@@ -413,18 +413,17 @@ async function startParserView(startSymbol?: Entry) {
 
   const tokens = input.toUpperCase().split(/\s+/);
 
-  const res = await execServerCmd<Result<DerivationTree, string>>(
-    cmd,
-    startSymbol,
-    tokens,
-  );
+  const res = await execServerCmd<
+    Result<DerivationTree, { message: string; derivations: DerivationTree[] }>
+  >(cmd, startSymbol, tokens);
 
   if (res.kind === "error") {
-    showError(`Error: ${res.value}`);
-    return;
+    derivationTreeView.message = `⚠ Error: ${res.value.message}. Showing a forest of partial derivations.`;
+    derivationTreeProvider.refresh(res.value.derivations);
+  } else {
+    // Start symbol reduced successfully
+    derivationTreeProvider.refresh([res.value]);
   }
-
-  derivationTreeProvider.refresh([res.value]);
 
   focusView("menhir-lsp-derivation-view");
 }

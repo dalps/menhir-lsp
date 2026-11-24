@@ -461,7 +461,13 @@ class lsp_server =
           let open D in
           let+ entrypoint = get_entrypoint entrypoint_name in
           parse_sentence entrypoint input
-          |> yoresult ~ok:yojson_of_simple_derivation_tree ~error:yostring
+          |> yoresult ~ok:yojson_of_simple_derivation_tree
+               ~error:(fun (msg, dv) ->
+                 `Assoc
+                   [
+                     ("message", yostring msg);
+                     ("derivations", yojson_of_simple_derivation dv);
+                   ])
       | `UpdateLexerBinding ->
           let* mly_uri, mll_uri, id, v =
             match args with

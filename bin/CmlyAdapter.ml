@@ -212,8 +212,7 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
       ~visit_nt:(Located.yojson_of_t yononterminal)
 
   let rec loop_sentence ({ start_nt; start_lr1; _ } as entrypoint) state
-      (stack : (symbol * lr1) list) tokens derivation :
-      (simple_derivation_tree, string) result =
+      (stack : (symbol * lr1) list) tokens derivation =
     (* [tokens] should be a persistent stream to let us peek without consuming. *)
     let t, tokens' = Seq.uncons tokens |> Option.get in
 
@@ -271,7 +270,8 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
             Ok (Branches (lhs, derivation))
         | None ->
             (* Error (`Rejected (N lhs)) *)
-            Error (spr "rejected nonterminal %s" (Nonterminal.name lhs))
+            Error
+              (spr "rejected nonterminal %s" (Nonterminal.name lhs), derivation)
         | Some state' ->
             log_action "reducing production %a to state %d" Print.production p
               (G.Lr1.to_int state');
@@ -281,17 +281,19 @@ module Make (G : MenhirSdk.Cmly_api.GRAMMAR) = struct
               (push derivation' (Branches (lhs, L.rev reductees))))
     | Some s', Some p when Terminal.equal t end_pseudotoken ->
         Error
-          (spr
-             "[End Of Stream Conflict] between shifting token %s to state %d \
-              and reducing production %a"
-             (Terminal.name t) (Lr1.to_int s') Print.production p)
+          ( spr
+              "[End Of Stream Conflict] between shifting token %s to state %d \
+               and reducing production %a"
+              (Terminal.name t) (Lr1.to_int s') Print.production p,
+            derivation )
     | Some s', Some p ->
         Error
-          (spr
-             "[Shift/Reduce Conflict] between shifting token %s to state %d \
-              and reducing production %a"
-             (Terminal.name t) (Lr1.to_int s') Print.production p)
-    | None, None -> Error (spr "rejected token %s" (Terminal.name t))
+          ( spr
+              "[Shift/Reduce Conflict] between shifting token %s to state %d \
+               and reducing production %a"
+              (Terminal.name t) (Lr1.to_int s') Print.production p,
+            derivation )
+    | None, None -> Error (spr "rejected token %s" (Terminal.name t), derivation)
 
   let parse_sentence (entrypoint : entrypoint) (input : string list) =
     let { start_nt; start_lr1 } = entrypoint in
@@ -1140,7 +1142,9 @@ module type S = sig
     json
 
   val parse_sentence :
-    entrypoint -> string list -> (simple_derivation_tree, string) result
+    entrypoint ->
+    string list ->
+    (simple_derivation_tree, string * simple_derivation) result
 
   type stack = (symbol * lr1) located list
   type lookahead = terminal * token
