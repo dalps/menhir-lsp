@@ -65,6 +65,8 @@
    (>= "4.14"))
   ("linol"
    (>= "0.10"))
+  linol-lwt
+  lwt_ppx
   visitors
   ("containers"
    (>= "3.6"))
