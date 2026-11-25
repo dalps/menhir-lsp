@@ -2,7 +2,7 @@
   "name": "menhir-lsp-client",
   "displayName": "Menhir",
   "description": "IntelliSense for Menhir grammars and Ocamllex lexers",
-  "version": "3.2.2",
+  "version": "4.1.0",
   "publisher": "dalps",
   "private": true,
   "license": "GPL-2.0-only",
@@ -195,13 +195,21 @@
       }
     ],
     "views": {
-      "menhir-lsp-view-container": [
+      "menhir-lsp-sidebar": [
         {
           "id": "menhir-lsp-entrypoint-explorer",
           "name": "Entrypoint Explorer",
           "icon": "icons/view_icon.svg",
           "contextualTitle": "Entrypoint Explorer"
         },
+        {
+          "id": "menhir-lsp-action-map",
+          "name": "Regexp-Token Mapping",
+          "icon": "icons/view_icon.svg",
+          "contextualTitle": "Regexp-Token Mapping"
+        }
+      ],
+      "menhir-lsp-panel": [
         {
           "id": "menhir-lsp-derivation-view",
           "name": "Derivation Explorer",
@@ -211,20 +219,16 @@
         {
           "id": "menhir-lsp-stack-view",
           "name": "Stack Explorer",
+          "when": "menhir-lsp-client.interpreterRunning",
           "icon": "icons/view_icon.svg",
           "contextualTitle": "Stack Explorer"
         },
         {
           "id": "menhir-lr0-items-view",
           "name": "Lr0 Items Explorer",
+          "when": "menhir-lsp-client.interpreterRunning",
           "icon": "icons/view_icon.svg",
           "contextualTitle": "Lr0 Items Explorer"
-        },
-        {
-          "id": "menhir-lsp-action-map",
-          "name": "Regexp-Token Mapping",
-          "icon": "icons/view_icon.svg",
-          "contextualTitle": "Regexp-Token Mapping"
         }
       ]
     },
@@ -239,9 +243,17 @@
       }
     ],
     "viewsContainers": {
+      "panel": [
+        {
+          "id": "menhir-lsp-panel",
+          "title": "Menhir LSP",
+          "icon": "icons/view_icon.svg",
+          "contextualTitle": "Menhir LSP"
+        }
+      ],
       "activitybar": [
         {
-          "id": "menhir-lsp-view-container",
+          "id": "menhir-lsp-sidebar",
           "title": "Menhir LSP",
           "icon": "icons/view_icon.svg",
           "contextualTitle": "Menhir LSP"
@@ -300,6 +312,7 @@
       {
         "title": "Menhir: Edit Regexp-Token Binding",
         "shortTitle": "Edit Binding",
+        "enablement": "menhir-lsp-client.interpreterRunning",
         "command": "menhir-lsp-client.editRegexpTokenBinding",
         "icon": "$(edit)"
       },
