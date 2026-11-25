@@ -40,17 +40,21 @@ import {
 import {
   askForInputSource,
   choose,
+  clientName,
   closeEditor,
   decorationType,
   focusView,
   GREEN,
   liftRange,
   md,
+  proposeUpdate,
   rand,
   RED,
   rgba,
   sep,
+  serverName,
   setupQuickPick,
+  showError,
   sinceStartRange,
   uriEqual,
   YELLOW,
@@ -68,12 +72,6 @@ let stackProvider: StackProvider;
 let actionProvider: ActionMapProvider;
 let entrypointProvider: EntrypointProvider;
 
-const serverName = "menhir-lsp";
-const clientName = "menhir-lsp-client";
-
-const showError = (msg: string, ...items: string[]) =>
-  vscode.window.showErrorMessage(`[${serverName}] ${msg}`, ...items);
-
 ////////////////////////////////////////////////////////////////////////////////
 // Helpers for defining commands
 //
@@ -83,27 +81,24 @@ const commandName = (name: string) => `${clientName}.${name}`;
 const registerCmd = (name: string, callback: (...args: any[]) => any) =>
   vscode.commands.registerCommand(commandName(name), callback);
 
-export const execServerCmd = async <T>(command: string, ...args: any[]) => {
+export const execServerCmd = async <T>(
+  command: string,
+  ...args: any[]
+): Promise<T> => {
+  // `status` field is negative when `command` is not found on the server.
   const res = await client.sendRequest<{ status: number; value: T }>(
     "workspace/executeCommand",
     { command, arguments: args } as ExecuteCommandParams,
     CancellationToken.None,
   );
 
-  if (res.status < 0) {
-    showError(
-      `Command not found. Make sure you have the latest version of ${serverName} installed. If the error persists, contact the extension's developer.`,
-      `Update ${serverName}`,
-    ).then((install) => {
-      if (!install) return;
+  // Some commands introduced before changing the server response format to include a `status` number alongside the result
+  // returned `null` upon success, and in clients of old versions of the server this is ambiguous with the response of
+  // requests that fail because `command` is not handled by the server.
+  // Showing the update dialog in either case would be bad UX, hence this return statement and the type assertion.
+  if (!res) return null as T;
 
-      let opamInstallCmd = `opam update && opam upgrade ${serverName}`;
-      let terminal = vscode.window.createTerminal(serverName);
-
-      terminal.show();
-      terminal.sendText(opamInstallCmd);
-    });
-  }
+  if (res.status < 0) proposeUpdate(command);
 
   return res.value;
 };
@@ -354,11 +349,13 @@ async function selectEntrypointQuickPick(
 }
 
 async function selectParser() {
-  const modules = await execServerCmd<ModuleEntries[]>("listParsers");
+  const cmd = "listParsers";
+  const modules = await execServerCmd<ModuleEntries[]>(cmd);
+  if (!modules) return proposeUpdate(cmd);
 
   if (modules.length <= 0) {
     showError(
-      "You need to open at least one .mly file that has been compiled to the CMLY format.\n\nAdd the --cmly flag inside the menhir stanza of the dune file that declares the parser you'd like to use.",
+      "You need to open at least one .mly file that has been compiled to the CMLY format.\n\nAdd the --cmly flag inside the menhir stanza in the dune file where the parser is declared and try again.",
     );
     return;
   }
@@ -370,7 +367,9 @@ async function selectParser() {
 }
 
 async function selectLexer() {
-  const lexers = await execServerCmd<ModuleEntries[]>("listLexers");
+  const cmd = "listLexers";
+  const lexers = await execServerCmd<ModuleEntries[]>(cmd);
+  if (!lexers) return proposeUpdate(cmd);
 
   if (lexers.length <= 0) {
     showError("You need to open at least one .mll file");
@@ -819,12 +818,6 @@ export function deactivate(): Thenable<void> | undefined {
     return undefined;
   }
   return client.stop();
-}
-
-export async function getAst(uri: vscode.Uri) {
-  console.log(`Requesting AST of document: ${uri}`);
-
-  return await execServerCmd("getAst", uri.toString());
 }
 
 export async function gotoImplementation(

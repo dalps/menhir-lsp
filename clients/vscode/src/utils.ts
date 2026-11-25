@@ -10,6 +10,15 @@ import {
   WithRange,
 } from "./types";
 
+export const serverName = "menhir-lsp";
+export const clientName = "menhir-lsp-client";
+
+export const showError = (msg: string, ...items: string[]) =>
+  vscode.window.showErrorMessage(`[${serverName}] ${msg}`, ...items);
+
+export const showWarning = (msg: string, ...items: string[]) =>
+  vscode.window.showWarningMessage(`[${serverName}] ${msg}`, ...items);
+
 export const CURSOR_ICON = "🠷";
 
 export const uriEqual = (u1: vscode.Uri, u2: vscode.Uri) =>
@@ -242,3 +251,20 @@ export async function askForInputSource(
 
   return { sourceKind, editor };
 }
+
+export const proposeUpdate = (cmdId: string) => {
+  showWarning(
+    `The command '${cmdId}' is not defined. Make sure you have the latest version of ${serverName} installed. If the error persists, contact the extension's developer.`,
+    `Update ${serverName}`,
+  ).then((install) => {
+    if (!install) return;
+
+    let opamInstallCmd = `opam update && opam upgrade ${serverName}`;
+    let terminal = vscode.window.createTerminal(serverName);
+
+    terminal.show();
+    terminal.sendText(opamInstallCmd);
+  });
+
+  return undefined;
+};

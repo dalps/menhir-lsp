@@ -403,13 +403,18 @@ class lsp_server =
         (pp_option @@ pp_list Json.pp)
         args;
       Lwt.return
-      @@ (fun o ->
+      @@ (fun (o : json t t) ->
+        (* The outer option signals whether the command was found,
+        the inner option contains the result of the command (None if it is an instruction.) *)
         let status, obj =
-          match o with None -> (-1, `Null) | Some obj -> (0, obj)
+          match o with
+          | None -> (-1, `Null)
+          | Some obj -> (0, O.get_or ~default:`Null obj)
         in
         `Assoc [ ("status", `Int status); ("value", obj) ])
       @@
-      match L.assoc ~eq:String.equal command command_dict with
+      let+ command_id = L.assoc_opt ~eq:String.equal command command_dict in
+      match command_id with
       | `GetAst ->
           let* uri = uri_of_args args in
           self#_dispatch uri ~notify_back
@@ -631,7 +636,6 @@ class lsp_server =
               start_rule state.automata
           in
           `List (L.map Token.yojson_of_t tokens) |> some
-      | exception _ -> None
 
     method private _on_req_folding_range ~(notify_back : notify_back)
         (uri : uri) : FoldingRange.t list option Lwt.t =

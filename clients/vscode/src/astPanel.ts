@@ -1,9 +1,9 @@
+import * as fs from "fs";
 import * as vscode from "vscode";
 import { Uri } from "vscode";
-import { getAst } from "./extension";
-import { liftRange } from "./utils";
 import { Range } from "vscode-languageclient";
-import * as fs from "fs";
+import { execServerCmd } from "./extension";
+import { liftRange, proposeUpdate } from "./utils";
 
 const highlightDecorationType = vscode.window.createTextEditorDecorationType({
   backgroundColor: { id: "menhirlsp.astExplorer.highlightColor" },
@@ -162,7 +162,12 @@ export class ASTPanel implements vscode.Disposable {
 
       this._panel.iconPath = Uri.joinPath(iconsPath, `${lang}.svg`);
 
-      data = await getAst(editor.document.uri);
+      const cmd = "getAst";
+      const ast = await execServerCmd(cmd, editor.document.uri.toString());
+      if (!ast) {
+        proposeUpdate(cmd);
+        data = { error: "Server did not respond with an AST." };
+      } else data = ast;
     }
 
     webview.postMessage({ type: "publishAst", data });

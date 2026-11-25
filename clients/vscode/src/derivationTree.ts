@@ -17,6 +17,7 @@ import {
   highlightText,
   md,
   openCommand as open,
+  proposeUpdate,
   stringOfItem,
   stringOfRange,
   themeicon,
@@ -180,7 +181,11 @@ export class EntrypointProvider extends TreeProvider<Entry | ModuleEntries> {
     element?: Entry | ModuleEntries | undefined,
   ): vscode.ProviderResult<(Entry | ModuleEntries)[]> {
     if (!element) {
-      return execServerCmd("listEntrypoints") as Promise<ModuleEntries[]>;
+      const cmd = "listEntrypoints";
+      return execServerCmd<ModuleEntries[]>(cmd).then((res) => {
+        if (!res) proposeUpdate(cmd);
+        return res;
+      });
     }
 
     return "name" in element ? [] : element.entrypoints;
